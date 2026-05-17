@@ -1,70 +1,201 @@
 # owrap
 
-Three CLI helpers (`oread`, `orun`, `oexec`) wrapping `opencode run` for the planner/executor MARL research workflow. owrap is an opencode wrapper — a convenience layer for the research management system.
+Session-aware CLI wrapper for opencode. Background task dispatch, parallel session isolation, and inotifywait completion notifications.
 
-## Structure
+## What it provides
 
-```
-owrap/
-├── owrap/          # Python package
-│   ├── manager.py  # Server lifecycle + task tracking
-│   ├── read.py     # oread runner
-│   ├── run_cmd.py  # orun runner
-│   ├── exec.py     # oexec runner
-│   ├── runner.py   # CLI entry point
-│   ├── base.py     # BaseRunner ABC
-│   ├── notify.py   # Completion notifier
-│   └── utils/      # logger, terminal, paths
-├── docs/           # Local todo.md (used when no research config)
-├── templates/      # Starter files for new projects
-├── tests/          # Unit tests
-└── README.md
-```
-
-## Components
-
-| Component | File | Role |
-|---|---|---|
-| Server manager | `owrap/manager.py` | Persistent opencode server lifecycle (start/stop/state), task tracking, log cleanup |
-| File reader | `owrap/read.py` | `oread` — structured speed-read via opencode |
-| Task dispatcher | `owrap/run_cmd.py` | `orun` — dispatch tasks via `--task --do` or file-based task files |
-| Plan executor | `owrap/exec.py` | `oexec` — execute active research plan |
-| Notifier | `owrap/notify.py` | Completion notifications on task end |
-| CLI wrapper | `owrap/runner.py` | Subparser CLI routing for all commands |
-| Base runner | `owrap/base.py` | `BaseRunner` ABC for subcommand runners |
-| Utilities | `owrap/utils/` | Stripped `logger.py`, `terminal.py`, `paths.py` (no MARL/ROS deps) |
+| Command | Description |
+|---|---|
+| `owrap start` | Start a session: generate ID, start the opencode server, print orientation |
+| `owrap refresh` | Re-validate a session; re-print orientation |
+| `owrap stop` | End a session: delete the session file |
+| `oread -f <file> [-s] [-d "..."]` | Read/query a file via opencode (foreground) |
+| `orun --msg "..."` | Single-line task dispatch (foreground) |
+| `orun` | File-based task dispatch (auto-background + wait for completion) |
+| `oexec` | Execute an active research plan (auto-background + wait for completion) |
+| `owait run <id>` | Block until a run task completes for session `<id>` |
+| `owait exec <id>` | Block until exec completes for session `<id>` |
+| `owait read <id>` | Block until a read completes for session `<id>` |
 
 ## Requirements
 
 - `opencode` CLI
-- `inotifywait` (for `owait` shim)
+- `inotify-tools` (`inotifywait`) — Linux only
+- Python >= 3.10
 
-## Shim Locations
+## Prerequisites
 
-| Shim | Location |
-|---|---|
-| `oread` | `~/bin/oread` |
-| `orun` | `~/bin/orun` |
-| `oexec` | `~/bin/oexec` |
-| `owait` | `~/bin/owait` |
+### Node.js and npm
 
-## Usage
+Both Claude Code and opencode are installed via npm. Install Node.js (which includes npm) using nvm (recommended):
 
 ```bash
-# Quick file read
-oread -f path/to/file.py -s -d "what does this function do"
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+source ~/.bashrc   # or ~/.zshrc
+nvm install --lts
+nvm use --lts
+```
 
-# Dispatch a short task
-orun --msg "add a print statement to foo.py"
+Or via apt:
 
-# Dispatch a file-based task (write task to input.md first)
-orun
+```bash
+sudo apt update && sudo apt install -y nodejs npm
+```
 
-# Execute the active research plan
-oexec
+Verify: `node --version && npm --version`
 
-# Pass --dangerously-skip-permissions to opencode
-oread -f file.py -a
-orun --msg "do something" -a
-oexec -a
+### Claude Code
+
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+### opencode
+
+```bash
+npm install -g opencode
+```
+
+Verify: `opencode --version`
+
+### inotify-tools (Linux only)
+
+```bash
+sudo apt install inotify-tools
+```
+
+### Python >= 3.10
+
+```bash
+python3 --version   # check existing version
+```
+
+If needed: `sudo apt install python3.10` or use pyenv.
+
+## Installation
+
+```bash
+git clone https://github.com/dhavids/owrap.git
+cd owrap
+python setup.py
+```
+
+`setup.py` checks all dependencies and installs shims (`oread`, `orun`, `oexec`, `owait`, `owrap`) to `~/bin/` with the correct `OWRAP_ROOT` path baked in. It prints install hints for anything missing — it never installs dependencies itself. Make sure `~/bin/` is on your `$PATH`.
+
+## Configuration
+
+Copy `templates/config.json` to `configs/owrap.json` and edit. The file should be gitignored.
+
+| Key | Type | Description |
+|---|---|---|
+| `default_research` | string | Default project name when no research is specified (e.g. `my_project`) |
+| `research_root` | string | Path to the `docs/research` folder |
+| `allow_all` | bool | Always pass `--dangerously-skip-permissions` to opencode |
+
+```json
+{
+  "default_research": "my_project",
+  "research_root": "/home/user/my_project/docs/research",
+  "allow_all": false
+}
+```
+
+## Session Workflow
+
+Every opencode session begins with `owrap start`. This generates a session ID, starts or attaches to the opencode server, and writes a session file at `/tmp/owrap/$PPID.session` — keyed to the invoking shell's PID for automatic isolation across concurrent sessions.
+
+```bash
+owrap setup /path/to/research   # optional: configure research_root, install shims, check templates
+owrap start                     # begin session — prints orientation with session ID and command patterns
+owrap start my_project          # begin session with a specific research project
+# ... do work with oread, orun, oexec ...
+owrap stop                      # end session — deletes the session file
+```
+
+`owrap refresh` re-validates the session (re-starts the server if it died) and re-prints the orientation block. Use it if you suspect the server has gone away.
+
+All runtime paths are session-scoped: log files, task files, and output files are suffixed with the session ID. Concurrent sessions from different shell PIDs are fully isolated — they share the same server but have independent task queues and logs.
+
+## Commands Reference
+
+| Command | What it does |
+|---|---|
+| `owrap start` | Start session: generate ID, start server, print orientation |
+| `owrap refresh` | Re-validate session; re-print orientation |
+| `owrap stop` | End session: delete session file |
+| `oread -f <file> [-s] [-d "..."]` | Read/query a file via opencode (foreground) |
+| `orun --msg "..."` | Single-line task dispatch (foreground) |
+| `orun` | File task from `input_<id>.md` (auto-background + wait) |
+| `oexec` | Execute active plan (auto-background + wait) |
+| `owait run <id>` | Block until a run task completes for session `<id>` |
+| `owait exec <id>` | Block until exec completes for session `<id>` |
+| `owait read <id>` | Block until a read completes for session `<id>` |
+
+## Parallel Task Dispatch
+
+`orun` (without `--msg`) reads a task from a staging file and auto-backgrounds the opencode process. Multiple tasks can be dispatched in parallel:
+
+```
+write task A → input_<id>.md
+orun                          ← picks up, creates task1.md, clears input, backgrounds
+[wait for input_<id>.md to clear]
+write task B → input_<id>.md
+orun                          ← creates task2.md, clears, backgrounds
+[wait for input_<id>.md to clear]
+# task1 and task2 now running in parallel
+owait run <id>                ← unblocks on first completion
+owait run <id>                ← unblocks on second
+```
+
+Use `--fg` on `orun` or `oexec` to force foreground execution instead of auto-backgrounding.
+
+## Repository Structure
+
+```
+owrap/
+├── bin/
+│   ├── oexec
+│   ├── oread
+│   ├── orun
+│   ├── owait
+│   └── owrap
+├── docs/
+│   └── todo.md
+├── .gitignore
+├── owrap/
+│   ├── base.py
+│   ├── exec.py
+│   ├── __init__.py
+│   ├── manager.py
+│   ├── read.py
+│   ├── refresh.py
+│   ├── run_cmd.py
+│   ├── runner.py
+│   ├── start.py
+│   ├── stop.py
+│   └── utils/
+│       ├── __init__.py
+│       ├── logger.py
+│       ├── paths.py
+│       └── terminal.py
+├── README.md
+├── setup.py
+├── templates/
+│   ├── agents.md
+│   ├── claude.md
+│   ├── config.json
+│   ├── exec/
+│   │   └── log.md
+│   ├── plan.md
+│   ├── run/
+│   │   └── log.md
+│   ├── self.md
+│   ├── settings.json
+│   └── todo.md
+└── tests/
+    ├── __init__.py
+    ├── test_exec.py
+    ├── test_manager.py
+    ├── test_read.py
+    └── test_run.py
 ```
