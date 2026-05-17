@@ -1,3 +1,8 @@
+> **Note:** All commands use the `~/bin/` prefix (`~/bin/owrap`, `~/bin/orun`, `~/bin/oread`,
+> `~/bin/oexec`, `~/bin/owait`). This is a temporary workaround until a cleaner install
+> approach is available that does not require sudo. The prefix ensures the commands are
+> found regardless of whether `~/bin` is on the shell's PATH.
+
 # owrap
 
 Session-aware CLI wrapper for opencode. Background task dispatch, parallel session isolation, and inotifywait completion notifications.
@@ -6,16 +11,16 @@ Session-aware CLI wrapper for opencode. Background task dispatch, parallel sessi
 
 | Command | Description |
 |---|---|
-| `owrap start` | Start a session: generate ID, start the opencode server, print orientation |
-| `owrap refresh` | Re-validate a session; re-print orientation |
-| `owrap stop` | End a session: delete the session file |
-| `oread -f <file> [-s] [-d "..."]` | Read/query a file via opencode (foreground) |
-| `orun --msg "..."` | Single-line task dispatch (foreground) |
-| `orun` | File-based task dispatch (auto-background + wait for completion) |
-| `oexec` | Execute an active research plan (auto-background + wait for completion) |
-| `owait run <id>` | Block until a run task completes for session `<id>` |
-| `owait exec <id>` | Block until exec completes for session `<id>` |
-| `owait read <id>` | Block until a read completes for session `<id>` |
+| `~/bin/owrap start` | Start a session: generate ID, start the opencode server, print orientation |
+| `~/bin/owrap refresh` | Re-validate a session; re-print orientation |
+| `~/bin/owrap stop` | End a session: delete the session file |
+| `~/bin/oread -f <file> [-s] [-d "..."]` | Read/query a file via opencode (foreground) |
+| `~/bin/orun --msg "..."` | Single-line task dispatch (foreground) |
+| `~/bin/orun` | File-based task dispatch (auto-background + wait for completion) |
+| `~/bin/oexec` | Execute an active research plan (auto-background + wait for completion) |
+| `~/bin/owait run <id>` | Block until a run task completes for session `<id>` |
+| `~/bin/owait exec <id>` | Block until exec completes for session `<id>` |
+| `~/bin/owait read <id>` | Block until a read completes for session `<id>` |
 
 ## Requirements
 
@@ -86,17 +91,15 @@ python setup.py
 
 After running `python3 setup.py`, tell Claude Code to start a session:
 
-> Run this command in bash: `export PATH="$HOME/bin:$PATH" && owrap setup <your_research_folder>`
+> Run this command in bash and execute the instructions: `~/bin/owrap setup <your_research_folder>`
 
 For example:
-> Run this command in bash: `export PATH="$HOME/bin:$PATH" && owrap setup /home/user/myproject/research`
+> Run this command in bash and execute the instructions: `~/bin/owrap setup /home/user/myproject/research`
 
-The `export` is only needed if `~/bin` is not yet on Claude's PATH (i.e. the first run in a fresh terminal). After opening a new terminal it is not needed and bare `owrap` works directly.
-
-Claude will run `owrap setup`, read the printed instructions, and set up your `CLAUDE.md`,
+Claude will run `~/bin/owrap setup`, read the printed instructions, and set up your `CLAUDE.md`,
 `AGENTS.md`, `self.md`, and `settings.json` for the project. After that, tell it:
 
-> Run this command in bash: `export PATH="$HOME/bin:$PATH" && owrap start <research_name>`
+> Run this command in bash: `~/bin/owrap start <research_name>`
 
 Claude will orient itself and be ready to plan.
 
@@ -123,14 +126,14 @@ Copy `templates/config.json` to `configs/owrap.json` and edit. The file should b
 Every opencode session begins with `owrap start`. This generates a session ID, starts or attaches to the opencode server, and writes a session file at `/tmp/owrap/$PPID.session` — keyed to the invoking shell's PID for automatic isolation across concurrent sessions.
 
 ```bash
-owrap setup /path/to/research   # optional: configure research_root, install shims, check templates
-owrap start                     # begin session — prints orientation with session ID and command patterns
-owrap start my_project          # begin session with a specific research project
-# ... do work with oread, orun, oexec ...
-owrap stop                      # end session — deletes the session file
+~/bin/owrap setup /path/to/research   # optional: configure research_root, install shims, check templates
+~/bin/owrap start                     # begin session — prints orientation with session ID and command patterns
+~/bin/owrap start my_project          # begin session with a specific research project
+# ... do work with ~/bin/oread, ~/bin/orun, ~/bin/oexec ...
+~/bin/owrap stop                      # end session — deletes the session file
 ```
 
-`owrap refresh` re-validates the session (re-starts the server if it died) and re-prints the orientation block. Use it if you suspect the server has gone away.
+`~/bin/owrap refresh` re-validates the session (re-starts the server if it died) and re-prints the orientation block. Use it if you suspect the server has gone away.
 
 All runtime paths are session-scoped: log files, task files, and output files are suffixed with the session ID. Concurrent sessions from different shell PIDs are fully isolated — they share the same server but have independent task queues and logs.
 
@@ -138,34 +141,34 @@ All runtime paths are session-scoped: log files, task files, and output files ar
 
 | Command | What it does |
 |---|---|
-| `owrap start` | Start session: generate ID, start server, print orientation |
-| `owrap refresh` | Re-validate session; re-print orientation |
-| `owrap stop` | End session: delete session file |
-| `oread -f <file> [-s] [-d "..."]` | Read/query a file via opencode (foreground) |
-| `orun --msg "..."` | Single-line task dispatch (foreground) |
-| `orun` | File task from `input_<id>.md` (auto-background + wait) |
-| `oexec` | Execute active plan (auto-background + wait) |
-| `owait run <id>` | Block until a run task completes for session `<id>` |
-| `owait exec <id>` | Block until exec completes for session `<id>` |
-| `owait read <id>` | Block until a read completes for session `<id>` |
+| `~/bin/owrap start` | Start session: generate ID, start server, print orientation |
+| `~/bin/owrap refresh` | Re-validate session; re-print orientation |
+| `~/bin/owrap stop` | End session: delete session file |
+| `~/bin/oread -f <file> [-s] [-d "..."]` | Read/query a file via opencode (foreground) |
+| `~/bin/orun --msg "..."` | Single-line task dispatch (foreground) |
+| `~/bin/orun` | File task from `input_<id>.md` (auto-background + wait) |
+| `~/bin/oexec` | Execute active plan (auto-background + wait) |
+| `~/bin/owait run <id>` | Block until a run task completes for session `<id>` |
+| `~/bin/owait exec <id>` | Block until exec completes for session `<id>` |
+| `~/bin/owait read <id>` | Block until a read completes for session `<id>` |
 
 ## Parallel Task Dispatch
 
-`orun` (without `--msg`) reads a task from a staging file and auto-backgrounds the opencode process. Multiple tasks can be dispatched in parallel:
+`~/bin/orun` (without `--msg`) reads a task from a staging file and auto-backgrounds the opencode process. Multiple tasks can be dispatched in parallel:
 
 ```
 write task A → input_<id>.md
-orun                          ← picks up, creates task1.md, clears input, backgrounds
+~/bin/orun                          ← picks up, creates task1.md, clears input, backgrounds
 [wait for input_<id>.md to clear]
 write task B → input_<id>.md
-orun                          ← creates task2.md, clears, backgrounds
+~/bin/orun                          ← creates task2.md, clears, backgrounds
 [wait for input_<id>.md to clear]
 # task1 and task2 now running in parallel
-owait run <id>                ← unblocks on first completion
-owait run <id>                ← unblocks on second
+~/bin/owait run <id>                ← unblocks on first completion
+~/bin/owait run <id>                ← unblocks on second
 ```
 
-Use `--fg` on `orun` or `oexec` to force foreground execution instead of auto-backgrounding.
+Use `--fg` on `~/bin/orun` or `~/bin/oexec` to force foreground execution instead of auto-backgrounding.
 
 ## Repository Structure
 

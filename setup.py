@@ -55,14 +55,18 @@ class SetupRunner:
             dst.chmod(dst.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
             print(f"  installed {dst}")
 
-        print("\nShims installed. If owrap is not found, chain the PATH export:")
-        print(f'  export PATH="$HOME/bin:$PATH" && owrap setup <research_root>')
-        print(f'  export PATH="$HOME/bin:$PATH" && owrap start <name>')
-        print("After opening a new terminal, the export is not needed.")
+        session_dir = Path.home() / ".owrap"
+        session_dir.mkdir(parents=True, exist_ok=True)
+        print(f"  created {session_dir}")
+
+        print("\nShims installed. Use the ~/bin/ prefix for all commands:")
+        print(f"  {bin_dst}/owrap setup <research_root>")
+        print(f"  {bin_dst}/owrap start <name>")
 
         # Step 4: PATH check
         bin_dst_str = str(bin_dst)
-        if bin_dst_str not in os.environ.get("PATH", ""):
+        check_path = False      # We skip as we use ~/bin directly for now
+        if bin_dst_str not in os.environ.get("PATH", "") and check_path:
             print(f"\n{bin_dst} is not in your PATH.")
             try:
                 answer = input("Add it to ~/.bashrc automatically? [y/N] ").strip().lower()

@@ -7,11 +7,11 @@
       "Bash(oexec *)",
       "Bash(owait *)",
       "Bash(owrap *)",
-      "Bash(~/bin/oread *)",
-      "Bash(~/bin/orun *)",
-      "Bash(~/bin/oexec *)",
-      "Bash(~/bin/owait *)",
-      "Bash(~/bin/owrap *)",
+      "Bash($HOME/bin/oread *)",
+      "Bash($HOME/bin/orun *)",
+      "Bash($HOME/bin/oexec *)",
+      "Bash($HOME/bin/owait *)",
+      "Bash($HOME/bin/owrap *)",
       "Bash(python3:*)",
       "Bash(wait)",
       "Read(CLAUDE.md)",
@@ -23,8 +23,8 @@
       "Edit(<research_root>/self.md)",
       "Edit(<research_root>/projects/**)",
       "Edit(<owrap_docs>/plan_*.md)",
-      "Edit(<research_root>/run/tasks/input_*.md)",
-      "Edit(<research_root>/run/tasks/task0.md)"
+      "Edit(<owrap_docs>/run/tasks/input_*.md)",
+      "Edit(<owrap_docs>/run/tasks/task0.md)"
     ],
     "deny": [
       "Bash(grep *)",
@@ -35,7 +35,7 @@
     ],
     "additionalDirectories": [
       "/tmp/opencode",
-      "/tmp/owrap"
+      "$HOME/.owrap"
     ]
   }
 }

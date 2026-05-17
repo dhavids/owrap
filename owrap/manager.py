@@ -61,7 +61,7 @@ class Manager:
                 return
             except OSError:
                 pass
-        self._log_file = str(Path("/tmp/opencode") / f"owrap_{pid or 'new'}.log")
+        self._log_file = str(SESSION_DIR / f"owrap_{pid or 'new'}.log")
 
     def _read_state(self):
         try:
@@ -102,7 +102,7 @@ class Manager:
             raise RuntimeError("opencode serve did not produce a URL")
         pid = result["pid"]
         terminal._process = None  # disown: server runs independently as OS process
-        log_file = str(Path("/tmp/opencode") / f"owrap_{pid}.log")
+        log_file = str(SESSION_DIR / f"owrap_{pid}.log")
         self._log_file = log_file
         state = {"pid": pid, "url": url, "port": port, "log_file": log_file, "tasks": {}}
         self._write_state(state)

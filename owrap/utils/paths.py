@@ -9,7 +9,7 @@ CONFIGS_DIR = OWRAP_ROOT / "configs"
 CONFIG_FILE = CONFIGS_DIR / "owrap.json"
 
 # Session-scoped paths
-SESSION_DIR = Path("/tmp/owrap")
+SESSION_DIR = Path.home() / ".owrap"
 
 # Runtime output paths (all under DOCS_DIR)
 RUN_DIR = DOCS_DIR / "run"
@@ -26,7 +26,7 @@ READ_DIR = DOCS_DIR / "read"
 READ_OUTPUT_DIR = READ_DIR / "output"
 READ_LOG = READ_DIR / "log.md"
 
-STATE_FILE = "/tmp/opencode/manager.json"
+STATE_FILE = str(Path.home() / ".owrap" / "manager.json")
 
 
 def session_log(base_log: Path, session_id: str) -> Path:

@@ -15,14 +15,13 @@ class StartRunner(BaseRunner):
         session_id = secrets.token_hex(3)
         url = self.manager.ensure_running()
 
-        if session_file:
-            session_path = type(session_file)(session_file) if not hasattr(session_file, "parent") else session_file
-            session_path.parent.mkdir(parents=True, exist_ok=True)
-            lines = [f"session_id={session_id}", f"server_url={url}"]
-            if research:
-                lines.append(f"research={research}")
-            with open(session_path, "w") as f:
-                f.write("\n".join(lines) + "\n")
+        session_path = Path(session_file) if session_file else SESSION_DIR / "session"
+        session_path.parent.mkdir(parents=True, exist_ok=True)
+        lines = [f"session_id={session_id}", f"server_url={url}"]
+        if research:
+            lines.append(f"research={research}")
+        with open(session_path, "w") as f:
+            f.write("\n".join(lines) + "\n")
 
         TASKS_DIR.mkdir(parents=True, exist_ok=True)
         RUN_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

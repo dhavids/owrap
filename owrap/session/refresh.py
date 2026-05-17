@@ -4,13 +4,15 @@ from pathlib import Path
 
 from ..base import BaseRunner
 from .start import StartRunner
-from ..utils.paths import get_plan_path, get_self_path, get_todo_path, session_input
+from ..utils.paths import SESSION_DIR, get_plan_path, get_self_path, get_todo_path, session_input
 from .orientation import print_orientation
 
 
 class RefreshRunner(BaseRunner):
     def run(self, shell_pid=None, session_file=None, research=None):
-        if session_file is None or not Path(session_file).exists():
+        if session_file is None:
+            session_file = SESSION_DIR / "session"
+        if not Path(session_file).exists():
             StartRunner(self.manager).run(shell_pid=shell_pid, session_file=session_file, research=research)
             return
 

@@ -2,21 +2,24 @@ import argparse
 import sys
 from pathlib import Path
 
+from ..utils.paths import SESSION_DIR
+
 
 class StopRunner:
     def __init__(self, manager):
         self.manager = manager
 
     def run(self, session_file=None):
+        if session_file is None:
+            session_file = SESSION_DIR / "session"
         session_id = self.manager.session_id
-        if session_file:
-            sp = Path(session_file)
-            if sp.exists():
-                content = sp.read_text()
-                for line in content.splitlines():
-                    if line.startswith("session_id="):
-                        session_id = line.split("=", 1)[1]
-                sp.unlink()
+        sp = Path(session_file)
+        if sp.exists():
+            content = sp.read_text()
+            for line in content.splitlines():
+                if line.startswith("session_id="):
+                    session_id = line.split("=", 1)[1]
+            sp.unlink()
 
         print(f"OWRAP SESSION STOPPED  session: {session_id}")
         sys.exit(0)
