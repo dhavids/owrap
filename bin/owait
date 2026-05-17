@@ -1,0 +1,38 @@
+#!/bin/bash
+OWRAP_ROOT="<PLACEHOLDER>"
+SESSION_FILE="/tmp/owrap/$PPID.session"
+SESSION_ID=""
+[ -f "$SESSION_FILE" ] && SESSION_ID=$(grep "^session_id=" "$SESSION_FILE" | cut -d= -f2)
+
+case "$1" in
+  run)
+    if [ -n "$2" ]; then
+      LOG="$OWRAP_ROOT/docs/run/log_${2}.md"
+    elif [ -n "$SESSION_ID" ]; then
+      LOG="$OWRAP_ROOT/docs/run/log_${SESSION_ID}.md"
+    else
+      LOG="$OWRAP_ROOT/docs/run/log.md"
+    fi
+    TIMEOUT=600; MINS=10 ;;
+  exec)
+    if [ -n "$2" ]; then
+      LOG="$OWRAP_ROOT/docs/exec/log_${2}.md"
+    elif [ -n "$SESSION_ID" ]; then
+      LOG="$OWRAP_ROOT/docs/exec/log_${SESSION_ID}.md"
+    else
+      LOG="$OWRAP_ROOT/docs/exec/log.md"
+    fi
+    TIMEOUT=1800; MINS=30 ;;
+  read)
+    if [ -n "$2" ]; then
+      LOG="$OWRAP_ROOT/docs/read/log_${2}.md"
+    elif [ -n "$SESSION_ID" ]; then
+      LOG="$OWRAP_ROOT/docs/read/log_${SESSION_ID}.md"
+    else
+      LOG="$OWRAP_ROOT/docs/read/log.md"
+    fi
+    TIMEOUT=300; MINS=5 ;;
+  *) echo "Usage: owait {run|exec|read} [session_id]" >&2; exit 1 ;;
+esac
+mkdir -p "$(dirname "$LOG")"
+inotifywait -t "$TIMEOUT" -e modify "$LOG" > /dev/null 2>&1 && grep -m 1 "^[0-9]" "$LOG" || { echo "owait: timed out after ${MINS}m" >&2; exit 1; }

@@ -1,0 +1,8 @@
+#!/bin/bash
+SESSION_FILE="/tmp/owrap/$PPID.session"
+mkdir -p /tmp/owrap
+case "$1" in
+  start|refresh) cd "<OWRAP_ROOT>" && python -m owrap.runner "$1" --shell-pid "$PPID" --session-file "$SESSION_FILE" "${@:2}" ;;
+  stop)          cd "<OWRAP_ROOT>" && python -m owrap.runner stop --session-file "$SESSION_FILE" ;;
+  *)             cd "<OWRAP_ROOT>" && python -m owrap.runner "$@" ;;
+esac

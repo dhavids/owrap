@@ -1,0 +1,97 @@
+import argparse
+import re
+import sys
+from datetime import datetime
+from pathlib import Path
+
+from .utils.terminal import Terminal
+from .manager import Manager
+from .base import BaseRunner
+from .utils.paths import EXEC_OUTPUT_DIR
+
+
+class ExecRunner(BaseRunner):
+    LOG_DIR = EXEC_OUTPUT_DIR
+    LOG_FILE = EXEC_OUTPUT_DIR / "exec_output.log"
+
+    def _get_active_plan_name(self) -> str:
+        plan_path = Path.home() / "marl/docs/research/plan.md"
+        try:
+            content = plan_path.read_text()
+            match = re.search(r'^## \[ACTIVE\]\s+(.+)$', content, re.MULTILINE)
+            if match:
+                return match.group(1).split(' — ')[0].strip()
+        except Exception:
+            pass
+        return "exec"
+
+    def _write_exec_log(self, plan_name: str):
+        exec_log = self.manager.exec_log_path
+        exec_log.parent.mkdir(parents=True, exist_ok=True)
+        entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M')} — {plan_name}\n"
+        existing = ""
+        if exec_log.exists():
+            try:
+                existing = exec_log.read_text()
+            except Exception:
+                pass
+        exec_log.write_text(entry + existing)
+
+    def run(self, log_time=True):
+        url = self.manager.ensure_running()
+
+        cmd = ["opencode", "run"]
+        if self.allow_all:
+            cmd.append("--dangerously-skip-permissions")
+        if url:
+            cmd.extend(["--attach", url])
+            cmd.extend(["--", "--exec"])
+        else:
+            cmd.extend(["--", "--execf"])
+
+        plan_name = self._get_active_plan_name()
+
+        self.LOG_DIR.mkdir(parents=True, exist_ok=True)
+        if self.LOG_FILE.exists():
+            try:
+                self.LOG_FILE.unlink()
+            except OSError:
+                ts = datetime.now().strftime("%H%M%S")
+                self.LOG_FILE = self.LOG_FILE.parent / f"{self.LOG_FILE.stem}_{ts}{self.LOG_FILE.suffix}"
+        with open(self.LOG_FILE, "w") as log:
+            log.write(f"[{datetime.now().isoformat()}] EXEC SESSION START\n")
+            log.flush()
+            self.manager.t_cmd_start()
+            terminal = Terminal(verbose=False)
+            result = terminal.run(" ".join(cmd), capture_output=True, print_output=True)
+            self.manager.t_cmd_end()
+            rc = result.get("returncode", 1)
+            log.write(result.get("stdout", "") or "")
+            log.flush()
+
+        t = ""
+        if self.manager._t_cmd_end is not None:
+            t = f"opencode={self.manager._t_cmd_end - self.manager._t_cmd_start:.1f}s  total={self.manager._t_cmd_end - self.manager._t_invocation:.1f}s"
+        status = "SUCCESS" if rc == 0 else "FAILED"
+        print(f"=== [exec] completed ===")
+        print(f"status: {status}")
+        print(f"exit: {rc}")
+        print(f"log: {self.LOG_FILE}")
+        if t:
+            print(f"timing: {t}")
+        self.manager.log_time(log_time)
+        self._write_exec_log(plan_name)
+
+        sys.exit(rc)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Execute the active plan via opencode")
+    parser.add_argument("--no-log-time", action="store_true", help="Suppress the timing block")
+    args = parser.parse_args()
+    manager = Manager()
+    ExecRunner(manager).run(log_time=not args.no_log_time)
+
+
+if __name__ == "__main__":
+    main()
