@@ -4,8 +4,8 @@ SESSION_FILE="/tmp/owrap/$PPID.session"
 [ -f "$SESSION_FILE" ] && export OWRAP_RESEARCH=$(grep "^research=" "$SESSION_FILE" | cut -d= -f2)
 cd "<OWRAP_ROOT>"
 if [[ "$*" == *"--msg"* || "$*" == *"-m "* || "$1" == "--fg" ]]; then
-  python -m owrap.runner run "$@"
+  <PYTHON> -m owrap.runner run "$@"
 else
-  python -m owrap.runner run "$@" &
+  <PYTHON> -m owrap.runner run "$@" &
   owait run "$OWRAP_SESSION"
 fi

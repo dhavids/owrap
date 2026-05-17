@@ -53,7 +53,7 @@ npm install -g @anthropic-ai/claude-code
 ### opencode
 
 ```bash
-npm install -g opencode
+npm i -g opencode-ai
 ```
 
 Verify: `opencode --version`
@@ -61,7 +61,7 @@ Verify: `opencode --version`
 ### inotify-tools (Linux only)
 
 ```bash
-sudo apt install inotify-tools
+sudo apt install inotify-tools -y
 ```
 
 ### Python >= 3.10
@@ -81,6 +81,24 @@ python setup.py
 ```
 
 `setup.py` checks all dependencies and installs shims (`oread`, `orun`, `oexec`, `owait`, `owrap`) to `~/bin/` with the correct `OWRAP_ROOT` path baked in. It prints install hints for anything missing — it never installs dependencies itself. Make sure `~/bin/` is on your `$PATH`.
+
+## Getting Started
+
+After running `python3 setup.py`, tell Claude Code to start a session:
+
+> Run this command in bash: `export PATH="$HOME/bin:$PATH" && owrap setup <your_research_folder>`
+
+For example:
+> Run this command in bash: `export PATH="$HOME/bin:$PATH" && owrap setup /home/user/myproject/research`
+
+The `export` is only needed if `~/bin` is not yet on Claude's PATH (i.e. the first run in a fresh terminal). After opening a new terminal it is not needed and bare `owrap` works directly.
+
+Claude will run `owrap setup`, read the printed instructions, and set up your `CLAUDE.md`,
+`AGENTS.md`, `self.md`, and `settings.json` for the project. After that, tell it:
+
+> Run this command in bash: `export PATH="$HOME/bin:$PATH" && owrap start <research_name>`
+
+Claude will orient itself and be ready to plan.
 
 ## Configuration
 
