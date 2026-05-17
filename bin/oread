@@ -1,4 +1,5 @@
 #!/bin/bash
 SESSION_FILE="/tmp/owrap/$PPID.session"
 [ -f "$SESSION_FILE" ] && export OWRAP_SESSION=$(grep "^session_id=" "$SESSION_FILE" | cut -d= -f2)
+[ -f "$SESSION_FILE" ] && export OWRAP_RESEARCH=$(grep "^research=" "$SESSION_FILE" | cut -d= -f2)
 cd "<OWRAP_ROOT>" && python -m owrap.runner read "$@"

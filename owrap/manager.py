@@ -24,6 +24,7 @@ class Manager:
         self._t_cmd_end = None
         self._log_file = None
         self.session_id = os.environ.get("OWRAP_SESSION", "")
+        self.research = os.environ.get("OWRAP_RESEARCH", "")
         SESSION_DIR.mkdir(parents=True, exist_ok=True)
         self.TASKS_DIR.mkdir(parents=True, exist_ok=True)
         self.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

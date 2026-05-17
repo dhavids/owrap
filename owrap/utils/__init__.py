@@ -6,7 +6,7 @@ from .paths import (
     EXEC_DIR, EXEC_OUTPUT_DIR, EXEC_LOG,
     READ_DIR, READ_OUTPUT_DIR, READ_LOG,
     STATE_FILE,
-    get_todo_path, session_log, session_input,
+    get_todo_path, get_plan_path, get_self_path, session_log, session_input,
 )
 
 __all__ = [
@@ -17,5 +17,5 @@ __all__ = [
     "EXEC_DIR", "EXEC_OUTPUT_DIR", "EXEC_LOG",
     "READ_DIR", "READ_OUTPUT_DIR", "READ_LOG",
     "STATE_FILE",
-    "get_todo_path", "session_log", "session_input",
+    "get_todo_path", "get_plan_path", "get_self_path", "session_log", "session_input",
 ]

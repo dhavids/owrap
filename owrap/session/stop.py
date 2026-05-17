@@ -27,7 +27,7 @@ def main():
     parser.add_argument("--session-file", type=str, default=None, help="Session file path")
     args = parser.parse_args()
 
-    from .manager import Manager
+    from ..manager import Manager
     manager = Manager()
     StopRunner(manager).run(session_file=args.session_file)
 

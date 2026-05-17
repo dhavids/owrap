@@ -1,1 +1,41 @@
-{"model": "claude-sonnet-4-5", "dangerouslySkipPermissions": false}
+{
+  "permissions": {
+    "allow": [
+      "Bash(opencode run *)",
+      "Bash(oread *)",
+      "Bash(orun *)",
+      "Bash(oexec *)",
+      "Bash(owait *)",
+      "Bash(owrap *)",
+      "Bash(~/bin/oread *)",
+      "Bash(~/bin/orun *)",
+      "Bash(~/bin/oexec *)",
+      "Bash(~/bin/owait *)",
+      "Bash(~/bin/owrap *)",
+      "Bash(python3:*)",
+      "Bash(wait)",
+      "Read(CLAUDE.md)",
+      "Read(AGENTS.md)",
+      "Read(<research_root>/self.md)",
+      "Read(<research_root>/projects/**)",
+      "Edit(CLAUDE.md)",
+      "Edit(AGENTS.md)",
+      "Edit(<research_root>/self.md)",
+      "Edit(<research_root>/projects/**)",
+      "Edit(<owrap_docs>/plan_*.md)",
+      "Edit(<research_root>/run/tasks/input_*.md)",
+      "Edit(<research_root>/run/tasks/task0.md)"
+    ],
+    "deny": [
+      "Bash(grep *)",
+      "Bash(find *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(rm *)"
+    ],
+    "additionalDirectories": [
+      "/tmp/opencode",
+      "/tmp/owrap"
+    ]
+  }
+}

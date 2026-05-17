@@ -4,10 +4,10 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from .utils.terminal import Terminal
-from .manager import Manager
-from .base import BaseRunner
-from .utils.paths import TASKS_DIR
+from ..utils.terminal import Terminal
+from ..manager import Manager
+from ..base import BaseRunner
+from ..utils.paths import TASKS_DIR
 
 
 class ReadRunner(BaseRunner):

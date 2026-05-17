@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 OWRAP_ROOT = Path(__file__).resolve().parents[2]
@@ -49,9 +50,23 @@ def _read_config() -> dict:
     return {}
 
 
-def get_todo_path() -> Path:
+def get_plan_path(session_id: str) -> Path:
+    """Return session-scoped plan path. session_id is required (always set after owrap start)."""
+    return DOCS_DIR / f"plan_{session_id}.md"
+
+
+def get_self_path() -> Path:
+    """Return self.md path: research_root/self.md if configured, else DOCS_DIR/self.md fallback."""
     config = _read_config()
-    research = config.get("research")
+    research_root = config.get("research_root")
+    if research_root:
+        return Path(research_root) / "self.md"
+    return DOCS_DIR / "self.md"
+
+
+def get_todo_path() -> Path:
+    research = os.environ.get("OWRAP_RESEARCH", "")
+    config = _read_config()
     research_root = config.get("research_root")
     if research and research_root:
         return Path(research_root) / "projects" / f"{research}.md"

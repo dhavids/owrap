@@ -1,12 +1,8 @@
 import argparse
 from pathlib import Path
 
-from .read import ReadRunner
-from .run_cmd import RunRunner
-from .exec import ExecRunner
-from .start import StartRunner
-from .stop import StopRunner
-from .refresh import RefreshRunner
+from .session import StartRunner, StopRunner, RefreshRunner
+from .commands import ExecRunner, ReadRunner, RunRunner, SetupRunner
 from .manager import Manager
 from .utils.paths import _read_config
 
@@ -19,6 +15,7 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     start_parser = subparsers.add_parser("start", help="Start an owrap session")
+    start_parser.add_argument("research", nargs="?", default=None, help="Research project name")
     start_parser.add_argument("--shell-pid", type=int, default=None, help="Shell PID")
     start_parser.add_argument("--session-file", type=str, default=None, help="Session file path")
 
@@ -26,8 +23,12 @@ def main():
     stop_parser.add_argument("--session-file", type=str, default=None, help="Session file path")
 
     refresh_parser = subparsers.add_parser("refresh", help="Refresh an owrap session")
+    refresh_parser.add_argument("research", nargs="?", default=None, help="Research project name")
     refresh_parser.add_argument("--shell-pid", type=int, default=None, help="Shell PID")
     refresh_parser.add_argument("--session-file", type=str, default=None, help="Session file path")
+
+    setup_parser = subparsers.add_parser("setup", help="Configure owrap for a research project")
+    setup_parser.add_argument("research_root", nargs="?", default=None, help="Path to research root directory")
 
     read_parser = subparsers.add_parser("read", help="Read a file via opencode")
     run_parser = subparsers.add_parser("run", help="Run a task via opencode")
@@ -57,12 +58,14 @@ def main():
 
     if args.command == "start":
         StartRunner(manager, logger, allow_all=allow_all).run(
-            shell_pid=args.shell_pid, session_file=args.session_file)
+            shell_pid=args.shell_pid, session_file=args.session_file, research=args.research)
     elif args.command == "stop":
         StopRunner(manager).run(session_file=args.session_file)
     elif args.command == "refresh":
         RefreshRunner(manager, logger, allow_all=allow_all).run(
-            shell_pid=args.shell_pid, session_file=args.session_file)
+            shell_pid=args.shell_pid, session_file=args.session_file, research=args.research)
+    elif args.command == "setup":
+        SetupRunner().run(research_root=args.research_root)
     elif args.command == "read":
         ReadRunner(manager, logger, allow_all=allow_all).run(args.file, summarise=args.summarise, details=args.details,
                                                               log_time=not args.no_log_time)
