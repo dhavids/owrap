@@ -1,6 +1,6 @@
 > **Note:** All commands use the `~/bin/` prefix (`~/bin/owrap`, `~/bin/orun`, `~/bin/oread`,
 > `~/bin/oexec`, `~/bin/owait`). This is a temporary workaround until a cleaner install
-> approach is available that does not require sudo. The prefix ensures the commands are
+> approach is available that does not require **sudo**. The prefix ensures the commands are
 > found regardless of whether `~/bin` is on the shell's PATH.
 
 # owrap
