@@ -24,6 +24,7 @@ class Manager:
         self._t_cmd_start = None
         self._t_cmd_end = None
         self._log_file = None
+        self._logger = None
         self.session_id = os.environ.get("OWRAP_SESSION", "")
         self.research = os.environ.get("OWRAP_RESEARCH", "")
         SESSION_DIR.mkdir(parents=True, exist_ok=True)
@@ -119,18 +120,25 @@ class Manager:
         self._log_file = log_file
         state = {"pid": pid, "url": url, "port": port, "log_file": log_file, "tasks": {}}
         self._write_state(state)
+        if self._logger:
+            self._logger.info("server started pid=%d url=%s", pid, url)
         return url
 
     def stop(self):
         state = self._read_state()
         if state is None:
+            if self._logger:
+                self._logger.info("stop: no server state found")
             return
         pid = state.get("pid")
         if pid is not None:
             try:
                 os.kill(pid, 15)
+                if self._logger:
+                    self._logger.info("server stopped pid=%d", pid)
             except OSError:
-                pass
+                if self._logger:
+                    self._logger.info("stop: server pid=%s already gone", pid)
         try:
             os.unlink(self.STATE_FILE)
         except OSError:
@@ -157,10 +165,17 @@ class Manager:
         """Create a logger using the manager's log_file path."""
         return get_logger(name, log_path=self._log_file, level=level)
 
+    def set_logger(self, logger: logging.Logger):
+        self._logger = logger
+
     def ensure_running(self, port=4096):
         url = self.get_url()
         if url is not None:
+            if self._logger:
+                self._logger.debug("ensure_running: server alive url=%s", url)
             return url
+        if self._logger:
+            self._logger.debug("ensure_running: server not running, starting")
         return self.start(port=port)
 
     def is_running(self):

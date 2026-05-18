@@ -12,6 +12,8 @@ from .orientation import print_orientation
 
 class StartRunner(BaseRunner):
     def run(self, shell_pid=None, session_file=None, research=None):
+        if research is None:
+            research = _read_config().get("default_research")
         session_id = secrets.token_hex(3)
         url = self.manager.ensure_running()
 
@@ -44,6 +46,8 @@ class StartRunner(BaseRunner):
         self_path = get_self_path()
         input_path = session_input(session_id)
 
+        if self.logger:
+            self.logger.info("start session=%s research=%s url=%s", session_id, research or "none", url)
         print_orientation(session_id, research, url, plan_path, todo_path, self_path, input_path)
         sys.exit(0)
 

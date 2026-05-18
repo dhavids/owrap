@@ -5,10 +5,12 @@ from ..utils.paths import SESSION_DIR
 
 
 class StopRunner:
-    def __init__(self, manager):
+    def __init__(self, manager, logger=None, allow_all=False):
         self.manager = manager
+        self.logger = logger
+        self.allow_all = allow_all
 
-    def run(self, session_file=None):
+    def run(self, session_file=None, no_exit=False):
         sessions_dir = Path.home() / ".owrap" / "sessions"
         global_session = Path.home() / ".owrap" / "session"
 
@@ -23,5 +25,8 @@ class StopRunner:
             global_session.unlink(missing_ok=True)
             count += 1
 
+        if self.logger:
+            self.logger.info("stop: sessions cleared count=%d", count)
         print(f"OWRAP STOPPED  server killed  sessions cleared ({count} removed)")
-        sys.exit(0)
+        if not no_exit:
+            sys.exit(0)

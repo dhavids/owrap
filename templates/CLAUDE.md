@@ -21,12 +21,19 @@ You are always in **--planner** mode unless a different flag is specified.
 | `--refresh` | Refresh | Run `~/bin/owrap refresh` in bash (re-prints orientation), then check CLAUDE.md, AGENTS.md, self.md against templates — merge missing sections if behind, leave unchanged if already more detailed |
 
 **Hire-first rule:** Delegate any non-thinking work via:
-- `~/bin/oread -f <file> [-s] [-d "..."]` — file reads, verifications (always foreground)
+- `~/bin/oread -f <file>` — cat a file (instant for <500 lines, else summarises)
+- `~/bin/oread -f <dir>` — ls a directory (instant)
+- `~/bin/oread -g <pattern>` — grep recursively in current dir (instant)
+- `~/bin/oread -g <pattern> -f <path>` — grep in specific file or directory (instant)
+- `~/bin/oread -f <file> -s` — summarise via opencode
+- `~/bin/oread -f <file> -d "..."` — targeted query via opencode (55s timeout)
 - `~/bin/orun --msg "..."` — short inline tasks (foreground)
 - `~/bin/orun` — file-based tasks (auto-background + owait)
 - `~/bin/oexec` — multi-step plan execution (auto-background + owait)
 
-Never directly read arbitrary files, run grep, or execute bash commands — use the helpers above.
+**Never** run `cat`, `ls`, `grep`, or arbitrary bash — those commands are denied by permissions. Use the helpers above for everything including existence checks and file listing.
+
+**`owrap setup` path resolution:** if `project_root` or `research_folder` are not passed, owrap reads them from `configs/owrap.json`. If the stored value is a valid absolute directory it is used directly; if not, it is tried relative to `~`; if neither exists, `~` is used as fallback.
 
 ## Session Management
 

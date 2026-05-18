@@ -6,6 +6,12 @@ from pathlib import Path
 from typing import Optional
 
 
+_MUTE_LINE_PREFIXES = (
+    "Warning: OPENCODE_SERVER_PASSWORD is not set",
+    "opencode server listening on",
+)
+
+
 class Terminal:
     """Subprocess wrapper with PTY-backed detached execution and stdout streaming.
 
@@ -129,6 +135,7 @@ class Terminal:
         timeout=None,
         register_signals=True,
         signals=None,
+        tee_file=None,
     ):
         if silent:
             print_output = False
@@ -141,7 +148,7 @@ class Terminal:
             elif self.interactive_shell:
                 return self._run_interactive(command, stdin, capture_output, print_output, silent, timeout)
             else:
-                return self._run_standard(command, stdin, capture_output, print_output, silent, timeout)
+                return self._run_standard(command, stdin, capture_output, print_output, silent, timeout, tee_file)
         finally:
             if register_signals and not detached:
                 self.unregister_signal_handlers()
@@ -206,7 +213,7 @@ class Terminal:
             "success": None,
         }
 
-    def _run_standard(self, command, stdin, capture_output, print_output, silent, timeout):
+    def _run_standard(self, command, stdin, capture_output, print_output, silent, timeout, tee_file=None):
         import time
         if self.verbose and not silent:
             print(f"Running: {command}")
@@ -253,12 +260,20 @@ class Terminal:
                         if line:
                             stdout_lines.append(line)
                             self._partial_stdout += line
-                            print(line, end="", flush=True)
+                            if not any(line.startswith(p) for p in _MUTE_LINE_PREFIXES):
+                                print(line, end="", flush=True)
+                            if tee_file:
+                                tee_file.write(line)
+                                tee_file.flush()
                     elif stream == proc.stderr:
                         line = stream.readline()
                         if line:
                             stderr_lines.append(line)
-                            print(line, end="", flush=True)
+                            if not any(line.startswith(p) for p in _MUTE_LINE_PREFIXES):
+                                print(line, end="", flush=True)
+                            if tee_file:
+                                tee_file.write(line)
+                                tee_file.flush()
             if timed_out:
                 self.terminate_process(timeout=2)
                 self._process = None
@@ -279,13 +294,24 @@ class Terminal:
             if remaining_stdout:
                 stdout_lines.append(remaining_stdout)
                 print(remaining_stdout, end="", flush=True)
+                if tee_file:
+                    tee_file.write(remaining_stdout)
+                    tee_file.flush()
             try:
                 remaining_stderr = proc.stderr.read()
             except TypeError:
                 remaining_stderr = ""
             if remaining_stderr:
                 stderr_lines.append(remaining_stderr)
-                print(remaining_stderr, end="", flush=True)
+                filtered = "".join(
+                    l for l in remaining_stderr.splitlines(keepends=True)
+                    if not any(l.startswith(p) for p in _MUTE_LINE_PREFIXES)
+                )
+                if filtered:
+                    print(filtered, end="", flush=True)
+                if tee_file:
+                    tee_file.write(remaining_stderr)
+                    tee_file.flush()
             stdout = "".join(stdout_lines)
             stderr = "".join(stderr_lines)
         else:

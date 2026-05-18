@@ -38,6 +38,11 @@ class RunRunner(BaseRunner):
         run_log.write_text(entry + existing)
 
     def run(self, msg=None, input_path=None, log_time=True):
+        if self.logger:
+            if msg is not None:
+                self.logger.info("run msg=%.80r session=%s", msg, self.manager.session_id or "none")
+            else:
+                self.logger.info("run task session=%s", self.manager.session_id or "none")
         url = self.manager.ensure_running()
 
         if msg is not None:
@@ -48,8 +53,8 @@ class RunRunner(BaseRunner):
         if "\n" in msg:
             print("Error: --msg must be a single line (no newlines)", file=sys.stderr)
             sys.exit(1)
-        if len(msg) > 512:
-            print("Error: --msg must be <= 512 characters", file=sys.stderr)
+        if len(msg) > 1024:
+            print("Error: --msg must be <= 1024 characters", file=sys.stderr)
             sys.exit(1)
 
         cmd = ["opencode", "run"]
@@ -67,10 +72,14 @@ class RunRunner(BaseRunner):
                 cmd.append("--dangerously-skip-permissions")
             cmd.extend(["--", "--taskf", shlex.quote(str(fallback_file))])
 
+        if self.logger:
+            self.logger.debug("run msg cmd=%s", " ".join(cmd))
         self.manager.t_cmd_start()
         result = Terminal(verbose=False).run(" ".join(cmd), print_output=True, capture_output=True)
         self.manager.t_cmd_end()
         rc = result.get("returncode", 1)
+        if self.logger:
+            self.logger.info("run msg done rc=%d", rc)
         title = msg[:80]
         self._write_run_log(title)
         self.manager.log_time(log_time)
@@ -107,19 +116,22 @@ class RunRunner(BaseRunner):
             cmd.extend(["--", "--task", shlex.quote(str(task_file))])
 
             title = self._get_task_title(task_file)
+            if self.logger:
+                self.logger.info("run task_id=%d title=%.60r session=%s", task_id, title, self.manager.session_id or "none")
+                self.logger.debug("run task cmd=%s", " ".join(cmd))
 
             with open(log_path, "w") as log:
                 log.write(f"[{datetime.now().isoformat()}] TASK {task_id} START\n")
                 log.flush()
                 self.manager.t_cmd_start()
                 terminal = Terminal(verbose=False)
-                result = terminal.run(" ".join(cmd), capture_output=True, print_output=True)
+                result = terminal.run(" ".join(cmd), capture_output=True, print_output=True, tee_file=log)
                 self.manager.t_cmd_end()
                 rc = result.get("returncode", 1)
-                log.write(result.get("stdout", "") or "")
-                log.flush()
 
             self.manager.complete_task(task_id)
+            if self.logger:
+                self.logger.info("run task_id=%d done rc=%d log=%s", task_id, rc, log_path)
             t = ""
             if self.manager._t_cmd_end is not None:
                 t = f"opencode={self.manager._t_cmd_end - self.manager._t_cmd_start:.1f}s  total={self.manager._t_cmd_end - self.manager._t_invocation:.1f}s"

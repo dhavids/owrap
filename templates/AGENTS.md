@@ -29,12 +29,17 @@ Read `self.md` → read `plan_<session_id>.md` for `[ACTIVE]` block → read cor
 ## Hire-First Rule
 
 Any non-thinking work goes through helpers:
-- `oread -f <file>` — file reads, verifications
-- `orun --msg "..."` — short inline tasks
-- `orun` — file-based tasks
+- `oread -f <file>` — cat a file (instant for <500 lines, else summarises)
+- `oread -f <dir>` — ls a directory (instant)
+- `oread -g <pattern>` — grep recursively in current dir (instant)
+- `oread -g <pattern> -f <path>` — grep in specific file or directory (instant)
+- `oread -f <file> -s` — summarise via opencode
+- `oread -f <file> -d "..."` — targeted query via opencode (55s timeout)
+- `orun --msg "..."` — short inline tasks (foreground)
+- `orun` — file-based tasks (auto-background + owait)
 - `oexec` — multi-step plan execution
 
-Never directly read arbitrary files, run grep, or execute bash.
+**Never** run `cat`, `ls`, `grep`, or direct bash commands — those are denied by permissions.
 
 ## Parallel Execution
 

@@ -13,6 +13,24 @@ from ..utils.paths import TASKS_DIR
 class ReadRunner(BaseRunner):
     TASKS_DIR = TASKS_DIR
 
+    def _run_grep(self, pattern: str, file_path=None):
+        import subprocess
+        target = Path(file_path) if file_path else Path.cwd()
+        if self.logger:
+            self.logger.info("grep pattern=%r target=%s session=%s", pattern, target, self.manager.session_id or "none")
+        if target.is_file():
+            cmd = ["grep", "-n", pattern, str(target)]
+        else:
+            cmd = ["grep", "-rn", pattern, str(target)]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.returncode == 1:
+            print(f"(no matches for {pattern!r} in {target})")
+        elif result.returncode not in (0, 1):
+            print(result.stderr, end="", file=sys.stderr)
+        sys.exit(0)
+
     def _write_read_log(self, file_path: str):
         read_log = self.manager.read_log_path
         read_log.parent.mkdir(parents=True, exist_ok=True)
@@ -25,7 +43,16 @@ class ReadRunner(BaseRunner):
                 pass
         read_log.write_text(entry + existing)
 
-    def run(self, file_path, summarise=False, details=None, log_time=True):
+    LARGE_FILE_LINES = 500
+
+    def run(self, file_path, summarise=False, details=None, log_time=True, grep=None):
+        if grep is not None:
+            self._run_grep(grep, file_path)
+            return
+        if self.logger:
+            self.logger.info("read file=%s session=%s", file_path, self.manager.session_id or "none")
+            if details:
+                self.logger.debug("read details=%r", details)
         if not summarise and details is None:
             import subprocess
             p = Path(file_path)
@@ -36,8 +63,13 @@ class ReadRunner(BaseRunner):
                 result = subprocess.run(["ls", str(p)])
                 sys.exit(result.returncode)
             else:
-                print(p.read_text(), end="")
-                sys.exit(0)
+                text = p.read_text()
+                line_count = text.count("\n") + (1 if text and not text.endswith("\n") else 0)
+                if line_count <= self.LARGE_FILE_LINES:
+                    print(text, end="")
+                    sys.exit(0)
+                print(f"[oread] {line_count} lines (>{self.LARGE_FILE_LINES}) — forwarding to opencode for summary", flush=True)
+                summarise = True
 
         url = self.manager.ensure_running()
 
@@ -62,7 +94,9 @@ class ReadRunner(BaseRunner):
                 cmd.append("--dangerously-skip-permissions")
             cmd.extend(["--", "--task", shlex.quote(str(fallback_file))])
 
-        TIMEOUT = 45
+        TIMEOUT = 55
+        if self.logger:
+            self.logger.debug("read cmd=%s", " ".join(cmd))
         self.manager.t_cmd_start()
         result = Terminal(verbose=False).run(" ".join(cmd), print_output=True, capture_output=True, timeout=TIMEOUT)
         self.manager.t_cmd_end()

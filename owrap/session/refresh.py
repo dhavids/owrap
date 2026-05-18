@@ -4,12 +4,14 @@ from pathlib import Path
 
 from ..base import BaseRunner
 from .start import StartRunner
-from ..utils.paths import SESSION_DIR, get_plan_path, get_self_path, get_todo_path, session_input
+from ..utils.paths import SESSION_DIR, get_plan_path, get_self_path, get_todo_path, session_input, _read_config
 from .orientation import print_orientation
 
 
 class RefreshRunner(BaseRunner):
     def run(self, shell_pid=None, session_file=None, research=None):
+        if research is None:
+            research = _read_config().get("default_research")
         if session_file is None:
             session_file = SESSION_DIR / "session"
         if not Path(session_file).exists():
@@ -43,6 +45,8 @@ class RefreshRunner(BaseRunner):
         self_path = get_self_path()
         input_path = session_input(session_id)
 
+        if self.logger:
+            self.logger.info("refresh session=%s research=%s url=%s", session_id, research or "none", url)
         print_orientation(session_id, research, url, plan_path, todo_path, self_path, input_path)
         sys.exit(0)
 

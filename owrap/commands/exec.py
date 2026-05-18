@@ -45,6 +45,8 @@ class ExecRunner(BaseRunner):
         session_id = self.manager.session_id
         plan_path = get_plan_path(session_id) if session_id else None
 
+        if self.logger:
+            self.logger.info("exec session=%s plan=%s", session_id or "none", plan_path or "none")
         url = self.manager.ensure_running()
 
         cmd = ["opencode", "run"]
@@ -61,6 +63,8 @@ class ExecRunner(BaseRunner):
 
         plan_name = self._get_active_plan_name(plan_path)
 
+        if self.logger:
+            self.logger.debug("exec cmd=%s", " ".join(cmd))
         self.LOG_DIR.mkdir(parents=True, exist_ok=True)
         if self.LOG_FILE.exists():
             try:
@@ -73,16 +77,16 @@ class ExecRunner(BaseRunner):
             log.flush()
             self.manager.t_cmd_start()
             terminal = Terminal(verbose=False)
-            result = terminal.run(" ".join(cmd), capture_output=True, print_output=True)
+            result = terminal.run(" ".join(cmd), capture_output=True, print_output=True, tee_file=log)
             self.manager.t_cmd_end()
             rc = result.get("returncode", 1)
-            log.write(result.get("stdout", "") or "")
-            log.flush()
 
         t = ""
         if self.manager._t_cmd_end is not None:
             t = f"opencode={self.manager._t_cmd_end - self.manager._t_cmd_start:.1f}s  total={self.manager._t_cmd_end - self.manager._t_invocation:.1f}s"
         status = "SUCCESS" if rc == 0 else "FAILED"
+        if self.logger:
+            self.logger.info("exec done rc=%d status=%s log=%s", rc, status, self.LOG_FILE)
         print(f"=== [exec] completed ===")
         print(f"status: {status}")
         print(f"exit: {rc}")

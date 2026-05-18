@@ -12,7 +12,11 @@ A lightweight, file-based research management system for multi-codebase research
 | `owrap start` | Start session with default_research from config. |
 | `owrap stop` | End session: delete session file. |
 | `owrap refresh` | Re-validate session; re-print orientation. |
-| `oread -f <file> [-s] [-d "..."]` | Read any file, verification, one-shot query. Streams output inline. Always foreground. |
+| `oread -f <file>` | cat file inline (instant <500 lines, else summarises). |
+| `oread -f <dir>` | ls directory (instant). |
+| `oread -g <pattern> [-f <path>]` | grep pattern in path (or cwd if omitted). Instant. |
+| `oread -f <file> -s` | Summarise via opencode. |
+| `oread -f <file> -d "..."` | Targeted query via opencode (55s timeout). |
 | `orun --msg "..."` | Short inline task. Foreground. |
 | `orun` | File task: reads `input_<id>.md`, dispatches `task<N>.md`. Auto-backgrounds + `owait run`. |
 | `oexec` | Execute active plan. Auto-backgrounds + `owait exec`. |
@@ -20,7 +24,7 @@ A lightweight, file-based research management system for multi-codebase research
 
 ## Session Model
 
-Every session calls `owrap start` at boot. This generates a session ID, starts/attaches the opencode server, writes `/tmp/owrap/$PPID.session`, and prints orientation. All runtime paths are session-scoped (`log_<id>.md`, `input_<id>.md`).
+Every session calls `owrap start` at boot. This generates a session ID, starts/attaches the opencode server, writes `~/.owrap/sessions/${CLAUDE_CODE_SESSION_ID}.session`, and prints orientation. All runtime paths are session-scoped (`log_<id>.md`, `input_<id>.md`).
 
 ## Parallel Dispatch Pattern
 
@@ -31,7 +35,13 @@ write task → orun → wait for input to clear → write next → owait per com
 
 ## Hire-First Rule
 
-Any non-thinking work — including file reads — goes through `oread`, `orun --msg`, `orun`, or `oexec`. No exceptions.
+Any non-thinking work — including file reads — goes through helpers. No exceptions.
+- `oread -f <file>` replaces `cat`
+- `oread -f <dir>` replaces `ls`
+- `oread -g <pattern> [-f <path>]` replaces `grep`
+- `orun --msg "..."`, `orun`, `oexec` for all write/execution work
+
+Direct `cat`, `ls`, and `grep` bash commands are denied by permissions.
 
 ## File Structure
 
