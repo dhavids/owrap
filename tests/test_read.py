@@ -5,8 +5,8 @@ import pytest
 
 
 def test_read_runner_prompt_construction():
-    with patch("util.misc.opencode.read.OpenCodeManager") as mock_manager_cls, \
-         patch("util.misc.opencode.read.Terminal") as mock_terminal_cls:
+    with patch("owrap.commands.read.OpenCodeManager") as mock_manager_cls, \
+         patch("owrap.commands.read.Terminal") as mock_terminal_cls:
         mock_manager = MagicMock()
         mock_manager.ensure_running.return_value = "http://localhost:4096"
         mock_manager_cls.return_value = mock_manager
@@ -14,7 +14,7 @@ def test_read_runner_prompt_construction():
         mock_terminal = MagicMock()
         mock_terminal_cls.return_value = mock_terminal
 
-        from util.misc.opencode.read import ReadRunner
+        from owrap.commands.read import ReadRunner
 
         runner = ReadRunner()
         runner.run("/some/file.txt")
@@ -26,8 +26,8 @@ def test_read_runner_prompt_construction():
 
 
 def test_read_runner_with_summarise():
-    with patch("util.misc.opencode.read.OpenCodeManager") as mock_manager_cls, \
-         patch("util.misc.opencode.read.Terminal") as mock_terminal_cls:
+    with patch("owrap.commands.read.OpenCodeManager") as mock_manager_cls, \
+         patch("owrap.commands.read.Terminal") as mock_terminal_cls:
         mock_manager = MagicMock()
         mock_manager.ensure_running.return_value = "http://localhost:4096"
         mock_manager_cls.return_value = mock_manager
@@ -35,7 +35,7 @@ def test_read_runner_with_summarise():
         mock_terminal = MagicMock()
         mock_terminal_cls.return_value = mock_terminal
 
-        from util.misc.opencode.read import ReadRunner
+        from owrap.commands.read import ReadRunner
 
         runner = ReadRunner()
         runner.run("/some/file.txt", summarise=True)
@@ -45,8 +45,8 @@ def test_read_runner_with_summarise():
 
 
 def test_read_runner_with_details():
-    with patch("util.misc.opencode.read.OpenCodeManager") as mock_manager_cls, \
-         patch("util.misc.opencode.read.Terminal") as mock_terminal_cls:
+    with patch("owrap.commands.read.OpenCodeManager") as mock_manager_cls, \
+         patch("owrap.commands.read.Terminal") as mock_terminal_cls:
         mock_manager = MagicMock()
         mock_manager.ensure_running.return_value = "http://localhost:4096"
         mock_manager_cls.return_value = mock_manager
@@ -54,7 +54,7 @@ def test_read_runner_with_details():
         mock_terminal = MagicMock()
         mock_terminal_cls.return_value = mock_terminal
 
-        from util.misc.opencode.read import ReadRunner
+        from owrap.commands.read import ReadRunner
 
         runner = ReadRunner()
         runner.run("/some/file.txt", details="specific function")
@@ -64,8 +64,8 @@ def test_read_runner_with_details():
 
 
 def test_read_runner_with_url():
-    with patch("util.misc.opencode.read.OpenCodeManager") as mock_manager_cls, \
-         patch("util.misc.opencode.read.Terminal") as mock_terminal_cls:
+    with patch("owrap.commands.read.OpenCodeManager") as mock_manager_cls, \
+         patch("owrap.commands.read.Terminal") as mock_terminal_cls:
         mock_manager = MagicMock()
         mock_manager.ensure_running.return_value = "http://localhost:4096"
         mock_manager_cls.return_value = mock_manager
@@ -73,7 +73,7 @@ def test_read_runner_with_url():
         mock_terminal = MagicMock()
         mock_terminal_cls.return_value = mock_terminal
 
-        from util.misc.opencode.read import ReadRunner
+        from owrap.commands.read import ReadRunner
 
         runner = ReadRunner()
         runner.run("/some/file.txt")
@@ -87,8 +87,8 @@ def test_read_runner_fallback_without_url(tmp_path):
     task_dir = tmp_path / "run"
     task_dir.mkdir()
 
-    with patch("util.misc.opencode.read.OpenCodeManager") as mock_manager_cls, \
-         patch("util.misc.opencode.read.Terminal") as mock_terminal_cls:
+    with patch("owrap.commands.read.OpenCodeManager") as mock_manager_cls, \
+         patch("owrap.commands.read.Terminal") as mock_terminal_cls:
         mock_manager = MagicMock()
         mock_manager.ensure_running.return_value = None
         mock_manager_cls.return_value = mock_manager
@@ -96,7 +96,7 @@ def test_read_runner_fallback_without_url(tmp_path):
         mock_terminal = MagicMock()
         mock_terminal_cls.return_value = mock_terminal
 
-        from util.misc.opencode.read import ReadRunner
+        from owrap.commands.read import ReadRunner
 
         runner = ReadRunner()
         runner.TASKS_DIR = task_dir

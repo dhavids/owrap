@@ -1,5 +1,6 @@
 #!/bin/bash
-SESSION_FILE="$HOME/.owrap/session"
+SESSION_FILE="$HOME/.owrap/sessions/${CLAUDE_CODE_SESSION_ID}.session"
+if [ ! -f "$SESSION_FILE" ]; then SESSION_FILE="$HOME/.owrap/session"; fi
 [ -f "$SESSION_FILE" ] && export OWRAP_SESSION=$(grep "^session_id=" "$SESSION_FILE" | cut -d= -f2)
 [ -f "$SESSION_FILE" ] && export OWRAP_RESEARCH=$(grep "^research=" "$SESSION_FILE" | cut -d= -f2)
 cd "<OWRAP_ROOT>" && <PYTHON> -m owrap.runner read "$@"

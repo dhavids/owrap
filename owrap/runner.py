@@ -1,7 +1,8 @@
 import argparse
+import sys
 from pathlib import Path
 
-from .session import StartRunner, StopRunner, RefreshRunner
+from .session import StartRunner, StopRunner, RefreshRunner, CleanupRunner, EndRunner
 from .commands import ExecRunner, ReadRunner, RunRunner, SetupRunner
 from .manager import Manager
 from .utils.paths import _read_config
@@ -22,17 +23,26 @@ def main():
     stop_parser = subparsers.add_parser("stop", help="Stop an owrap session")
     stop_parser.add_argument("--session-file", type=str, default=None, help="Session file path")
 
+    end_parser = subparsers.add_parser("end", help="End this session only (server keeps running)")
+    end_parser.add_argument("--session-file", type=str, default=None)
+
     refresh_parser = subparsers.add_parser("refresh", help="Refresh an owrap session")
     refresh_parser.add_argument("research", nargs="?", default=None, help="Research project name")
     refresh_parser.add_argument("--shell-pid", type=int, default=None, help="Shell PID")
     refresh_parser.add_argument("--session-file", type=str, default=None, help="Session file path")
 
     setup_parser = subparsers.add_parser("setup", help="Configure owrap for a research project")
-    setup_parser.add_argument("research_root", nargs="?", default=None, help="Path to research root directory")
+    setup_parser.add_argument("project_root", nargs="?", default=None, help="Path to project root (where CLAUDE.md, AGENTS.md, .claude/ live)")
+    setup_parser.add_argument("research_folder", nargs="?", default=None, help="Path to research folder (where self.md lives; defaults to project_root if omitted)")
 
     read_parser = subparsers.add_parser("read", help="Read a file via opencode")
     run_parser = subparsers.add_parser("run", help="Run a task via opencode")
     exec_parser = subparsers.add_parser("exec", aliases=["work"], help="Execute the active plan via opencode")
+
+    stat_parser = subparsers.add_parser("stat", help="Show all active owrap sessions and server status")
+
+    cleanup_parser = subparsers.add_parser("cleanup", help="Remove stale session files and dead server state")
+    cleanup_parser.add_argument("session_id", nargs="?", default=None, help="Partial session ID or filename prefix to target")
 
     read_parser.add_argument("-f", "--file", required=True, help="File path to read")
     read_parser.add_argument("-s", "--summarise", action="store_true", help="Summarise content")
@@ -61,11 +71,13 @@ def main():
             shell_pid=args.shell_pid, session_file=args.session_file, research=args.research)
     elif args.command == "stop":
         StopRunner(manager).run(session_file=args.session_file)
+    elif args.command == "end":
+        EndRunner(manager).run(session_file=args.session_file)
     elif args.command == "refresh":
         RefreshRunner(manager, logger, allow_all=allow_all).run(
             shell_pid=args.shell_pid, session_file=args.session_file, research=args.research)
     elif args.command == "setup":
-        SetupRunner().run(research_root=args.research_root)
+        SetupRunner().run(project_root=args.project_root, research_folder=args.research_folder)
     elif args.command == "read":
         ReadRunner(manager, logger, allow_all=allow_all).run(args.file, summarise=args.summarise, details=args.details,
                                                               log_time=not args.no_log_time)
@@ -74,6 +86,11 @@ def main():
                                                              log_time=not args.no_log_time)
     elif args.command in ("exec", "work"):
         ExecRunner(manager, logger, allow_all=allow_all).run(log_time=not args.no_log_time)
+    elif args.command == "stat":
+        from .session.stat import StatRunner
+        sys.exit(StatRunner(manager, logger, allow_all).run(args))
+    elif args.command == "cleanup":
+        sys.exit(CleanupRunner(manager, logger, allow_all).run(args))
     else:
         parser.print_help()
 

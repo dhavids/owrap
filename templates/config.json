@@ -1,6 +1,7 @@
 {
     "_comment": "OWrap configuration file. Copy to owrap/configs/owrap.json",
     "default_research": "my_project",
+    "project_root": "/home/user/marl",
     "research_root": "/home/user/marl/docs/research",
-    "allow_all": false
+    "allow_all": true
 }

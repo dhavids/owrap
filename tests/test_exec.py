@@ -8,8 +8,8 @@ def test_exec_runner_calls_opencode_with_exec(tmp_path):
     log_dir.mkdir(parents=True)
     log_file = log_dir / "exec_output.log"
 
-    with patch("util.misc.opencode.exec.OpenCodeManager") as mock_manager_cls, \
-         patch("util.misc.opencode.exec.Terminal") as mock_terminal_cls:
+    with patch("owrap.commands.exec.OpenCodeManager") as mock_manager_cls, \
+         patch("owrap.commands.exec.Terminal") as mock_terminal_cls:
         mock_manager = MagicMock()
         mock_manager.ensure_running.return_value = None
         mock_manager._t_cmd_end = None
@@ -19,7 +19,7 @@ def test_exec_runner_calls_opencode_with_exec(tmp_path):
         mock_terminal.run.return_value = {"returncode": 0, "stdout": "output\n"}
         mock_terminal_cls.return_value = mock_terminal
 
-        from util.misc.opencode.exec import ExecRunner
+        from owrap.commands.exec import ExecRunner
 
         runner = ExecRunner()
         runner.LOG_DIR = log_dir
@@ -36,8 +36,8 @@ def test_exec_runner_with_url(tmp_path):
     log_dir.mkdir(parents=True)
     log_file = log_dir / "exec_output.log"
 
-    with patch("util.misc.opencode.exec.OpenCodeManager") as mock_manager_cls, \
-         patch("util.misc.opencode.exec.Terminal") as mock_terminal_cls:
+    with patch("owrap.commands.exec.OpenCodeManager") as mock_manager_cls, \
+         patch("owrap.commands.exec.Terminal") as mock_terminal_cls:
         mock_manager = MagicMock()
         mock_manager.ensure_running.return_value = "http://localhost:4096"
         mock_manager._t_cmd_end = None
@@ -47,7 +47,7 @@ def test_exec_runner_with_url(tmp_path):
         mock_terminal.run.return_value = {"returncode": 0, "stdout": ""}
         mock_terminal_cls.return_value = mock_terminal
 
-        from util.misc.opencode.exec import ExecRunner
+        from owrap.commands.exec import ExecRunner
 
         runner = ExecRunner()
         runner.LOG_DIR = log_dir
@@ -66,8 +66,8 @@ def test_exec_runner_creates_log_file(tmp_path):
     log_dir.mkdir(parents=True)
     log_file = log_dir / "exec_output.log"
 
-    with patch("util.misc.opencode.exec.OpenCodeManager") as mock_manager_cls, \
-         patch("util.misc.opencode.exec.Terminal") as mock_terminal_cls:
+    with patch("owrap.commands.exec.OpenCodeManager") as mock_manager_cls, \
+         patch("owrap.commands.exec.Terminal") as mock_terminal_cls:
         mock_manager = MagicMock()
         mock_manager.ensure_running.return_value = None
         mock_manager._t_cmd_end = None
@@ -77,7 +77,7 @@ def test_exec_runner_creates_log_file(tmp_path):
         mock_terminal.run.return_value = {"returncode": 0, "stdout": "line\n"}
         mock_terminal_cls.return_value = mock_terminal
 
-        from util.misc.opencode.exec import ExecRunner
+        from owrap.commands.exec import ExecRunner
 
         runner = ExecRunner()
         runner.LOG_DIR = log_dir
@@ -97,8 +97,8 @@ def test_exec_runner_locked_log_file_fallback(tmp_path):
     log_file = log_dir / "exec_output.log"
     log_file.touch()
 
-    with patch("util.misc.opencode.exec.OpenCodeManager") as mock_manager_cls, \
-          patch("util.misc.opencode.exec.Terminal") as mock_terminal_cls, \
+    with patch("owrap.commands.exec.OpenCodeManager") as mock_manager_cls, \
+          patch("owrap.commands.exec.Terminal") as mock_terminal_cls, \
           patch.object(type(log_file), "unlink", side_effect=OSError("file locked")):
         mock_manager = MagicMock()
         mock_manager.ensure_running.return_value = None
@@ -109,7 +109,7 @@ def test_exec_runner_locked_log_file_fallback(tmp_path):
         mock_terminal.run.return_value = {"returncode": 0, "stdout": "line\n"}
         mock_terminal_cls.return_value = mock_terminal
 
-        from util.misc.opencode.exec import ExecRunner
+        from owrap.commands.exec import ExecRunner
 
         runner = ExecRunner()
         runner.LOG_DIR = log_dir

@@ -2,13 +2,14 @@ import json
 import logging
 import os
 import re
+import subprocess
 import time
 import tempfile
 from pathlib import Path
 
 from .utils.terminal import Terminal
 from .utils.logger import get_logger
-from .utils.paths import TASKS_DIR, RUN_OUTPUT_DIR, STATE_FILE, SESSION_DIR
+from .utils.paths import TASKS_DIR, RUN_OUTPUT_DIR, STATE_FILE, SESSION_DIR, DOCS_DIR
 from .utils.paths import RUN_LOG, EXEC_LOG, READ_LOG, INPUT_FILE
 from .utils.paths import session_log, session_input
 
@@ -30,6 +31,7 @@ class Manager:
         self.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         self._resolve_log_file()
         self.cleanup_done_tasks()
+        self._housekeeping()
 
     @property
     def run_log_path(self) -> Path:
@@ -83,26 +85,37 @@ class Manager:
             raise
 
     def start(self, port=4096):
-        terminal = Terminal(verbose=False, signals="none")
-        result = terminal.run(f"opencode serve --port {port}", detached=True)
+        SESSION_DIR.mkdir(parents=True, exist_ok=True)
+        tmp_log = SESSION_DIR / f"owrap_start_{int(time.time())}.log"
+        log_fd = open(tmp_log, "w")
+        proc = subprocess.Popen(
+            ["opencode", "serve", "--port", str(port)],
+            stdout=log_fd,
+            stderr=log_fd,
+            start_new_session=True,
+            close_fds=True,
+        )
+        log_fd.close()
+        pid = proc.pid
         url = None
         deadline = time.time() + 15.0
         while time.time() < deadline:
-            output = terminal.pop_output()
-            if output:
-                match = re.search(r"https?://\S+", output)
+            time.sleep(0.2)
+            try:
+                content = tmp_log.read_text(errors="replace")
+                match = re.search(r"https?://\S+", content)
                 if match:
                     url = match.group().rstrip()
                     break
-            if result["process"].poll() is not None:
+            except OSError:
+                pass
+            if proc.poll() is not None:
                 raise RuntimeError("opencode serve exited before producing a URL")
-            time.sleep(0.1)
         if url is None:
-            terminal.terminate_process()
-            raise RuntimeError("opencode serve did not produce a URL")
-        pid = result["pid"]
-        terminal._process = None  # disown: server runs independently as OS process
+            proc.terminate()
+            raise RuntimeError("opencode serve did not produce a URL within 15s")
         log_file = str(SESSION_DIR / f"owrap_{pid}.log")
+        tmp_log.rename(log_file)
         self._log_file = log_file
         state = {"pid": pid, "url": url, "port": port, "log_file": log_file, "tasks": {}}
         self._write_state(state)
@@ -239,3 +252,32 @@ class Manager:
                 suffixed_log.unlink(missing_ok=True)
             del tasks[task_id]
         self._write_state(state)
+
+    def _housekeeping(self):
+        sessions_dir = Path.home() / ".owrap" / "sessions"
+        if not sessions_dir.exists():
+            return
+        active_ids = set()
+        for sf in sessions_dir.glob("*.session"):
+            try:
+                for line in sf.read_text().splitlines():
+                    if line.startswith("session_id="):
+                        active_ids.add(line.split("=", 1)[1].strip())
+            except Exception:
+                pass
+        if not active_ids:
+            return
+        for f in self.TASKS_DIR.glob("input_*.md"):
+            sid = f.stem[len("input_"):]
+            if sid and sid not in active_ids:
+                f.unlink(missing_ok=True)
+        for log_base in [RUN_LOG, EXEC_LOG, READ_LOG]:
+            prefix = log_base.stem + "_"
+            for f in log_base.parent.glob(f"{log_base.stem}_*.md"):
+                sid = f.stem[len(prefix):]
+                if sid and sid not in active_ids:
+                    f.unlink(missing_ok=True)
+        for f in DOCS_DIR.glob("plan_*.md"):
+            sid = f.stem[len("plan_"):]
+            if sid and sid not in active_ids:
+                f.unlink(missing_ok=True)

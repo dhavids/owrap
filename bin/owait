@@ -35,4 +35,20 @@ case "$1" in
   *) echo "Usage: owait {run|exec|read} [session_id]" >&2; exit 1 ;;
 esac
 mkdir -p "$(dirname "$LOG")"
-inotifywait -t "$TIMEOUT" -e modify "$LOG" > /dev/null 2>&1 && grep -m 1 "^[0-9]" "$LOG" || { echo "owait: timed out after ${MINS}m" >&2; exit 1; }
+touch "$LOG"
+INITIAL_SIZE=$(stat -c%s "$LOG" 2>/dev/null || echo 0)
+
+DEADLINE=$((SECONDS + TIMEOUT))
+while [ "$SECONDS" -lt "$DEADLINE" ]; do
+  REMAINING=$((DEADLINE - SECONDS))
+  [ "$REMAINING" -gt 10 ] && WAIT=10 || WAIT="$REMAINING"
+  inotifywait -t "$WAIT" -e modify,close_write "$LOG" > /dev/null 2>&1 || true
+  CURRENT_SIZE=$(stat -c%s "$LOG" 2>/dev/null || echo 0)
+  if [ "$CURRENT_SIZE" -gt "$INITIAL_SIZE" ] && grep -q "^[0-9]" "$LOG" 2>/dev/null; then
+    grep -m 1 "^[0-9]" "$LOG"
+    exit 0
+  fi
+done
+
+echo "owait: timed out after ${MINS}m" >&2
+exit 1

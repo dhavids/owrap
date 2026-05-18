@@ -7,7 +7,7 @@ import pytest
 
 
 def _make_manager():
-    from util.misc.opencode.manager import OpenCodeManager
+    from owrap.manager import OpenCodeManager
     manager = OpenCodeManager.__new__(OpenCodeManager)
     manager._t_invocation = time.time()
     manager._t_cmd_start = None

@@ -6,7 +6,7 @@ import pytest
 
 
 def test_run_runner_msg_validation_newlines():
-    from util.misc.opencode.run_cmd import RunRunner
+    from owrap.commands.run_cmd import RunRunner
 
     runner = RunRunner()
     with pytest.raises(SystemExit):
@@ -14,7 +14,7 @@ def test_run_runner_msg_validation_newlines():
 
 
 def test_run_runner_msg_validation_length():
-    from util.misc.opencode.run_cmd import RunRunner
+    from owrap.commands.run_cmd import RunRunner
 
     runner = RunRunner()
     with pytest.raises(SystemExit):
@@ -22,8 +22,8 @@ def test_run_runner_msg_validation_length():
 
 
 def test_run_runner_msg_mode_calls_opencode():
-    with patch("util.misc.opencode.run_cmd.OpenCodeManager") as mock_manager_cls, \
-         patch("util.misc.opencode.run_cmd.Terminal") as mock_terminal_cls:
+    with patch("owrap.commands.run_cmd.OpenCodeManager") as mock_manager_cls, \
+         patch("owrap.commands.run_cmd.Terminal") as mock_terminal_cls:
         mock_manager = MagicMock()
         mock_manager.ensure_running.return_value = "http://localhost:4096"
         mock_manager_cls.return_value = mock_manager
@@ -31,7 +31,7 @@ def test_run_runner_msg_mode_calls_opencode():
         mock_terminal = MagicMock()
         mock_terminal_cls.return_value = mock_terminal
 
-        from util.misc.opencode.run_cmd import RunRunner
+        from owrap.commands.run_cmd import RunRunner
 
         runner = RunRunner()
         runner.run(msg="test task")
@@ -47,8 +47,8 @@ def test_run_runner_msg_mode_fallback_without_url(tmp_path):
     task_dir = tmp_path / "run"
     task_dir.mkdir()
 
-    with patch("util.misc.opencode.run_cmd.OpenCodeManager") as mock_manager_cls, \
-         patch("util.misc.opencode.run_cmd.Terminal") as mock_terminal_cls:
+    with patch("owrap.commands.run_cmd.OpenCodeManager") as mock_manager_cls, \
+         patch("owrap.commands.run_cmd.Terminal") as mock_terminal_cls:
         mock_manager = MagicMock()
         mock_manager.ensure_running.return_value = None
         mock_manager_cls.return_value = mock_manager
@@ -56,7 +56,7 @@ def test_run_runner_msg_mode_fallback_without_url(tmp_path):
         mock_terminal = MagicMock()
         mock_terminal_cls.return_value = mock_terminal
 
-        from util.misc.opencode.run_cmd import RunRunner
+        from owrap.commands.run_cmd import RunRunner
 
         runner = RunRunner()
         runner.TASKS_DIR = task_dir
@@ -79,8 +79,8 @@ def test_run_runner_task_mode_creates_task_file(tmp_path):
     input_file = run_dir / "input.md"
     input_file.write_text("task content")
 
-    with patch("util.misc.opencode.run_cmd.OpenCodeManager") as mock_manager_cls, \
-         patch("util.misc.opencode.run_cmd.Terminal") as mock_terminal_cls:
+    with patch("owrap.commands.run_cmd.OpenCodeManager") as mock_manager_cls, \
+         patch("owrap.commands.run_cmd.Terminal") as mock_terminal_cls:
         mock_manager = MagicMock()
         mock_manager.ensure_running.return_value = "http://localhost:4096"
         mock_manager.next_task_id.return_value = 1
@@ -91,7 +91,7 @@ def test_run_runner_task_mode_creates_task_file(tmp_path):
         mock_terminal.run.return_value = {"returncode": 0, "stdout": ""}
         mock_terminal_cls.return_value = mock_terminal
 
-        from util.misc.opencode.run_cmd import RunRunner
+        from owrap.commands.run_cmd import RunRunner
 
         runner = RunRunner()
         runner.TASKS_DIR = run_dir
@@ -113,7 +113,7 @@ def test_run_runner_task_mode_empty_input(tmp_path):
     input_file = tmp_path / "input.md"
     input_file.write_text("")
 
-    from util.misc.opencode.run_cmd import RunRunner
+    from owrap.commands.run_cmd import RunRunner
 
     runner = RunRunner()
     runner.INPUT_FILE = input_file

@@ -1,4 +1,3 @@
-import argparse
 import sys
 from pathlib import Path
 
@@ -10,30 +9,19 @@ class StopRunner:
         self.manager = manager
 
     def run(self, session_file=None):
-        if session_file is None:
-            session_file = SESSION_DIR / "session"
-        session_id = self.manager.session_id
-        sp = Path(session_file)
-        if sp.exists():
-            content = sp.read_text()
-            for line in content.splitlines():
-                if line.startswith("session_id="):
-                    session_id = line.split("=", 1)[1]
-            sp.unlink()
+        sessions_dir = Path.home() / ".owrap" / "sessions"
+        global_session = Path.home() / ".owrap" / "session"
 
-        print(f"OWRAP SESSION STOPPED  session: {session_id}")
+        self.manager.stop()
+
+        count = 0
+        if sessions_dir.exists():
+            for sf in sessions_dir.glob("*.session"):
+                sf.unlink(missing_ok=True)
+                count += 1
+        if global_session.exists():
+            global_session.unlink(missing_ok=True)
+            count += 1
+
+        print(f"OWRAP STOPPED  server killed  sessions cleared ({count} removed)")
         sys.exit(0)
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Stop an owrap session")
-    parser.add_argument("--session-file", type=str, default=None, help="Session file path")
-    args = parser.parse_args()
-
-    from ..manager import Manager
-    manager = Manager()
-    StopRunner(manager).run(session_file=args.session_file)
-
-
-if __name__ == "__main__":
-    main()

@@ -23,10 +23,20 @@ class RefreshRunner(BaseRunner):
 
         session_id = self.manager.session_id
         sp = Path(session_file)
-        for line in sp.read_text().splitlines():
+        lines = sp.read_text().splitlines()
+        existing_research = None
+        for line in lines:
             if line.startswith("session_id="):
                 session_id = line.split("=", 1)[1]
-                break
+            if line.startswith("research="):
+                existing_research = line.split("=", 1)[1]
+
+        if research is None:
+            research = existing_research
+        elif research != existing_research:
+            new_lines = [l for l in lines if not l.startswith("research=")]
+            new_lines.append(f"research={research}")
+            sp.write_text("\n".join(new_lines) + "\n")
 
         plan_path = get_plan_path(session_id)
         todo_path = get_todo_path()

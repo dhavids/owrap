@@ -1,32 +1,33 @@
 {
   "permissions": {
     "allow": [
+      "Bash(python3:*)",
       "Bash(opencode run *)",
+      "Bash(opencode --help)",
       "Bash(oread *)",
       "Bash(orun *)",
       "Bash(oexec *)",
       "Bash(owait *)",
+      "Bash(~/bin/oread *)",
+      "Bash(~/bin/orun *)",
+      "Bash(~/bin/oexec *)",
+      "Bash(~/bin/owait *)",
       "Bash(owrap *)",
-      "Bash($HOME/bin/oread *)",
-      "Bash($HOME/bin/orun *)",
-      "Bash($HOME/bin/oexec *)",
-      "Bash($HOME/bin/owait *)",
-      "Bash($HOME/bin/owrap *)",
-      "Bash(python3:*)",
+      "Bash(~/bin/owrap *)",
       "Bash(wait)",
       "Read(CLAUDE.md)",
       "Read(AGENTS.md)",
-      "Read(<research_root>/self.md)",
-      "Read(<research_root>/projects/**)",
       "Edit(CLAUDE.md)",
       "Edit(AGENTS.md)",
-      "Edit(<research_root>/self.md)",
-      "Edit(<research_root>/projects/**)",
-      "Edit(<owrap_docs>/plan_*.md)",
-      "Edit(<owrap_docs>/run/tasks/input_*.md)",
-      "Edit(<owrap_docs>/run/tasks/task0.md)"
+      "Read(self.md)",
+      "Edit(projects/**)",
+      "Edit(plan*.md)",
+      "Edit(input*.md)",
+      "Edit(task0.md)",
+      "Read(~/bin/**)"
     ],
     "deny": [
+      "Grep",
       "Bash(grep *)",
       "Bash(find *)",
       "Bash(ls *)",
@@ -34,7 +35,6 @@
       "Bash(rm *)"
     ],
     "additionalDirectories": [
-      "/tmp/opencode",
       "$HOME/.owrap"
     ]
   }

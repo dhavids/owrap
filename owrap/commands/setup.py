@@ -8,13 +8,17 @@ from ..utils.paths import OWRAP_ROOT, CONFIGS_DIR, DOCS_DIR, get_self_path
 class SetupRunner:
     """Configure owrap for a research project. Does not inherit from BaseRunner — no manager/server needed."""
 
-    def run(self, research_root=None):
-        resolved_research_root = None
+    def run(self, project_root=None, research_folder=None):
+        research_folder = research_folder or project_root
 
-        if research_root is not None:
-            resolved = Path(research_root).resolve()
-            if not resolved.is_dir():
-                print(f"Error: '{research_root}' is not a valid directory.")
+        if project_root is not None:
+            resolved_project = Path(project_root).resolve()
+            if not resolved_project.is_dir():
+                print(f"Error: '{project_root}' is not a valid directory.")
+                sys.exit(1)
+            resolved_research = Path(research_folder).resolve()
+            if not resolved_research.is_dir():
+                print(f"Error: '{research_folder}' is not a valid directory.")
                 sys.exit(1)
 
             config_path = CONFIGS_DIR / "owrap.json"
@@ -26,15 +30,14 @@ class SetupRunner:
                 with open(template_path) as f:
                     config = json.load(f)
 
-            config["research_root"] = str(resolved)
+            config["project_root"] = str(resolved_project)
+            config["research_root"] = str(resolved_research)
 
             CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
             with open(config_path, "w") as f:
                 json.dump(config, f, indent=2)
 
-            resolved_research_root = str(resolved)
-
-        def check_file(filename, search_from):
+        def _find_upward(filename, search_from):
             current = search_from
             for _ in range(6):
                 candidate = current / filename
@@ -45,10 +48,31 @@ class SetupRunner:
                 current = current.parent
             return None
 
-        cwd = Path.cwd()
-        claude_path = check_file("CLAUDE.md", cwd)
-        agents_path = check_file("AGENTS.md", cwd)
-        self_path = get_self_path()
+        config = {}
+        config_path = CONFIGS_DIR / "owrap.json"
+        if config_path.exists():
+            with open(config_path) as f:
+                config = json.load(f)
+
+        resolved_project_root = config.get("project_root")
+        resolved_research_root = config.get("research_root")
+
+        project_root_path = Path(resolved_project_root) if resolved_project_root else Path.cwd()
+        research_folder_path = Path(resolved_research_root) if resolved_research_root else project_root_path
+
+        if resolved_project_root:
+            claude_path = project_root_path / "CLAUDE.md" if (project_root_path / "CLAUDE.md").exists() else None
+            agents_path = project_root_path / "AGENTS.md" if (project_root_path / "AGENTS.md").exists() else None
+        else:
+            cwd = Path.cwd()
+            claude_path = _find_upward("CLAUDE.md", cwd)
+            agents_path = _find_upward("AGENTS.md", cwd)
+
+        self_path = research_folder_path / "self.md"
+
+        claude_dest = project_root_path / "CLAUDE.md"
+        agents_dest = project_root_path / "AGENTS.md"
+        self_dest = research_folder_path / "self.md"
 
         def status_line(filename, found_path, dest_path):
             template_name = OWRAP_ROOT / "templates" / filename
@@ -57,28 +81,16 @@ class SetupRunner:
             else:
                 return f"EXISTS: Read {found_path} and {template_name}. Only update {found_path} if the template has sections or modes not present in the existing file. If the existing file is already more detailed, leave it unchanged."
 
-        config = {}
-        config_path = CONFIGS_DIR / "owrap.json"
-        if config_path.exists():
-            with open(config_path) as f:
-                config = json.load(f)
-        resolved_research_root = config.get("research_root")
-        if resolved_research_root:
-            research_root_path = Path(resolved_research_root)
-        else:
-            research_root_path = cwd
-
-        claude_dest = research_root_path / "CLAUDE.md"
-        agents_dest = research_root_path / "AGENTS.md"
-        self_dest = get_self_path()
-
         claude_status = status_line("CLAUDE.md", claude_path, claude_dest)
         agents_status = status_line("AGENTS.md", agents_path, agents_dest)
         self_status = status_line("self.md", self_path if self_path.exists() else None, self_dest)
 
         print("\n=== owrap setup ===\n")
-        if research_root is not None:
-            print(f"✓ research_root set to '{Path(research_root).resolve()}' in configs/owrap.json\n")
+        if project_root is not None:
+            print(f"✓ project_root set to '{resolved_project}' in configs/owrap.json")
+            if research_folder != project_root:
+                print(f"✓ research_root set to '{resolved_research}' in configs/owrap.json")
+            print()
         print("FILES — check each and act accordingly:\n")
         print(f"  CLAUDE.md     {claude_status}")
         print(f"  AGENTS.md     {agents_status}")
@@ -89,20 +101,21 @@ class SetupRunner:
         print("  MISSING rule: Copy the template to the destination and fill in project-specific")
         print("                values (project name, research topic, paths).")
         print("\nSETTINGS\n")
-        print(f"  Copy {OWRAP_ROOT}/templates/settings.json to .claude/settings.json")
-        print("  (or .claude/settings.local.json for local-only).")
+        print(f"  Copy {OWRAP_ROOT}/templates/settings.json to BOTH {project_root_path}/.claude/settings.json AND {project_root_path}/.claude/settings.local.json.")
         print()
-        placeholder = resolved_research_root or "<not yet set — run owrap setup <path> first>"
-        print(f"  Then replace the two placeholders:")
-        print(f"    <research_root>  →  {placeholder}")
-        print(f"    <owrap_docs>     →  {DOCS_DIR}")
+        import os
+        rel_owrap_docs = os.path.relpath(DOCS_DIR, project_root_path)
+        print(f"  Then replace the placeholders (use paths RELATIVE to project_root for Edit/Read rules):")
+        print(f"    <project_root>   →  {project_root_path}  (absolute — used in additionalDirectories only)")
+        print(f"    <research_root>  →  {os.path.relpath(research_folder_path, project_root_path)}")
+        print(f"    <owrap_docs>     →  {rel_owrap_docs}")
         print()
         print("  The settings file grants the planner permission to read/edit plan files,")
         print("  project files, and dispatch owrap commands without prompting.")
         print("\nNEXT STEPS\n")
         print("  1. Act on each FILES item above (copy or merge).")
         print("  2. Update settings.json placeholders.")
-        print("  3. Run `owrap start <research_name>` to begin your session.")
-        print("     If research_name is already set in config, `owrap start` is enough.")
+        print("  3. Run `~/bin/owrap start <research_name>` to begin your session.")
+        print("     If research_name is already set in config, `~/bin/owrap start` is enough.")
 
         sys.exit(0)

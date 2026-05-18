@@ -10,14 +10,14 @@ You are always in **--planner** mode unless a different flag is specified.
 |---|---|---|
 | `--start <name>` | Planner | Run `~/bin/owrap start <name>` in bash, then proceed as --planner |
 | *(none)* or `--planner` | Planner | Design/update plans, add project TODOs |
-| `--executor` / `--exec` | Executor | Read `[ACTIVE]` plan → execute → mark TODOs `[x]` |
+| `--executor` / `--exec [path]` | Executor | Read plan → execute → mark TODOs `[x]`. Reads from path if given, else `owrap/docs/plan0.md`. |
 | `--check` | Planner review | Verify completed TODOs against plan |
 | `--agent` | Planner + auto-dispatch | Plan → delegate via ~/bin/oread/~/bin/orun/~/bin/oexec → verify |
 | `--analyser` | Analyser + auto-dispatch | Think-only: analysis plan → dispatch → interpret results |
 | `--task` | Task executor | Contract-driven task execution |
-| `--taskf` | Fallback | Direct opencode run; model self-writes output to fixed log paths |
-| `--execf` | Fallback | Direct opencode run; model self-writes exec output |
-| `--setup [research_root]` | Setup | Run `~/bin/owrap setup [research_root]` in bash (installs shims, sets research_root), then act on the printed FILES and SETTINGS instructions |
+| `--taskf [path]` | Fallback | Direct opencode run; reads task from path if given, else `owrap/docs/run/tasks/task0.md`; model self-writes output to fixed log paths |
+| `--execf [path]` | Fallback | Direct opencode run; reads plan from path if given, else `owrap/docs/plan0.md`; model self-writes exec output |
+| `--setup [project_root] [research_folder]` | Setup | Run `~/bin/owrap setup [project_root] [research_folder]` in bash. project_root is where CLAUDE.md/AGENTS.md/.claude/ live; research_folder (optional) is where self.md lives. Then act on the printed FILES and SETTINGS instructions |
 | `--refresh` | Refresh | Run `~/bin/owrap refresh` in bash (re-prints orientation), then check CLAUDE.md, AGENTS.md, self.md against templates — merge missing sections if behind, leave unchanged if already more detailed |
 
 **Hire-first rule:** Delegate any non-thinking work via:
@@ -49,11 +49,11 @@ Read `self.md` at the start of every message pass, without exception.
 
 ## Self-Modification Rule
 
-When the active plan modifies the opencode helper system itself (`owrap/`, `~/bin/orun`, `~/bin/oexec`, `~/bin/owait`), never dispatch via `~/bin/oexec` — use the fallback directly: `opencode run --dangerously-skip-permissions -- --execf` **in foreground only**.
+When the active plan modifies the opencode helper system itself (`owrap/`, `~/bin/orun`, `~/bin/oexec`, `~/bin/owait`), never dispatch via `~/bin/oexec` — use the fallback directly: `opencode run --dangerously-skip-permissions -- --execf <plan_path>` **in foreground only**. Pass the plan path explicitly so the executor finds it regardless of session state.
 
 ## Planner Fallback Rule
 
-If the planner cannot invoke `~/bin/oread`, `~/bin/orun`, or `~/bin/oexec` for any reason (permission rejection, shim unavailable, server down), fall back directly: for tasks, write to `docs/research/run/tasks/task0.md` then run `opencode run -- --taskf`; for plan execution, run `opencode run -- --execf`. Add `--dangerously-skip-permissions` if needed. Always foreground.
+If the planner cannot invoke `~/bin/oread`, `~/bin/orun`, or `~/bin/oexec` for any reason (permission rejection, shim unavailable, server down), fall back directly: for tasks, write to `owrap/docs/run/tasks/task0.md` then run `opencode run -- --taskf`; for plan execution, run `opencode run -- --execf <plan_path>`. Add `--dangerously-skip-permissions` if needed. Always foreground.
 
 ## Planner File Restrictions
 

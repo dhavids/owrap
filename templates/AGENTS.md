@@ -14,7 +14,11 @@ This file provides guidance when working with code in this repository.
 
 **`--analyser` (think + auto-dispatch):** Think-only mode: write analysis plan + TODOs → dispatch → read output → iterate → delete plan and TODOs when done. Never writes code or runs commands.
 
-**`--task` (hired executor):** Contract-driven execution — reads `docs/research/run/tasks/task.md`. Caller writes task file, then runs `orun`. Executor implements, writes output, prepends timestamped line to `log.md`.
+**`--task` (hired executor):** Contract-driven execution — reads `owrap/docs/run/tasks/task.md`. Caller writes task file, then runs `orun`. Executor implements, writes output, prepends timestamped line to `log.md`.
+
+**`--taskf [path]` (fallback task executor):** No runner.py involved — opencode executes the task directly. Read the task from `path` if given, otherwise from `owrap/docs/run/tasks/task0.md`. Execute the task fully (same contract format as `--task`). Then as the **absolute last action**: write output to `owrap/docs/run/output/task0.log` and prepend a timestamped title line to `owrap/docs/run/log.md`.
+
+**`--execf [path]` (fallback plan executor):** No runner.py involved — opencode executes the active plan directly. Read the plan from `path` if given, otherwise from `owrap/docs/plan0.md`. Execute the plan steps in order, update `docs/changes/`, mark TODOs `[x]`. Then as the **absolute last action**: write a summary to `owrap/docs/exec/output/exec_output.log` and prepend a timestamped entry to `owrap/docs/exec/log.md`.
 
 **`--start <name>`:** Run `owrap start <name>` in bash to begin a session, then proceed as `--planner`.
 

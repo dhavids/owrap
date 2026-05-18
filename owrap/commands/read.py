@@ -26,6 +26,19 @@ class ReadRunner(BaseRunner):
         read_log.write_text(entry + existing)
 
     def run(self, file_path, summarise=False, details=None, log_time=True):
+        if not summarise and details is None:
+            import subprocess
+            p = Path(file_path)
+            if not p.exists():
+                print(f"{file_path}: does not exist")
+                sys.exit(1)
+            elif p.is_dir():
+                result = subprocess.run(["ls", str(p)])
+                sys.exit(result.returncode)
+            else:
+                print(p.read_text(), end="")
+                sys.exit(0)
+
         url = self.manager.ensure_running()
 
         prompt = f"Read the file at {file_path}"
@@ -49,9 +62,22 @@ class ReadRunner(BaseRunner):
                 cmd.append("--dangerously-skip-permissions")
             cmd.extend(["--", "--task", shlex.quote(str(fallback_file))])
 
+        TIMEOUT = 45
         self.manager.t_cmd_start()
-        result = Terminal(verbose=False).run(" ".join(cmd), print_output=True, capture_output=True)
+        result = Terminal(verbose=False).run(" ".join(cmd), print_output=True, capture_output=True, timeout=TIMEOUT)
         self.manager.t_cmd_end()
+
+        if result.get("timed_out"):
+            partial = (result.get("stdout") or "").strip()
+            chars = len(partial)
+            print(flush=True)
+            print(f"[oread] timed out after {TIMEOUT}s", flush=True)
+            print(f"  partial output printed above ({chars} chars captured)", flush=True)
+            print(f"  the file or query is too large for -d — try -s (summarise) instead", flush=True)
+            self._write_read_log(file_path)
+            self.manager.log_time(log_time)
+            sys.exit(2)
+
         rc = result.get("returncode", 1)
         self._write_read_log(file_path)
         self.manager.log_time(log_time)

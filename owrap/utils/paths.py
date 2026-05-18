@@ -64,6 +64,18 @@ def get_self_path() -> Path:
     return DOCS_DIR / "self.md"
 
 
+def get_project_root() -> Path:
+    """Return project_root if configured, else fall back to research_root parent or DOCS_DIR parent."""
+    config = _read_config()
+    v = config.get("project_root")
+    if v:
+        return Path(v)
+    v = config.get("research_root")
+    if v:
+        return Path(v).parent
+    return DOCS_DIR.parent
+
+
 def get_todo_path() -> Path:
     research = os.environ.get("OWRAP_RESEARCH", "")
     config = _read_config()

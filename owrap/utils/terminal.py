@@ -207,6 +207,7 @@ class Terminal:
         }
 
     def _run_standard(self, command, stdin, capture_output, print_output, silent, timeout):
+        import time
         if self.verbose and not silent:
             print(f"Running: {command}")
         use_stdin_pipe = isinstance(stdin, str) or self.send_sigint
@@ -234,8 +235,18 @@ class Terminal:
             if proc.stderr:
                 flags = fcntl.fcntl(proc.stderr, fcntl.F_GETFL)
                 fcntl.fcntl(proc.stderr, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+            deadline = (time.time() + timeout) if timeout else None
+            timed_out = False
             while proc.poll() is None:
-                readable, _, _ = select.select([proc.stdout, proc.stderr], [], [], 0.1)
+                if deadline:
+                    remaining = deadline - time.time()
+                    if remaining <= 0:
+                        timed_out = True
+                        break
+                    wait = min(0.1, remaining)
+                else:
+                    wait = 0.1
+                readable, _, _ = select.select([proc.stdout, proc.stderr], [], [], wait)
                 for stream in readable:
                     if stream == proc.stdout:
                         line = stream.readline()
@@ -248,6 +259,19 @@ class Terminal:
                         if line:
                             stderr_lines.append(line)
                             print(line, end="", flush=True)
+            if timed_out:
+                self.terminate_process(timeout=2)
+                self._process = None
+                stdout = "".join(stdout_lines)
+                stderr = "".join(stderr_lines)
+                return {
+                    "returncode": -1,
+                    "stdout": stdout if capture_output else None,
+                    "stderr": stderr if capture_output else None,
+                    "success": False,
+                    "timed_out": True,
+                    "command": command,
+                }
             try:
                 remaining_stdout = proc.stdout.read()
             except TypeError:

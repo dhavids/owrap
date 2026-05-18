@@ -82,7 +82,7 @@ If needed: `sudo apt install python3.10` or use pyenv.
 ```bash
 git clone https://github.com/dhavids/owrap.git
 cd owrap
-python setup.py
+python3 setup.py
 ```
 
 `setup.py` checks all dependencies and installs shims (`oread`, `orun`, `oexec`, `owait`, `owrap`) to `~/bin/` with the correct `OWRAP_ROOT` path baked in. It prints install hints for anything missing — it never installs dependencies itself. Make sure `~/bin/` is on your `$PATH`.
@@ -91,10 +91,10 @@ python setup.py
 
 After running `python3 setup.py`, tell Claude Code to start a session:
 
-> Run this command in bash and execute the instructions: `~/bin/owrap setup <your_research_folder>`
+> Run this command in bash and execute the instructions: `~/bin/owrap setup <project_root> [research_folder]`
 
 For example:
-> Run this command in bash and execute the instructions: `~/bin/owrap setup /home/user/myproject/research`
+> Run this command in bash and execute the instructions: `~/bin/owrap setup /home/user/myproject /home/user/myproject/docs/research`
 
 Claude will run `~/bin/owrap setup`, read the printed instructions, and set up your `CLAUDE.md`,
 `AGENTS.md`, `self.md`, and `settings.json` for the project. After that, tell it:
@@ -110,7 +110,8 @@ Copy `templates/config.json` to `configs/owrap.json` and edit. The file should b
 | Key | Type | Description |
 |---|---|---|
 | `default_research` | string | Default project name when no research is specified (e.g. `my_project`) |
-| `research_root` | string | Path to the `docs/research` folder |
+| `project_root` | string | Path to the project root (where `CLAUDE.md`, `AGENTS.md`, `.claude/` live) |
+| `research_root` | string | Path to the research folder (where `self.md` lives; often `<project_root>/docs/research`) |
 | `allow_all` | bool | Always pass `--dangerously-skip-permissions` to opencode |
 
 ```json

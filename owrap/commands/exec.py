@@ -1,5 +1,6 @@
 import argparse
 import re
+import shlex
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -7,15 +8,18 @@ from pathlib import Path
 from ..utils.terminal import Terminal
 from ..manager import Manager
 from ..base import BaseRunner
-from ..utils.paths import EXEC_OUTPUT_DIR
+from ..utils.paths import EXEC_OUTPUT_DIR, get_plan_path
 
 
 class ExecRunner(BaseRunner):
     LOG_DIR = EXEC_OUTPUT_DIR
     LOG_FILE = EXEC_OUTPUT_DIR / "exec_output.log"
 
-    def _get_active_plan_name(self) -> str:
-        plan_path = Path.home() / "marl/docs/research/plan.md"
+    def _get_active_plan_name(self, plan_path: Path | None = None) -> str:
+        if plan_path is None:
+            plan_path = get_plan_path(self.manager.session_id) if self.manager.session_id else None
+        if plan_path is None:
+            return "exec"
         try:
             content = plan_path.read_text()
             match = re.search(r'^## \[ACTIVE\]\s+(.+)$', content, re.MULTILINE)
@@ -38,6 +42,9 @@ class ExecRunner(BaseRunner):
         exec_log.write_text(entry + existing)
 
     def run(self, log_time=True):
+        session_id = self.manager.session_id
+        plan_path = get_plan_path(session_id) if session_id else None
+
         url = self.manager.ensure_running()
 
         cmd = ["opencode", "run"]
@@ -45,11 +52,14 @@ class ExecRunner(BaseRunner):
             cmd.append("--dangerously-skip-permissions")
         if url:
             cmd.extend(["--attach", url])
-            cmd.extend(["--", "--exec"])
+            if plan_path:
+                cmd.extend(["--", "--exec", shlex.quote(str(plan_path))])
+            else:
+                cmd.extend(["--", "--exec"])
         else:
             cmd.extend(["--", "--execf"])
 
-        plan_name = self._get_active_plan_name()
+        plan_name = self._get_active_plan_name(plan_path)
 
         self.LOG_DIR.mkdir(parents=True, exist_ok=True)
         if self.LOG_FILE.exists():
