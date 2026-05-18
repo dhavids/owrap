@@ -65,7 +65,7 @@ class SetupRunner:
 
         # Step 4: PATH check
         bin_dst_str = str(bin_dst)
-        check_path = False      # We skip as we use ~/bin directly for now
+        check_path = True      # We allow for now so you can use the short cmd in terminal
         if bin_dst_str not in os.environ.get("PATH", "") and check_path:
             print(f"\n{bin_dst} is not in your PATH.")
             try:
