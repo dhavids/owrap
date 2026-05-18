@@ -42,7 +42,7 @@ class StartRunner(BaseRunner):
                     )
 
         plan_path = get_plan_path(session_id)
-        todo_path = get_todo_path()
+        todo_path = get_todo_path(research)
         self_path = get_self_path()
         input_path = session_input(session_id)
 

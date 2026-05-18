@@ -87,6 +87,7 @@ class Manager:
 
     def start(self, port=4096):
         SESSION_DIR.mkdir(parents=True, exist_ok=True)
+        self._kill_port_occupant(port)
         tmp_log = SESSION_DIR / f"owrap_start_{int(time.time())}.log"
         log_fd = open(tmp_log, "w")
         proc = subprocess.Popen(
@@ -136,6 +137,20 @@ class Manager:
                 os.kill(pid, 15)
                 if self._logger:
                     self._logger.info("server stopped pid=%d", pid)
+                deadline = time.time() + 5.0
+                escalated = False
+                while time.time() < deadline:
+                    try:
+                        os.kill(pid, 0)
+                    except OSError:
+                        break
+                    if not escalated and time.time() - (deadline - 5.0) > 2.0:
+                        try:
+                            os.kill(pid, 9)
+                            escalated = True
+                        except OSError:
+                            break
+                    time.sleep(0.1)
             except OSError:
                 if self._logger:
                     self._logger.info("stop: server pid=%s already gone", pid)
@@ -143,6 +158,79 @@ class Manager:
             os.unlink(self.STATE_FILE)
         except OSError:
             pass
+
+    def _pid_alive(self, pid):
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+    def _find_port_pids(self, port):
+        """Return PIDs listening on port by reading /proc/net/tcp (no external tools)."""
+        hex_port = format(port, '04X')
+        inodes = set()
+        for tcp_file in ('/proc/net/tcp', '/proc/net/tcp6'):
+            try:
+                with open(tcp_file) as f:
+                    for line in f:
+                        parts = line.split()
+                        if len(parts) < 10:
+                            continue
+                        local_addr = parts[1]
+                        state = parts[3]
+                        inode = parts[9]
+                        if state == '0A':  # LISTEN
+                            port_hex = local_addr.split(':')[-1].upper()
+                            if port_hex == hex_port:
+                                inodes.add(inode)
+            except OSError:
+                pass
+        if not inodes:
+            return []
+        pids = []
+        try:
+            for entry in os.listdir('/proc'):
+                if not entry.isdigit():
+                    continue
+                try:
+                    fd_dir = f'/proc/{entry}/fd'
+                    for fd in os.listdir(fd_dir):
+                        try:
+                            link = os.readlink(f'{fd_dir}/{fd}')
+                            if link.startswith('socket:[') and link[8:-1] in inodes:
+                                pids.append(int(entry))
+                                break
+                        except OSError:
+                            pass
+                except OSError:
+                    pass
+        except OSError:
+            pass
+        return pids
+
+    def _kill_port_occupant(self, port):
+        """Kill any process occupying the given port (orphan cleanup)."""
+        pids = self._find_port_pids(port)
+        for pid in pids:
+            try:
+                os.kill(pid, 15)
+            except OSError:
+                pass
+        if pids:
+            deadline = time.time() + 3.0
+            while time.time() < deadline:
+                if not any(self._pid_alive(p) for p in pids):
+                    break
+                time.sleep(0.1)
+            for pid in pids:
+                try:
+                    os.kill(pid, 9)
+                except OSError:
+                    pass
+            time.sleep(0.2)
+            if self._logger:
+                self._logger.info("kill_port_occupant: cleared pids=%s port=%d", pids, port)
 
     def get_url(self):
         state = self._read_state()

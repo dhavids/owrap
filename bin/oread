@@ -3,4 +3,14 @@ SESSION_FILE="$HOME/.owrap/sessions/${CLAUDE_CODE_SESSION_ID}.session"
 if [ ! -f "$SESSION_FILE" ]; then SESSION_FILE="$HOME/.owrap/session"; fi
 [ -f "$SESSION_FILE" ] && export OWRAP_SESSION=$(grep "^session_id=" "$SESSION_FILE" | cut -d= -f2)
 [ -f "$SESSION_FILE" ] && export OWRAP_RESEARCH=$(grep "^research=" "$SESSION_FILE" | cut -d= -f2)
-cd "<OWRAP_ROOT>" && <PYTHON> -m owrap.runner read "$@"
+ID_VAL=""
+SAFE_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -i|--id) ID_VAL="$2"; shift 2 ;;
+    --id=*)  ID_VAL="${1#--id=}"; shift ;;
+    *)       SAFE_ARGS+=("$1"); shift ;;
+  esac
+done
+[[ -n "$ID_VAL" ]] && SAFE_ARGS+=("--id" "$ID_VAL")
+cd "<OWRAP_ROOT>" && <PYTHON> -m owrap.runner read "${SAFE_ARGS[@]}"

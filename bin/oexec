@@ -9,5 +9,5 @@ if [[ "$1" == "--fg" ]]; then
 else
   echo "[oexec] dispatching (session: $OWRAP_SESSION) ..."
   <PYTHON> -m owrap.runner exec "$@" &
-  $HOME/bin/owait exec "$OWRAP_SESSION"
+  <PYTHON> -m owrap.runner wait exec
 fi

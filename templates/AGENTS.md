@@ -43,7 +43,7 @@ Any non-thinking work goes through helpers:
 
 ## Parallel Execution
 
-`orun` (file task) and `oexec` auto-background and call `owait run`/`owait exec` internally. Use `--fg` to force foreground. `orun --msg` is always foreground. `oread` is always foreground.
+`orun --msg` — foreground by default, no tagging. Parallel: `orun -i <id> --msg "..."` + `run_in_background=True`; stdout `[m:<id>]`, log tagged. `oread` — same: `oread -i <id> -f <file>` + `run_in_background=True`; stdout `[r:<id>]`. Pass `-i` first in both (shim normalises any position). File tasks always stdout `[t:<task_id>]`. Without `-i`: no tagging, foreground as normal. After dispatching oread (-i) or orun --msg (-i) with run_in_background=True, wait for the task-notification — do not poll. Expect within 60s (oread) or 180s (orun --msg); if none arrives, investigate.
 
 ## Workflow Rules
 
@@ -52,3 +52,4 @@ Any non-thinking work goes through helpers:
 3. **Only change relevant code:** Do not modify unrelated parts.
 4. **Document every code change** in `docs/changes/<codebase>.md`.
 5. **Comment style:** One or two lines max. No decorative separators, no phase labels.
+6. **Absolute paths everywhere:** all file references in plan steps, task files, input submissions, and `--msg` arguments must be absolute paths. Never use relative paths or bare filenames.

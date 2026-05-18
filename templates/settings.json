@@ -1,7 +1,6 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python3 *)",
       "Bash(opencode run *)",
       "Bash(opencode --help)",
       "Bash(oread *)",

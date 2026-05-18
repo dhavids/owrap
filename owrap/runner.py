@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 from .session import StartRunner, StopRunner, RefreshRunner, RestartRunner, CleanupRunner, EndRunner
-from .commands import ExecRunner, ReadRunner, RunRunner, SetupRunner
+from .commands import ExecRunner, ReadRunner, RunRunner, SetupRunner, WaitRunner
 from .manager import Manager
 from .utils.paths import _read_config
 
@@ -54,16 +54,24 @@ def main():
     read_parser.add_argument("-g", "--grep", type=str, default=None, help="Grep pattern (fast, no opencode)")
     read_parser.add_argument("-s", "--summarise", action="store_true", help="Summarise content")
     read_parser.add_argument("-d", "--details", type=str, default=None, help="Focus details")
+    read_parser.add_argument("--id", "-i", type=str, default=None, help="Read ID for parallel tracking")
     read_parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     read_parser.add_argument("--no-log-time", action="store_true", help="Suppress the timing block")
 
     run_parser.add_argument("--msg", type=str, default=None, help="Single-line message for task mode")
+    run_parser.add_argument("--id", "-i", type=str, default=None, help="Msg ID for parallel tracking")
     run_parser.add_argument("--input", type=str, default=None, help="Input file path")
     run_parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     run_parser.add_argument("--no-log-time", action="store_true", help="Suppress the timing block")
 
     exec_parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     exec_parser.add_argument("--no-log-time", action="store_true", help="Suppress the timing block")
+
+    wait_parser = subparsers.add_parser("wait", help="Wait for task/read/msg completion")
+    wait_parser.add_argument("type", choices=["run", "exec", "read", "msg"])
+    wait_parser.add_argument("id", nargs="?", default=None, help="ID to wait for (required for read/msg)")
+    wait_parser.add_argument("--session", type=str, default=None, help="Session ID override")
+    wait_parser.add_argument("--timeout", type=int, default=None, help="Timeout in seconds")
 
     args = parser.parse_args()
 
@@ -94,12 +102,21 @@ def main():
             import sys as _sys; print("error: -f/--file required unless using -g/--grep", file=_sys.stderr); _sys.exit(1)
         ReadRunner(manager, logger, allow_all=allow_all).run(
             args.file, summarise=args.summarise, details=args.details,
-            log_time=not args.no_log_time, grep=args.grep)
+            log_time=not args.no_log_time, grep=args.grep, read_id=getattr(args, 'id', None))
     elif args.command in ("run",):
-        RunRunner(manager, logger, allow_all=allow_all).run(msg=args.msg, input_path=Path(args.input) if args.input else None,
-                                                             log_time=not args.no_log_time)
+        RunRunner(manager, logger, allow_all=allow_all).run(
+            msg=args.msg, msg_id=getattr(args, 'id', None),
+            input_path=Path(args.input) if args.input else None,
+            log_time=not args.no_log_time)
     elif args.command in ("exec", "work"):
         ExecRunner(manager, logger, allow_all=allow_all).run(log_time=not args.no_log_time)
+    elif args.command == "wait":
+        WaitRunner(manager, logger, allow_all=allow_all).run(
+            wait_type=args.type,
+            wait_id=args.id,
+            session_id=args.session,
+            timeout=args.timeout,
+        )
     elif args.command == "stat":
         from .session.stat import StatRunner
         sys.exit(StatRunner(manager, logger, allow_all).run(args))

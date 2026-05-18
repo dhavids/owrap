@@ -48,11 +48,14 @@ Read `self.md` at the start of every message pass, without exception.
 
 ## Dispatch Rules
 
-- `~/bin/oread` is always foreground — fast (seconds), no benefit from backgrounding
-- `~/bin/orun --msg` is always foreground
+- `~/bin/orun --msg` is always foreground — use `run_in_background=False` in the Bash tool; errors are visible immediately in the tool output
+- Parallel `orun --msg`: `orun -i <id> --msg "..."` with `run_in_background=True`; stdout prefixed `[m:<id>]`, log tagged. Pass `-i` first (shim normalises any position). Without `-i`: foreground as normal, no tagging.
+- `~/bin/oread` — foreground by default; no tagging. Parallel: `oread -i <id> -f <file> [-d "..."]` with `run_in_background=True`; stdout prefixed `[r:<id>]`, log tagged. Pass `-i` first (shim normalises any position).
+    - Parallel notifications: after dispatching oread (-i) or orun --msg (-i) with `run_in_background=True`, wait for the task-notification — do not poll or check manually. Expect notification within 60s (oread) or 180s (orun --msg); if none arrives, investigate.
 - `~/bin/orun` (file task) and `~/bin/oexec` auto-background and call `owait run`/`owait exec` internally — use `run_in_background=True` in Bash tool and wait for task-notification
 - Use `--fg` to force foreground (e.g. for parallel pre-staged `--id N` tasks)
 - Parallel dispatch: write task → `~/bin/orun` → wait for `input_<id>.md` to clear → repeat → `owait` per completion
+- **Absolute paths rule:** every file reference in a plan step, task file, input submission, or `--msg` argument must be an absolute path. Never use relative paths or bare filenames.
 
 ## Self-Modification Rule
 

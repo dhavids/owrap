@@ -4,10 +4,20 @@ if [ ! -f "$SESSION_FILE" ]; then SESSION_FILE="$HOME/.owrap/session"; fi
 [ -f "$SESSION_FILE" ] && export OWRAP_SESSION=$(grep "^session_id=" "$SESSION_FILE" | cut -d= -f2)
 [ -f "$SESSION_FILE" ] && export OWRAP_RESEARCH=$(grep "^research=" "$SESSION_FILE" | cut -d= -f2)
 cd "<OWRAP_ROOT>"
-if [[ "$*" == *"--msg"* || "$*" == *"-m "* || "$1" == "--fg" ]]; then
-  <PYTHON> -m owrap.runner run "$@"
+ID_VAL=""
+SAFE_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -i|--id) ID_VAL="$2"; shift 2 ;;
+    --id=*)  ID_VAL="${1#--id=}"; shift ;;
+    *)       SAFE_ARGS+=("$1"); shift ;;
+  esac
+done
+[[ -n "$ID_VAL" ]] && SAFE_ARGS+=("--id" "$ID_VAL")
+if [[ "${SAFE_ARGS[*]}" == *"--msg"* || "${SAFE_ARGS[*]}" == *"-m "* || "${SAFE_ARGS[0]}" == "--fg" ]]; then
+  <PYTHON> -m owrap.runner run "${SAFE_ARGS[@]}"
 else
   echo "[orun] dispatching (session: $OWRAP_SESSION) ..."
-  <PYTHON> -m owrap.runner run "$@" &
-  $HOME/bin/owait run "$OWRAP_SESSION"
+  <PYTHON> -m owrap.runner run "${SAFE_ARGS[@]}" &
+  <PYTHON> -m owrap.runner wait run
 fi

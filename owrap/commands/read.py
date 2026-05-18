@@ -31,24 +31,28 @@ class ReadRunner(BaseRunner):
             print(result.stderr, end="", file=sys.stderr)
         sys.exit(0)
 
-    def _write_read_log(self, file_path: str):
+    def _write_read_log(self, file_path: str, tag: str = ""):
+        import fcntl
         read_log = self.manager.read_log_path
         read_log.parent.mkdir(parents=True, exist_ok=True)
-        entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M')} — {file_path}\n"
-        existing = ""
-        if read_log.exists():
-            try:
-                existing = read_log.read_text()
-            except Exception:
-                pass
-        read_log.write_text(entry + existing)
+        tag_str = f" {tag}" if tag else ""
+        entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M')}{tag_str} — {file_path}\n"
+        read_log.touch(exist_ok=True)
+        with open(read_log, "r+") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            existing = f.read()
+            f.seek(0)
+            f.write(entry + existing)
+            f.truncate()
 
     LARGE_FILE_LINES = 500
 
-    def run(self, file_path, summarise=False, details=None, log_time=True, grep=None):
+    def run(self, file_path, summarise=False, details=None, log_time=True, grep=None, read_id=None):
         if grep is not None:
             self._run_grep(grep, file_path)
             return
+        if read_id:
+            print(f"[r:{read_id}]", flush=True)
         if self.logger:
             self.logger.info("read file=%s session=%s", file_path, self.manager.session_id or "none")
             if details:
@@ -67,6 +71,7 @@ class ReadRunner(BaseRunner):
                 line_count = text.count("\n") + (1 if text and not text.endswith("\n") else 0)
                 if line_count <= self.LARGE_FILE_LINES:
                     print(text, end="")
+                    self._write_read_log(file_path, tag=f"[r:{read_id}]" if read_id else "")
                     sys.exit(0)
                 print(f"[oread] {line_count} lines (>{self.LARGE_FILE_LINES}) — forwarding to opencode for summary", flush=True)
                 summarise = True
@@ -108,12 +113,12 @@ class ReadRunner(BaseRunner):
             print(f"[oread] timed out after {TIMEOUT}s", flush=True)
             print(f"  partial output printed above ({chars} chars captured)", flush=True)
             print(f"  the file or query is too large for -d — try -s (summarise) instead", flush=True)
-            self._write_read_log(file_path)
+            self._write_read_log(file_path, tag=f"[r:{read_id}]" if read_id else "")
             self.manager.log_time(log_time)
             sys.exit(2)
 
         rc = result.get("returncode", 1)
-        self._write_read_log(file_path)
+        self._write_read_log(file_path, tag=f"[r:{read_id}]" if read_id else "")
         self.manager.log_time(log_time)
         sys.exit(rc)
 
@@ -123,11 +128,12 @@ def main():
     parser.add_argument("-f", "--file", required=True, help="File path to read")
     parser.add_argument("-s", "--summarise", action="store_true", help="Summarise content")
     parser.add_argument("-d", "--details", type=str, default=None, help="Focus details")
+    parser.add_argument("--id", "-i", type=str, default=None, help="Read ID for parallel tracking")
     parser.add_argument("--no-log-time", action="store_true", help="Suppress the timing block")
     args = parser.parse_args()
     manager = Manager()
     ReadRunner(manager).run(args.file, summarise=args.summarise, details=args.details,
-                            log_time=not args.no_log_time)
+                            log_time=not args.no_log_time, read_id=args.id)
 
 
 if __name__ == "__main__":

@@ -10,16 +10,18 @@ from .orientation import print_orientation
 
 class RefreshRunner(BaseRunner):
     def run(self, shell_pid=None, session_file=None, research=None):
-        if research is None:
-            research = _read_config().get("default_research")
         if session_file is None:
             session_file = SESSION_DIR / "session"
         if not Path(session_file).exists():
+            if research is None:
+                research = _read_config().get("default_research")
             StartRunner(self.manager).run(shell_pid=shell_pid, session_file=session_file, research=research)
             return
 
         url = self.manager.get_url()
         if url is None:
+            if research is None:
+                research = _read_config().get("default_research")
             StartRunner(self.manager).run(shell_pid=shell_pid, session_file=session_file, research=research)
             return
 
@@ -35,13 +37,15 @@ class RefreshRunner(BaseRunner):
 
         if research is None:
             research = existing_research
+        if research is None:
+            research = _read_config().get("default_research")
         elif research != existing_research:
             new_lines = [l for l in lines if not l.startswith("research=")]
             new_lines.append(f"research={research}")
             sp.write_text("\n".join(new_lines) + "\n")
 
         plan_path = get_plan_path(session_id)
-        todo_path = get_todo_path()
+        todo_path = get_todo_path(research)
         self_path = get_self_path()
         input_path = session_input(session_id)
 

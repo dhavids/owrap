@@ -76,8 +76,9 @@ def get_project_root() -> Path:
     return DOCS_DIR.parent
 
 
-def get_todo_path() -> Path:
-    research = os.environ.get("OWRAP_RESEARCH", "")
+def get_todo_path(research: str = None) -> Path:
+    if research is None:
+        research = os.environ.get("OWRAP_RESEARCH", "")
     config = _read_config()
     research_root = config.get("research_root")
     if research and research_root:

@@ -5,39 +5,14 @@
 
 # owrap
 
-Session-aware bridge between Claude Code (planner) and opencode (executor). Background task dispatch, parallel session isolation, and inotifywait completion notifications.
+Session-aware bridge between Claude Code (planner) and opencode (executor). Background task dispatch, parallel session isolation, and Python mtime-polling completion notifications.
 
 Use Claude's brain with opencode's muscle.
-
-## What it provides
-
-| Command | Description |
-|---|---|
-| `~/bin/owrap start [name]` | Start a session: generate ID, start the opencode server, print orientation |
-| `~/bin/owrap refresh [name]` | Re-validate a session; re-print orientation |
-| `~/bin/owrap restart [name]` | Stop server + clear sessions, then start a fresh session |
-| `~/bin/owrap stop` | Kill server + clear all session files |
-| `~/bin/owrap end` | End this session only (server keeps running) |
-| `~/bin/owrap stat` | Show all active sessions, server liveness, and age |
-| `~/bin/owrap cleanup [id]` | Remove stale sessions (>2h or PPID-based); optional partial ID to target one |
-| `~/bin/oread -f <file>` | Print file; if >500 lines, summarise via opencode |
-| `~/bin/oread -f <dir>` | List directory contents (instant) |
-| `~/bin/oread -g <pattern>` | Grep recursively in current directory (instant) |
-| `~/bin/oread -g <pattern> -f <path>` | Grep in specific file or directory (instant) |
-| `~/bin/oread -f <file> -s` | Summarise file via opencode (foreground, ~10–45s) |
-| `~/bin/oread -f <file> -d "..."` | Targeted query on file via opencode; times out after 55s |
-| `~/bin/orun --msg "..."` | Single-line task dispatch (foreground) |
-| `~/bin/orun` | File task from `input_<id>.md` (auto-background + owait) |
-| `~/bin/oexec` | Execute active plan (auto-background + owait) |
-| `~/bin/owait run <id>` | Block until a run task completes for session `<id>` |
-| `~/bin/owait exec <id>` | Block until exec completes for session `<id>` |
-| `~/bin/owait read <id>` | Block until a read completes for session `<id>` |
 
 ## Requirements
 
 - `claude code` VSCode or CLI
 - `opencode` CLI
-- `inotify-tools` (`inotifywait`) — Linux only
 - Python >= 3.10
 
 ## Prerequisites
@@ -74,12 +49,6 @@ npm i -g opencode-ai
 ```
 
 Verify: `opencode --version`
-
-### inotify-tools (Linux only)
-
-```bash
-sudo apt install inotify-tools -y
-```
 
 ### Python >= 3.10
 
@@ -186,7 +155,7 @@ Copy `templates/config.json` to `configs/owrap.json` and edit. The file should b
 ```json
 {
   "default_research": "my_project",
-  "project_root": "/home/user/my_project",
+  "project_root": "/home/user",
   "research_root": "/home/user/my_project/docs/research",
   "allow_all": false
 }
@@ -206,7 +175,7 @@ Every opencode session begins with `owrap start`. This generates a session ID, s
 ~/bin/owrap restart my_project        # stop + fresh start with a specific research project
 ```
 
-`~/bin/owrap refresh [name]` re-validates the session (re-starts the server if it died) and re-prints the orientation block. Use it if you suspect the server has gone away. If no name is given it falls back to `default_research` from `configs/owrap.json`.
+`~/bin/owrap refresh [name]` re-validates the session (re-starts the server if it died) and re-prints the orientation block. Use it if you suspect the server has gone away, or after context compaction. If no name is given, the research stored in the session file is used; only falls back to `default_research` from `configs/owrap.json` if the session file has no research recorded.
 
 `~/bin/owrap restart [name]` is equivalent to `stop` followed by `start` — useful when you want a clean session ID after a crash or stale state. Research name falls back to `default_research` from config if omitted.
 
