@@ -7,6 +7,8 @@
 
 Session-aware bridge between Claude Code (planner) and opencode (executor). Background task dispatch, parallel session isolation, and inotifywait completion notifications.
 
+Use Claude's brain with opencode's muscle.
+
 ## What it provides
 
 | Command | Description |
