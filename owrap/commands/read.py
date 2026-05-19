@@ -47,7 +47,7 @@ class ReadRunner(BaseRunner):
 
     LARGE_FILE_LINES = 500
 
-    def run(self, file_path, summarise=False, details=None, log_time=True, grep=None, read_id=None):
+    def run(self, file_path, summarise=False, details=None, log_time=True, grep=None, read_id=None, timeout=None):
         if grep is not None:
             self._run_grep(grep, file_path)
             return
@@ -99,7 +99,8 @@ class ReadRunner(BaseRunner):
                 cmd.append("--dangerously-skip-permissions")
             cmd.extend(["--", "--task", shlex.quote(str(fallback_file))])
 
-        TIMEOUT = 55
+        DEFAULT_TIMEOUT = 55
+        TIMEOUT = timeout if timeout is not None else DEFAULT_TIMEOUT
         if self.logger:
             self.logger.debug("read cmd=%s", " ".join(cmd))
         self.manager.t_cmd_start()
@@ -112,6 +113,7 @@ class ReadRunner(BaseRunner):
             print(flush=True)
             print(f"[oread] timed out after {TIMEOUT}s", flush=True)
             print(f"  partial output printed above ({chars} chars captured)", flush=True)
+            print(f"  rerun with -t <seconds> to extend (default: {DEFAULT_TIMEOUT}s)", flush=True)
             print(f"  the file or query is too large for -d — try -s (summarise) instead", flush=True)
             self._write_read_log(file_path, tag=f"[r:{read_id}]" if read_id else "")
             self.manager.log_time(log_time)
@@ -129,11 +131,13 @@ def main():
     parser.add_argument("-s", "--summarise", action="store_true", help="Summarise content")
     parser.add_argument("-d", "--details", type=str, default=None, help="Focus details")
     parser.add_argument("--id", "-i", type=str, default=None, help="Read ID for parallel tracking")
+    parser.add_argument("-t", "--timeout", type=int, default=None, help="Timeout in seconds (default: 55)")
     parser.add_argument("--no-log-time", action="store_true", help="Suppress the timing block")
     args = parser.parse_args()
     manager = Manager()
     ReadRunner(manager).run(args.file, summarise=args.summarise, details=args.details,
-                            log_time=not args.no_log_time, read_id=args.id)
+                            log_time=not args.no_log_time, grep=args.grep, read_id=args.id,
+                            timeout=args.timeout)
 
 
 if __name__ == "__main__":

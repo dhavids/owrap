@@ -42,6 +42,7 @@ class ExecRunner(BaseRunner):
         exec_log.write_text(entry + existing)
 
     def run(self, log_time=True):
+        self._cleanup_recently_done()
         session_id = self.manager.session_id
         plan_path = get_plan_path(session_id) if session_id else None
 
@@ -72,14 +73,21 @@ class ExecRunner(BaseRunner):
             except OSError:
                 ts = datetime.now().strftime("%H%M%S")
                 self.LOG_FILE = self.LOG_FILE.parent / f"{self.LOG_FILE.stem}_{ts}{self.LOG_FILE.suffix}"
-        with open(self.LOG_FILE, "w") as log:
-            log.write(f"[{datetime.now().isoformat()}] EXEC SESSION START\n")
-            log.flush()
-            self.manager.t_cmd_start()
-            terminal = Terminal(verbose=False)
-            result = terminal.run(" ".join(cmd), capture_output=True, print_output=True, tee_file=log)
-            self.manager.t_cmd_end()
-            rc = result.get("returncode", 1)
+
+        sentinel = self._write_sentinel(session_id or "exec", plan_name[:60], kind="exec")
+        self._install_sigterm_handler()
+        rc = 1
+        try:
+            with open(self.LOG_FILE, "w") as log:
+                log.write(f"[{datetime.now().isoformat()}] EXEC SESSION START\n")
+                log.flush()
+                self.manager.t_cmd_start()
+                terminal = Terminal(verbose=False)
+                result = terminal.run(" ".join(cmd), capture_output=True, print_output=True, tee_file=log)
+                self.manager.t_cmd_end()
+                rc = result.get("returncode", 1)
+        finally:
+            self._complete_sentinel(sentinel, rc)
 
         t = ""
         if self.manager._t_cmd_end is not None:

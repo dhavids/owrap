@@ -166,6 +166,18 @@ class Manager:
         except OSError:
             return False
 
+    def _server_responsive(self, url, timeout=3):
+        import socket
+        try:
+            addr = url.replace("http://", "").replace("https://", "")
+            parts = addr.rsplit(":", 1)
+            host = parts[0]
+            port = int(parts[1]) if len(parts) > 1 else 4096
+            with socket.create_connection((host, port), timeout=timeout):
+                return True
+        except (OSError, ValueError):
+            return False
+
     def _find_port_pids(self, port):
         """Return PIDs listening on port by reading /proc/net/tcp (no external tools)."""
         hex_port = format(port, '04X')
@@ -243,7 +255,12 @@ class Manager:
             os.kill(pid, 0)
         except OSError:
             return None
-        return state.get("url")
+        url = state.get("url")
+        if url and not self._server_responsive(url):
+            if self._logger:
+                self._logger.warning("get_url: pid=%s alive but port not responding, treating as down", pid)
+            return None
+        return url
 
     def get_server_url(self):
         """Alias for get_url, used by BaseRunner."""

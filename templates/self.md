@@ -8,23 +8,25 @@ A lightweight, file-based research management system for multi-codebase research
 
 | Command | What it does |
 |---|---|
-| `owrap start <name>` | Start session with research `<name>`. Maps to `owrap start <name>` in bash. |
+| `owrap start <name>` | Start session for research `<name>`. |
 | `owrap start` | Start session with default_research from config. |
-| `owrap stop` | End session: delete session file. |
+| `owrap stop` | Kill opencode server and clear all session files. |
+| `owrap cleanup` | Remove stale sessions (dead server or URL mismatch). Safe with live server. |
 | `owrap refresh` | Re-validate session; re-print orientation. |
-| `oread -f <file>` | cat file inline (instant <500 lines, else summarises). |
-| `oread -f <dir>` | ls directory (instant). |
-| `oread -g <pattern> [-f <path>]` | grep pattern in path (or cwd if omitted). Instant. |
+| `owrap stat` | Show all active sessions, server liveness, and age. |
+| `oread -f <file>` | Foreground, no tagging. Parallel: `oread -i <id> -f <file>` + `run_in_background=True`; stdout `[r:<id>]`, log tagged. `-i` first. |
+| `oread -f <dir>` | ls directory (instant). Replaces `ls`. |
+| `oread -g <pattern> [-f <path>]` | grep pattern in path or cwd (instant). Replaces `grep`. |
 | `oread -f <file> -s` | Summarise via opencode. |
-| `oread -f <file> -d "..."` | Targeted query via opencode (55s timeout). |
-| `orun --msg "..."` | Short inline task. Foreground. |
+| `oread -f <file> -d "..."` | Targeted query via opencode (55s timeout; `-t <s>` to extend). |
+| `orun --msg "..."` | Foreground, no tagging. Parallel: `orun -i <id> --msg "..."` + `run_in_background=True`; stdout `[m:<id>]`, log tagged. `-i` first. |
+| Parallel notify | Use `run_in_background=True` on each Bash tool call — NOT `&`. Harness notifies on exit. Do NOT poll with owrap stat. If no notification: investigate ONCE after 1min (oread), 3min (msg/task), 5min (exec). rc=0=ok, rc=2=timeout (rerun -t), rc=143=crashed. owrap stat <session_id> = one-shot inspection only. |
 | `orun` | File task: reads `input_<id>.md`, dispatches `task<N>.md`. Auto-backgrounds + `owait run`. |
 | `oexec` | Execute active plan. Auto-backgrounds + `owait exec`. |
-| `owait run/exec/read <id>` | Block-wait for completion of a run/exec/read task for session `<id>`. |
 
 ## Session Model
 
-Every session calls `owrap start` at boot. This generates a session ID, starts/attaches the opencode server, writes `~/.owrap/sessions/${CLAUDE_CODE_SESSION_ID}.session`, and prints orientation. All runtime paths are session-scoped (`log_<id>.md`, `input_<id>.md`).
+Every session calls `owrap start` at boot. This generates a session ID, starts/attaches the opencode server, writes `~/.owrap/sessions/${CLAUDE_CODE_SESSION_ID}.session`, and prints orientation. All runtime paths are session-scoped (`log_<id>.md`, `input_<id>.md`). Multiple concurrent windows each get their own session automatically.
 
 ## Parallel Dispatch Pattern
 

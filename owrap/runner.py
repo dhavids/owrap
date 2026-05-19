@@ -46,6 +46,7 @@ def main():
     exec_parser = subparsers.add_parser("exec", aliases=["work"], help="Execute the active plan via opencode")
 
     stat_parser = subparsers.add_parser("stat", help="Show all active owrap sessions and server status")
+    stat_parser.add_argument("filter", nargs="?", default=None, help="Filter by session_id or research name")
 
     cleanup_parser = subparsers.add_parser("cleanup", help="Remove stale session files and dead server state")
     cleanup_parser.add_argument("session_id", nargs="?", default=None, help="Partial session ID or filename prefix to target")
@@ -56,11 +57,13 @@ def main():
     read_parser.add_argument("-d", "--details", type=str, default=None, help="Focus details")
     read_parser.add_argument("--id", "-i", type=str, default=None, help="Read ID for parallel tracking")
     read_parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    read_parser.add_argument("-t", "--timeout", type=int, default=None, help="Timeout in seconds (default: 55)")
     read_parser.add_argument("--no-log-time", action="store_true", help="Suppress the timing block")
 
     run_parser.add_argument("--msg", type=str, default=None, help="Single-line message for task mode")
     run_parser.add_argument("--id", "-i", type=str, default=None, help="Msg ID for parallel tracking")
     run_parser.add_argument("--input", type=str, default=None, help="Input file path")
+    run_parser.add_argument("-t", "--timeout", type=int, default=None, help="Timeout in seconds (default: 180 for --msg)")
     run_parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     run_parser.add_argument("--no-log-time", action="store_true", help="Suppress the timing block")
 
@@ -102,12 +105,13 @@ def main():
             import sys as _sys; print("error: -f/--file required unless using -g/--grep", file=_sys.stderr); _sys.exit(1)
         ReadRunner(manager, logger, allow_all=allow_all).run(
             args.file, summarise=args.summarise, details=args.details,
-            log_time=not args.no_log_time, grep=args.grep, read_id=getattr(args, 'id', None))
+            log_time=not args.no_log_time, grep=args.grep, read_id=getattr(args, 'id', None),
+            timeout=getattr(args, 'timeout', None))
     elif args.command in ("run",):
         RunRunner(manager, logger, allow_all=allow_all).run(
             msg=args.msg, msg_id=getattr(args, 'id', None),
             input_path=Path(args.input) if args.input else None,
-            log_time=not args.no_log_time)
+            log_time=not args.no_log_time, timeout=getattr(args, 'timeout', None))
     elif args.command in ("exec", "work"):
         ExecRunner(manager, logger, allow_all=allow_all).run(log_time=not args.no_log_time)
     elif args.command == "wait":
