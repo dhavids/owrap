@@ -37,6 +37,7 @@ Any non-thinking work goes through helpers:
 - `oread -g <pattern> -f <path>` — grep in specific file or directory (instant)
 - `oread -f <file> -s` — summarise via opencode
 - `oread -f <file> -d "..."` — targeted query via opencode (55s timeout; `-t <s>` to extend)
+- **Multiple oreads:** chain with `&&` in ONE foreground Bash call — one combined output, no notifications, no early-read risk. Parallel background (`run_in_background=True` + `-i <id>`) only when true concurrency matters; wait for ALL notifications before reading any output.
 - `orun --msg "..."` — short inline tasks (foreground)
 - `orun` — file-based tasks (auto-background + owait)
 - `oexec` — multi-step plan execution

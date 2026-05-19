@@ -113,7 +113,7 @@ class RunRunner(BaseRunner):
         finally:
             self._complete_sentinel(sentinel, rc, timed_out=timed_out)
             if self.logger:
-                self.logger.info("run msg done rc=%d%s", rc, " (timeout)" if timed_out else "")
+                self.logger.info("run msg done msg=%.80r rc=%d%s", msg, rc, " (timeout)" if timed_out else "")
             self._write_run_log(msg[:80], tag=f"[m:{msg_id}]" if msg_id else "")
             self.manager.log_time(log_time)
         sys.exit(rc)

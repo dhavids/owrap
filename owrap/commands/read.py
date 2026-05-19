@@ -9,6 +9,8 @@ from ..manager import Manager
 from ..base import BaseRunner
 from ..utils.paths import TASKS_DIR
 
+OREAD_MAX_WORDS = 100
+
 
 class ReadRunner(BaseRunner):
     TASKS_DIR = TASKS_DIR
@@ -83,7 +85,7 @@ class ReadRunner(BaseRunner):
             prompt += ", summarise the content"
         if details:
             prompt += f", focusing on: {details}"
-        prompt += ". Prioritise speed — no planning, no preamble, direct read and output."
+        prompt += f". Answer in {OREAD_MAX_WORDS} words or fewer. No preamble, direct answer only."
 
         cmd = ["opencode", "run"]
         if self.allow_all:
@@ -101,27 +103,53 @@ class ReadRunner(BaseRunner):
 
         DEFAULT_TIMEOUT = 55
         TIMEOUT = timeout if timeout is not None else DEFAULT_TIMEOUT
-        if self.logger:
-            self.logger.debug("read cmd=%s", " ".join(cmd))
-        self.manager.t_cmd_start()
-        result = Terminal(verbose=False).run(" ".join(cmd), print_output=True, capture_output=True, timeout=TIMEOUT)
-        self.manager.t_cmd_end()
 
-        if result.get("timed_out"):
-            partial = (result.get("stdout") or "").strip()
-            chars = len(partial)
-            print(flush=True)
-            print(f"[oread] timed out after {TIMEOUT}s", flush=True)
-            print(f"  partial output printed above ({chars} chars captured)", flush=True)
-            print(f"  rerun with -t <seconds> to extend (default: {DEFAULT_TIMEOUT}s)", flush=True)
-            print(f"  the file or query is too large for -d — try -s (summarise) instead", flush=True)
+        mode_label = "-s" if (summarise and details is None) else "-d"
+        sentinel_id = read_id or f"r_{int(__import__('time').time())}"
+        sentinel_title = f"{mode_label} {file_path}"[:60]
+        if self.logger:
+            snippet = f" detail={details[:60]!r}" if details else ""
+            id_str = f" id={read_id}" if read_id else ""
+            self.logger.info("read opencode file=%s mode=%s%s%s session=%s",
+                             file_path, mode_label, snippet, id_str,
+                             self.manager.session_id or "none")
+            self.logger.debug("read cmd=%s", " ".join(cmd))
+
+        sentinel = self._write_sentinel(sentinel_id, sentinel_title, kind="read")
+        self._install_sigterm_handler()
+
+        rc = 1
+        timed_out = False
+        try:
+            self.manager.t_cmd_start()
+            result = Terminal(verbose=False).run(" ".join(cmd), print_output=True, capture_output=True, timeout=TIMEOUT)
+            self.manager.t_cmd_end()
+            if result.get("timed_out"):
+                timed_out = True
+                partial = (result.get("stdout") or "").strip()
+                chars = len(partial)
+                print(flush=True)
+                print(f"[oread] timed out after {TIMEOUT}s", flush=True)
+                print(f"  partial output printed above ({chars} chars captured)", flush=True)
+                print(f"  rerun with -t <seconds> to extend (default: {DEFAULT_TIMEOUT}s)", flush=True)
+                print(f"  the file or query is too large for -d — try -s (summarise) instead", flush=True)
+                rc = 2
+            else:
+                rc = result.get("returncode", 1)
+        except Exception as exc:
+            self.manager.t_cmd_end()
+            if self.logger:
+                self.logger.error("read opencode error: %s", exc)
+        finally:
+            self._complete_sentinel(sentinel, rc, timed_out=timed_out)
+            if self.logger:
+                snippet = f" detail={details[:60]!r}" if details else ""
+                id_str = f" id={read_id}" if read_id else ""
+                self.logger.info("read opencode done file=%s mode=%s%s%s rc=%d%s",
+                                 file_path, mode_label, snippet, id_str, rc,
+                                 " (timeout)" if timed_out else "")
             self._write_read_log(file_path, tag=f"[r:{read_id}]" if read_id else "")
             self.manager.log_time(log_time)
-            sys.exit(2)
-
-        rc = result.get("returncode", 1)
-        self._write_read_log(file_path, tag=f"[r:{read_id}]" if read_id else "")
-        self.manager.log_time(log_time)
         sys.exit(rc)
 
 

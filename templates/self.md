@@ -20,7 +20,7 @@ A lightweight, file-based research management system for multi-codebase research
 | `oread -f <file> -s` | Summarise via opencode. |
 | `oread -f <file> -d "..."` | Targeted query via opencode (55s timeout; `-t <s>` to extend). |
 | `orun --msg "..."` | Foreground, no tagging. Parallel: `orun -i <id> --msg "..."` + `run_in_background=True`; stdout `[m:<id>]`, log tagged. `-i` first. |
-| Parallel notify | Use `run_in_background=True` on each Bash tool call — NOT `&`. Harness notifies on exit. Do NOT poll with owrap stat. If no notification: investigate ONCE after 1min (oread), 3min (msg/task), 5min (exec). rc=0=ok, rc=2=timeout (rerun -t), rc=143=crashed. owrap stat <session_id> = one-shot inspection only. |
+| Parallel notify | Use `run_in_background=True` on each Bash tool call — NOT `&`. Harness notifies on exit. Do NOT poll with owrap stat. If no notification: investigate ONCE after 1min (oread), 3min (msg/task), 5min (exec). rc=0=ok, rc=2=timeout (rerun -t), rc=143=crashed. owrap stat <session_id> = one-shot inspection only. **Multiple oreads:** chain with `&&` in one foreground Bash call — one result, no notification risk. Parallel background only when true concurrency needed; wait for ALL notifications before reading any output. |
 | `orun` | File task: reads `input_<id>.md`, dispatches `task<N>.md`. Auto-backgrounds + `owait run`. |
 | `oexec` | Execute active plan. Auto-backgrounds + `owait exec`. |
 

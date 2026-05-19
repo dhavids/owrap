@@ -27,6 +27,7 @@ You are always in **--planner** mode unless a different flag is specified.
 - `~/bin/oread -g <pattern> -f <path>` — grep in specific file or directory (instant)
 - `~/bin/oread -f <file> -s` — summarise via opencode
 - `~/bin/oread -f <file> -d "..."` — targeted query via opencode (55s timeout; `-t <s>` to extend)
+- **Multiple oreads:** chain with `&&` in ONE foreground Bash call — one combined output, no notifications, no early-read risk. Parallel background (`run_in_background=True` + `-i <id>`) only when true concurrency matters; wait for ALL notifications before reading any output.
 - `~/bin/orun --msg "..."` — short inline tasks (foreground)
 - `~/bin/orun --msg "..." -t <s>` — same with custom timeout (default: 180s)
 - `~/bin/orun` — file-based tasks (auto-background + owait)

@@ -29,11 +29,20 @@ class StatRunner(BaseRunner):
         if state:
             pid = state.get("pid")
             url = state.get("url", "?")
-            tasks = state.get("tasks", {})
-            active = sum(
-                1 for t in tasks.values()
-                if (t if isinstance(t, str) else t.get("status", "active")) == "active"
-            )
+            active = 0
+            if RUNNING_DIR.exists():
+                for _sf in RUNNING_DIR.iterdir():
+                    try:
+                        _d = json.loads(_sf.read_text())
+                        _pid = _d.get("pid")
+                        if _pid:
+                            try:
+                                os.kill(_pid, 0)
+                                active += 1
+                            except OSError:
+                                pass
+                    except Exception:
+                        pass
             alive = False
             responsive = False
             if pid:
