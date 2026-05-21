@@ -14,13 +14,14 @@ A lightweight, file-based research management system for multi-codebase research
 | `owrap cleanup` | Remove stale sessions (dead server or URL mismatch). Safe with live server. |
 | `owrap refresh` | Re-validate session; re-print orientation. |
 | `owrap stat` | Show all active sessions, server liveness, and age. |
-| `oread -f <file>` | Foreground, no tagging. Parallel: `oread -i <id> -f <file>` + `run_in_background=True`; stdout `[r:<id>]`, log tagged. `-i` first. |
+| `owrap finish <target>` | Kill running job (exec/task1/msg1/…). Sends SIGTERM to its PID. Use when a job hangs. |
+| `oread -f <file>` | cat inline if ≤8000 chars, else summarises. Add `-v` to bypass limit and print full file. Always foreground — chain multiple oreads with `&&`. |
 | `oread -f <dir>` | ls directory (instant). Replaces `ls`. |
 | `oread -g <pattern> [-f <path>]` | grep pattern in path or cwd (instant). Replaces `grep`. |
-| `oread -f <file> -s` | Summarise via opencode. |
+| `oread -f <file> -s [-p <style>]` | Summarise via opencode; auto-detects style by file extension; timeout scales with file size (45–180s). `-p` to override. `oread --list-styles` to see all options. |
 | `oread -f <file> -d "..."` | Targeted query via opencode (55s timeout; `-t <s>` to extend). |
-| `orun --msg "..."` | Foreground, no tagging. Parallel: `orun -i <id> --msg "..."` + `run_in_background=True`; stdout `[m:<id>]`, log tagged. `-i` first. |
-| Parallel notify | Use `run_in_background=True` on each Bash tool call — NOT `&`. Harness notifies on exit. Do NOT poll with owrap stat. If no notification: investigate ONCE after 1min (oread), 3min (msg/task), 5min (exec). rc=0=ok, rc=2=timeout (rerun -t), rc=143=crashed. owrap stat <session_id> = one-shot inspection only. **Multiple oreads:** chain with `&&` in one foreground Bash call — one result, no notification risk. Parallel background only when true concurrency needed; wait for ALL notifications before reading any output. |
+| `orun --msg "..."` | Single line, ≤1024 chars. Foreground, no tagging. Parallel: `orun -i <id> --msg "..."` + `run_in_background=True`; stdout `[m:<id>]`, log tagged. `-i` first. Parallel limit: max 3 — write input + orun for 4–6, plan for 7+. |
+| Parallel notify | Use `run_in_background=True` on each Bash tool call — NOT `&`. After dispatching with `run_in_background=True`, make no further tool calls — not `true` keepalives, not `owrap stat`, nothing. The harness delivers the notification automatically when the task exits. Only if no notification arrives after the threshold (1min oread, 3min msg/task, 5min exec), investigate once with `owrap stat <session_id>`. rc=0=ok, rc=2=timeout (rerun -t), rc=143=crashed. **Multiple oreads:** always chain with `&&` in one foreground Bash call — never background. |
 | `orun` | File task: reads `input_<id>.md`, dispatches `task<N>.md`. Auto-backgrounds + `owait run`. |
 | `oexec` | Execute active plan. Auto-backgrounds + `owait exec`. |
 
@@ -32,8 +33,9 @@ Every session calls `owrap start` at boot. This generates a session ID, starts/a
 
 `input_<id>.md` is the serialized dispatch queue:
 ```
-write task → orun → wait for input to clear → write next → owait per completion
+write task → orun → owait input → write next → owait run per completion
 ```
+`owait input` blocks until the input file is cleared (task picked up by runner), then prints `input clear`. Use it between orun calls when staging parallel file tasks.
 
 ## Hire-First Rule
 
@@ -43,7 +45,7 @@ Any non-thinking work — including file reads — goes through helpers. No exce
 - `oread -g <pattern> [-f <path>]` replaces `grep`
 - `orun --msg "..."`, `orun`, `oexec` for all write/execution work
 
-Direct `cat`, `ls`, and `grep` bash commands are denied by permissions.
+Direct `cat`, `ls`, `grep`, and Read are allowed — oread recommended for large files and directories.
 
 ## File Structure
 
@@ -58,8 +60,8 @@ Direct `cat`, `ls`, and `grep` bash commands are denied by permissions.
 | Flag | Mode | What to do |
 |---|---|---|
 | `--planner` | Planner | Design/update plans, add project TODOs |
-| `--executor` / `--exec` | Executor | Read `[ACTIVE]` plan → execute → mark TODOs `[x]` |
-| `--check` | Planner review | Verify completed TODOs against plan |
+| `--executor` / `--exec` | Executor | Read `[ACTIVE]` plan → execute → mark completed steps `[x]` in plan file |
+| `--check` | Planner review | Chain all file reads: `oread -f a && oread -f b && ...` — one combined output. Flag violations as `[ ]` TODOs. No code changes. |
 | `--agent` | Planner + auto-dispatch | Plan → delegate → verify |
 | `--analyser` | Analyser | Think-only: analysis → dispatch → interpret |
 | `--task` | Task executor | Contract-driven execution |
