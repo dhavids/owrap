@@ -128,8 +128,8 @@ Claude will compare each installed file against the corresponding template and m
 | Limit | Value | Notes |
 |---|---|---|
 | `orun --msg` max length | 1024 chars | Longer tasks should use file-based `orun` via `input_<id>.md` |
-| `oread -d` query timeout | 55 seconds | Partial output printed on expiry; try `-s` for very large files |
-| `oread` auto-summarise threshold | 500 lines | Files above this line count are forwarded to opencode for summary |
+| `oread -d` / `-s` timeout | 55–180s (scales with file size) | Partial output printed on expiry; use `-t <secs>` to extend |
+| `oread` auto-summarise threshold | 8000 chars | Files above this character count are forwarded to opencode for summary |
 
 ## `owrap setup` path resolution
 
@@ -151,15 +151,39 @@ Copy `templates/config.json` to `configs/owrap.json` and edit. The file should b
 | `project_root` | string | Path to the project root (where `CLAUDE.md`, `AGENTS.md`, `.claude/` live) |
 | `research_root` | string | Path to the research folder (where `self.md` lives; often `<project_root>/docs/research`) |
 | `allow_all` | bool | Always pass `--dangerously-skip-permissions` to opencode |
+| `oread_always` | bool | When `true`, all file reads must go through `oread` — direct `cat`/`ls`/`grep` denied by permissions. When `false`, direct `Read` is also permitted (default: `true`) |
+| `use_multiple_servers` | bool | Enable multi-server mode; each new session may start its own server (default: `false`) |
+| `max_servers` | int | Maximum number of concurrent opencode servers when `use_multiple_servers` is true (default: `1`) |
 
 ```json
 {
   "default_research": "my_project",
   "project_root": "/home/user",
   "research_root": "/home/user/my_project/docs/research",
-  "allow_all": false
+  "allow_all": false,
+  "oread_always": true,
+  "use_multiple_servers": false,
+  "max_servers": 1
 }
 ```
+
+## Prompt Styles
+
+`oread -s` (summarise) and `oread -d` (query) use a prompt style that shapes the output format. The style is auto-detected from the file extension; override with `-p <style>`.
+
+Run `~/bin/oread --list-styles` to see styles and extension defaults at any time.
+
+| Style | Output |
+|---|---|
+| `terse` | Max 5 bullets, most important facts only. Default for `.md`, `.txt`, `.rst`. |
+| `code` | Purpose, key classes/functions with one-line descriptions, side-effects. 20 lines max. Default for `.py`, `.sh`, `.js`, `.ts`, `.cpp`, `.c`, `.go`, `.rs`. |
+| `structured` | `## Purpose` / `## Key Parts` / `## Watch-outs` headers. 25 lines max. Default for `.yaml`, `.yml`, `.json`, `.toml`, `.ini`, `.cfg`. |
+| `bullets` | Bullets only — what, why, how, gotchas. 10 bullets max. Default for `.csv`, `.log`, `.tsv`. |
+| `exec` | Single plain-prose paragraph, 4–6 sentences. |
+| `default` | Direct answer, configurable line limit. |
+| `deep` | Strategic read: flags None/stub values, config mutations, disabled features, numeric inconsistencies. 30 lines max. |
+
+Files not matching a known extension default to `terse`.
 
 ## Session Workflow
 
@@ -170,14 +194,16 @@ Every opencode session begins with `owrap start`. This generates a session ID, s
 ~/bin/owrap start                     # begin session — falls back to default_research from config
 ~/bin/owrap start my_project          # begin session with a specific research project
 # ... do work with ~/bin/oread, ~/bin/orun, ~/bin/oexec ...
-~/bin/owrap stop                      # end session — deletes the session file
-~/bin/owrap restart                   # stop + fresh start in one step (uses default_research from config)
-~/bin/owrap restart my_project        # stop + fresh start with a specific research project
+~/bin/owrap stop                      # end current session; kills server only if no other sessions are active
+~/bin/owrap stop --force              # kill server + clear all sessions unconditionally
+~/bin/owrap restart                   # end current session + start fresh (server preserved if others active)
+~/bin/owrap restart my_project        # restart with a specific research project
+~/bin/owrap restart --force           # kill server + clear all sessions, then start fresh
 ```
 
 `~/bin/owrap refresh [name]` re-validates the session (re-starts the server if it died) and re-prints the orientation block. Use it if you suspect the server has gone away, or after context compaction. If no name is given, the research stored in the session file is used; only falls back to `default_research` from `configs/owrap.json` if the session file has no research recorded.
 
-`~/bin/owrap restart [name]` is equivalent to `stop` followed by `start` — useful when you want a clean session ID after a crash or stale state. Research name falls back to `default_research` from config if omitted.
+`~/bin/owrap restart [name]` ends the current session and starts a fresh one. Without `--force`, the server is kept running if other sessions are active. With `--force`, the server is killed and all sessions are cleared before starting.
 
 All runtime paths are session-scoped: log files, task files, and output files are suffixed with the session ID. Concurrent sessions from different shell PIDs are fully isolated — they share the same server but have independent task queues and logs.
 
@@ -187,23 +213,35 @@ All runtime paths are session-scoped: log files, task files, and output files ar
 |---|---|
 | `~/bin/owrap start [name]` | Start session: generate ID, start server, print orientation |
 | `~/bin/owrap refresh [name]` | Re-validate session; re-print orientation |
-| `~/bin/owrap restart [name]` | Stop server + clear sessions, then start a fresh session |
-| `~/bin/owrap stop` | Kill server + clear all session files |
+| `~/bin/owrap restart [name]` | End current session + start fresh; `--force` kills server first |
+| `~/bin/owrap stop` | End current session (server kept running if others active); `--force` kills server + clears all |
 | `~/bin/owrap end` | End this session only (server keeps running) |
 | `~/bin/owrap stat` | Show all active sessions, server liveness, and age |
 | `~/bin/owrap cleanup [id]` | Remove stale sessions; optional partial ID to target one |
-| `~/bin/oread -f <file>` | Print file; if >500 lines, summarise via opencode instead |
+| `~/bin/owrap finish <target>` | Kill a running job by target (exec, task1, task2, msg1, …) — sends SIGTERM to its PID |
+| `~/bin/owrap setup [project_root] [research_folder]` | Configure `configs/owrap.json`, install templates, print FILES/SETTINGS instructions |
+| `~/bin/oread -f <file>` | Print file; if >8000 chars, summarise via opencode instead |
+| `~/bin/oread -f <file> -v` | Full cat bypassing the 8000-char summarise threshold (instant) |
 | `~/bin/oread -f <dir>` | List directory contents (instant, replaces ls) |
 | `~/bin/oread -g <pattern>` | Grep recursively in cwd (instant, replaces grep) |
 | `~/bin/oread -g <pattern> -f <path>` | Grep in specific file or directory (instant) |
-| `~/bin/oread -f <file> -s` | Summarise file via opencode (foreground) |
-| `~/bin/oread -f <file> -d "..."` | Targeted query; 55s timeout with partial output on expiry |
+| `~/bin/oread -f <file> -s` | Summarise file via opencode; style auto-detected by extension (foreground) |
+| `~/bin/oread -f <file> -s -p <style>` | Summarise with explicit style: `default`, `terse`, `structured`, `code`, `exec`, `bullets`, `deep` |
+| `~/bin/oread --list-styles` | List all prompt styles and file-extension auto-detect defaults |
+| `~/bin/oread -f <file> -d "..."` | Targeted query; timeout scales 55–180s with file size; partial output on expiry |
+| `~/bin/oread -f <file> -d "..." -t <secs>` | Targeted query with custom timeout in seconds |
+| `~/bin/oread -i <id> -f <file>` | Tag read output with `[r:<id>]` for parallel tracking |
 | `~/bin/orun --msg "..."` | Single-line task dispatch, max 1024 chars (foreground) |
+| `~/bin/orun -i <id> --msg "..."` | Parallel tagged msg: output prefixed `[m:<id>]`, waitable by ID |
+| `~/bin/orun --msg "..." -t <secs>` | Custom timeout for `--msg` (default: 180s) |
 | `~/bin/orun` | File task from `input_<id>.md` (auto-background + owait) |
+| `~/bin/orun --input <path>` | File task from a custom input path instead of `input_<id>.md` |
 | `~/bin/oexec` | Execute active plan (auto-background + owait) |
 | `~/bin/owait run <id>` | Block until a run task completes for session `<id>` |
 | `~/bin/owait exec <id>` | Block until exec completes for session `<id>` |
 | `~/bin/owait read <id>` | Block until a read completes for session `<id>` |
+| `~/bin/owait msg <id>` | Block until a specific `--msg` (dispatched with `-i <id>`) completes |
+| `~/bin/owait input` | Block until `input_<id>.md` is cleared (task picked up); prints `input clear` |
 
 ## Parallel Task Dispatch
 
@@ -212,13 +250,15 @@ All runtime paths are session-scoped: log files, task files, and output files ar
 ```
 write task A → input_<id>.md
 ~/bin/orun                          ← picks up, creates task1.md, clears input, backgrounds
-[wait for input_<id>.md to clear]
+~/bin/owait input                   ← blocks until input_<id>.md is cleared; prints "input clear"
 write task B → input_<id>.md
 ~/bin/orun                          ← creates task2.md, clears, backgrounds
-[wait for input_<id>.md to clear]
+~/bin/owait input                   ← blocks until input_<id>.md is cleared; prints "input clear"
 # task1 and task2 now running in parallel
 ~/bin/owait run <id>                ← unblocks on first completion
 ~/bin/owait run <id>                ← unblocks on second
 ```
 
 Use `--fg` on `~/bin/orun` or `~/bin/oexec` to force foreground execution instead of auto-backgrounding.
+
+To cancel a running job before it completes, use `~/bin/owrap finish <target>`, where target is `exec`, `task`, `task1`, `task2`, `msg`, `msg1`, etc. This sends SIGTERM to the job's PID (read from the sentinel file in `~/.owrap/running/`). Exit code 0 if at least one job was signalled; 1 if no matching job was found.
