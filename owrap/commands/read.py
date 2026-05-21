@@ -9,7 +9,42 @@ from ..manager import Manager
 from ..base import BaseRunner
 from ..utils.paths import TASKS_DIR
 
-OREAD_MAX_WORDS = 100
+OREAD_MAX_CHARS = 8_000
+OREAD_SUMMARY_LINES = 100
+
+FILE_TYPE_DEFAULTS = {
+    ".py": "code",   ".sh": "code",   ".js": "code",  ".ts": "code",
+    ".cpp": "code",  ".c": "code",    ".go": "code",  ".rs": "code",
+    ".yaml": "structured", ".yml": "structured", ".json": "structured",
+    ".toml": "structured", ".ini": "structured", ".cfg": "structured",
+    ".md": "terse",  ".txt": "terse", ".rst": "terse",
+    ".csv": "bullets", ".log": "bullets", ".tsv": "bullets",
+}
+_STYLE_FALLBACK = "terse"
+
+PROMPT_STYLES = {
+    "default": ". Answer in {max_lines} lines or fewer. No preamble, direct answer only.",
+    "terse": ". Max 5 bullet points, one line each. Most important facts only. No preamble, no headers.",
+    "structured": ". Use ## headers: Purpose, Key Parts, Watch-outs. Bullets under each — no prose. 25 lines max.",
+    "code": ". List: (1) purpose in one sentence, (2) key classes/functions each with one-line description, (3) important side-effects or config caveats. 20 lines max. No preamble.",
+    "exec": ". Write exactly one paragraph (4–6 sentences). Plain prose. Cover: what it does, what it is for, what an engineer needs to know. No preamble.",
+    "bullets": ". Output bullet points only — no headers, no prose. Cover what, why, how, gotchas. 10 bullets max.",
+    "deep": (
+        ". Read strategically: for .py — __init__ first, then method signatures, then main();"
+        " for .yaml — env/model sections first, then flag disabled/null values;"
+        " for .md — tables and numbers first, then hypothesis/discussion."
+        " Flag: None/stub values, config mutations, disabled features with active sub-config, magic numbers."
+        " Compare numeric values across sections for inconsistencies."
+        " 30 lines max. No preamble."
+    ),
+}
+
+
+def _scale_timeout(size: int, base: int = 55) -> int:
+    if size <=  5_000: return base
+    if size <= 15_000: return 90
+    if size <= 40_000: return 120
+    return 180
 
 
 class ReadRunner(BaseRunner):
@@ -47,9 +82,24 @@ class ReadRunner(BaseRunner):
             f.write(entry + existing)
             f.truncate()
 
-    LARGE_FILE_LINES = 500
 
-    def run(self, file_path, summarise=False, details=None, log_time=True, grep=None, read_id=None, timeout=None):
+    def list_styles(self):
+        print("oread prompt styles:")
+        print()
+        for name, suffix in PROMPT_STYLES.items():
+            preview = suffix.strip(". ").replace("{max_lines}", "100")
+            print(f"  {name:<12}  {preview[:80]}")
+        print()
+        print("auto-detect by extension (override with -p <style>):")
+        by_style = {}
+        for ext, style in FILE_TYPE_DEFAULTS.items():
+            by_style.setdefault(style, []).append(ext)
+        for style, exts in sorted(by_style.items()):
+            print(f"  {style:<12}  {', '.join(sorted(exts))}")
+        print()
+        print(f"  fallback (unknown extension): {_STYLE_FALLBACK}")
+
+    def run(self, file_path, summarise=False, details=None, log_time=True, grep=None, read_id=None, timeout=None, verbose=False, prompt_style=None):
         if grep is not None:
             self._run_grep(grep, file_path)
             return
@@ -70,22 +120,27 @@ class ReadRunner(BaseRunner):
                 sys.exit(result.returncode)
             else:
                 text = p.read_text()
-                line_count = text.count("\n") + (1 if text and not text.endswith("\n") else 0)
-                if line_count <= self.LARGE_FILE_LINES:
+                char_count = len(text)
+                if verbose or char_count <= OREAD_MAX_CHARS:
                     print(text, end="")
                     self._write_read_log(file_path, tag=f"[r:{read_id}]" if read_id else "")
                     sys.exit(0)
-                print(f"[oread] {line_count} lines (>{self.LARGE_FILE_LINES}) — forwarding to opencode for summary", flush=True)
+                print(f"[oread] {char_count} chars (>{OREAD_MAX_CHARS}) — forwarding to opencode for summary", flush=True)
                 summarise = True
 
         url = self.manager.ensure_running()
+
+        if prompt_style is None and file_path:
+            ext = Path(file_path).suffix.lower()
+            prompt_style = FILE_TYPE_DEFAULTS.get(ext, _STYLE_FALLBACK)
 
         prompt = f"Read the file at {file_path}"
         if summarise:
             prompt += ", summarise the content"
         if details:
             prompt += f", focusing on: {details}"
-        prompt += f". Answer in {OREAD_MAX_WORDS} words or fewer. No preamble, direct answer only."
+        style_key = prompt_style if prompt_style in PROMPT_STYLES else "default"
+        prompt += PROMPT_STYLES[style_key].format(max_lines=OREAD_SUMMARY_LINES)
 
         cmd = ["opencode", "run"]
         if self.allow_all:
@@ -102,7 +157,12 @@ class ReadRunner(BaseRunner):
             cmd.extend(["--", "--task", shlex.quote(str(fallback_file))])
 
         DEFAULT_TIMEOUT = 55
-        TIMEOUT = timeout if timeout is not None else DEFAULT_TIMEOUT
+        if timeout is None:
+            try:
+                timeout = _scale_timeout(Path(file_path).stat().st_size, DEFAULT_TIMEOUT)
+            except Exception:
+                timeout = DEFAULT_TIMEOUT
+        TIMEOUT = timeout
 
         mode_label = "-s" if (summarise and details is None) else "-d"
         sentinel_id = read_id or f"r_{int(__import__('time').time())}"
@@ -153,20 +213,3 @@ class ReadRunner(BaseRunner):
         sys.exit(rc)
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Read a file via opencode")
-    parser.add_argument("-f", "--file", required=True, help="File path to read")
-    parser.add_argument("-s", "--summarise", action="store_true", help="Summarise content")
-    parser.add_argument("-d", "--details", type=str, default=None, help="Focus details")
-    parser.add_argument("--id", "-i", type=str, default=None, help="Read ID for parallel tracking")
-    parser.add_argument("-t", "--timeout", type=int, default=None, help="Timeout in seconds (default: 55)")
-    parser.add_argument("--no-log-time", action="store_true", help="Suppress the timing block")
-    args = parser.parse_args()
-    manager = Manager()
-    ReadRunner(manager).run(args.file, summarise=args.summarise, details=args.details,
-                            log_time=not args.no_log_time, grep=args.grep, read_id=args.id,
-                            timeout=args.timeout)
-
-
-if __name__ == "__main__":
-    main()

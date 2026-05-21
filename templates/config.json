@@ -3,5 +3,8 @@
     "default_research": "my_project",
     "project_root": "/home/user",
     "research_root": "/home/user/my_project/docs/research",
-    "allow_all": true
+    "allow_all": true,
+    "oread_always": true,
+    "use_multiple_servers": false,
+    "max_servers": 1
 }

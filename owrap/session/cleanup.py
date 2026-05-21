@@ -60,6 +60,39 @@ class CleanupRunner(BaseRunner):
                 self.manager.stop()
                 removed.append("manager.json (dead server state)")
 
+        # Clean up orphaned owrap_start_*.log files
+        owrap_dir = Path.home() / ".owrap"
+        for f in owrap_dir.glob("owrap_start_*.log"):
+            f.unlink(missing_ok=True)
+            removed.append(f.name)
+
+        # Clean up owrap_<pid>.log files for dead PIDs
+        for f in owrap_dir.glob("owrap_*.log"):
+            if f.name.startswith("owrap_start_"):
+                continue
+            try:
+                pid = int(f.stem.replace("owrap_", ""))
+                os.kill(pid, 0)
+            except (ValueError, OSError):
+                f.unlink(missing_ok=True)
+                removed.append(f.name)
+
+        # Clean up dead server state files
+        from ..utils.paths import SERVERS_DIR
+        if SERVERS_DIR.exists():
+            import json as _json
+            for f in SERVERS_DIR.glob("*.json"):
+                try:
+                    data = _json.loads(f.read_text())
+                    pid = data.get("pid")
+                    if pid:
+                        os.kill(pid, 0)
+                except OSError:
+                    f.unlink(missing_ok=True)
+                    removed.append(f"servers/{f.name}")
+                except Exception:
+                    pass
+
         if removed:
             print(f"Cleaned up {len(removed)} item(s):")
             for name in removed:

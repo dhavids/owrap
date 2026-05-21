@@ -14,63 +14,136 @@ class SetupRunner:
         return self._run_setup(project_root, research_folder)
 
     def _run_update(self):
+        from ..utils.paths import _read_config
         config_path = CONFIGS_DIR / "owrap.json"
         if not config_path.exists():
             print("Error: no config found. Run `owrap setup <project_root>` first.")
             sys.exit(1)
-        with open(config_path) as f:
-            config = json.load(f)
+        config = _read_config()
 
-        import os
         project_root_path = Path(config.get("project_root", ""))
-        research_folder_path = Path(config.get("research_root", project_root_path))
-        rel_owrap_docs = os.path.relpath(DOCS_DIR, project_root_path)
+        research_folder_path = Path(config.get("research_root", str(project_root_path)))
+        oread_always = config.get("oread_always", True)
 
         print("\n=== owrap setup --update ===\n")
-        print("Config from configs/owrap.json:")
-        print(f"  project_root   {project_root_path}")
-        print(f"  research_root  {research_folder_path}")
+        print(f"  project_root:  {project_root_path}")
+        print(f"  research_root: {research_folder_path}")
+        print(f"  oread_always:  {oread_always}")
         print()
 
-        def _check_file(label, dest_path, template_name):
-            template_path = OWRAP_ROOT / "templates" / template_name
-            if not dest_path.exists():
-                print(f"  {label:<14} MISSING — copy {template_path} to {dest_path}")
+        for tpl_name, apply_fn in (
+            ("settings.json", self._apply_settings),
+            ("CLAUDE.md",     self._apply_claude_md),
+            ("AGENTS.md",     self._apply_agents_md),
+            ("self.md",       self._apply_self_md),
+        ):
+            tpl_path = OWRAP_ROOT / "templates" / tpl_name
+            if tpl_path.exists():
+                apply_fn(tpl_path, oread_always)
+
+        import os as _os
+        rel_owrap_docs = _os.path.relpath(DOCS_DIR, project_root_path)
+        _tpl_settings = OWRAP_ROOT / "templates" / "settings.json"
+        print()
+        print("FILES — planner: update each project file from template:\n")
+        for _fname in ("settings.json", "settings.local.json"):
+            _dest = project_root_path / ".claude" / _fname
+            _status = "EXISTS" if _dest.exists() else "MISSING"
+            print(f"  .claude/{_fname:<20} {_status}")
+            print(f"                 template:  {_tpl_settings}")
+            print(f"                 project:   {_dest}")
+            if _dest.exists():
+                if oread_always:
+                    print(f"                 action:    remove 'Read' from allow; add Grep, Bash(grep *), Bash(ls *), Bash(cat *) to deny")
+                else:
+                    print(f"                 action:    add 'Read' to allow; remove Grep, Bash(grep *), Bash(ls *), Bash(cat *) from deny")
             else:
-                print(f"  {label:<14} EXISTS at {dest_path}")
-                print(f"                 Template:  {template_path}")
-                print(f"                 Action:    compare and merge any sections present in template but missing in project file")
-
-        print("FILES\n")
-        _check_file("CLAUDE.md",  project_root_path / "CLAUDE.md",         "CLAUDE.md")
-        _check_file("AGENTS.md",  project_root_path / "AGENTS.md",         "AGENTS.md")
-        _check_file("self.md",    research_folder_path / "self.md",        "self.md")
-
-        settings_path = project_root_path / ".claude" / "settings.json"
-        settings_local = project_root_path / ".claude" / "settings.local.json"
+                print(f"                 action:    copy template to project file; replace <project_root>, <research_root>, <owrap_docs> placeholders")
         print()
-        print("SETTINGS\n")
-        for sp in (settings_path, settings_local):
-            status = "EXISTS" if sp.exists() else "MISSING"
-            print(f"  {status}  {sp}")
+        print("  (doc files — merge missing sections only, leave existing content unchanged)\n")
+        for _label, _dest, _tpl in (
+            ("CLAUDE.md", project_root_path / "CLAUDE.md",  "CLAUDE.md"),
+            ("AGENTS.md", project_root_path / "AGENTS.md",  "AGENTS.md"),
+            ("self.md",   research_folder_path / "self.md", "self.md"),
+        ):
+            _tpl_path = OWRAP_ROOT / "templates" / _tpl
+            _status = "EXISTS" if _dest.exists() else "MISSING"
+            print(f"  {_label:<14} {_status}")
+            print(f"                 template:  {_tpl_path}")
+            print(f"                 project:   {_dest}")
+            if _dest.exists():
+                print(f"                 action:    merge sections in template not present in project file; leave existing content unchanged")
+            else:
+                print(f"                 action:    copy template to project file and fill in project-specific values")
         print()
-        print(f"  Template:  {OWRAP_ROOT}/templates/settings.json")
-        print()
-        print("  Placeholder values for this installation:")
+        print("SETTINGS — placeholder values for this installation:")
         print(f"    <project_root>   →  {project_root_path}")
         print(f"    <research_root>  →  {research_folder_path}")
         print(f"    <owrap_docs>     →  {rel_owrap_docs}")
-        print()
-        print("  The Edit rules in settings.json must use these expanded paths, e.g.:")
-        print(f"    Edit({rel_owrap_docs}/plan_*.md)")
-        print(f"    Edit({rel_owrap_docs}/run/tasks/input_*.md)")
-        print(f"    Edit({research_folder_path}/projects/**)")
-        print(f"    Read({project_root_path}/CLAUDE.md)")
-        print()
-        print("  If the planner is still prompted for permission on any of these,")
-        print("  the corresponding Edit/Read rule is missing or has the wrong path.")
-
         sys.exit(0)
+
+    def _apply_settings(self, settings_path: Path, oread_always: bool):
+        with open(settings_path) as f:
+            settings = json.load(f)
+        perms = settings.setdefault("permissions", {})
+        allow = perms.setdefault("allow", [])
+        deny = perms.setdefault("deny", [])
+
+        READ_DENY = ["Grep", "Bash(grep *)", "Bash(ls *)", "Bash(cat *)"]
+        READ_ALLOW = "Read"
+
+        changed = False
+        if oread_always:
+            for rule in READ_DENY:
+                if rule not in deny:
+                    deny.append(rule)
+                    changed = True
+            if READ_ALLOW in allow:
+                allow.remove(READ_ALLOW)
+                changed = True
+        else:
+            for rule in READ_DENY:
+                if rule in deny:
+                    deny.remove(rule)
+                    changed = True
+            if READ_ALLOW not in allow:
+                allow.insert(0, READ_ALLOW)
+                changed = True
+
+        if changed:
+            with open(settings_path, "w") as f:
+                json.dump(settings, f, indent=2)
+            print(f"  updated: .claude/{settings_path.name}")
+
+    def _apply_sentinel(self, path: Path, deny_line: str, allow_line: str, oread_always: bool):
+        text = path.read_text()
+        target = deny_line if oread_always else allow_line
+        current = allow_line if oread_always else deny_line
+        if target in text:
+            pass
+        elif current in text:
+            path.write_text(text.replace(current, target))
+            print(f"  updated: {path.name}  (oread_always={oread_always})")
+        else:
+            print(f"  WARNING: {path.name} sentinel not found — needs manual update")
+
+    def _apply_claude_md(self, claude_path: Path, oread_always: bool):
+        DENY_LINE = "**Direct `cat`, `ls`, `grep` are denied by permissions.** Always use `~/bin/oread` equivalents above."
+        ALLOW_LINE = "**Direct `Read`, `cat`, `ls`, `grep` are allowed** — `~/bin/oread` recommended for large files and directories (auto-summarises, grepping)."
+        self._apply_sentinel(claude_path, DENY_LINE, ALLOW_LINE, oread_always)
+        DENY_LINE2 = "The Read, Edit, Write, and Bash tools will be denied by permissions."
+        ALLOW_LINE2 = "The Edit, Write, and Bash tools will be denied by permissions. Read is permitted."
+        self._apply_sentinel(claude_path, DENY_LINE2, ALLOW_LINE2, oread_always)
+
+    def _apply_agents_md(self, agents_path: Path, oread_always: bool):
+        DENY_LINE = "The Read, Edit, Write, and Bash tools will be denied by permissions."
+        ALLOW_LINE = "The Edit, Write, and Bash tools will be denied by permissions. Read is permitted."
+        self._apply_sentinel(agents_path, DENY_LINE, ALLOW_LINE, oread_always)
+
+    def _apply_self_md(self, self_path: Path, oread_always: bool):
+        DENY_LINE = "Direct `cat`, `ls`, and `grep` bash commands are denied by permissions."
+        ALLOW_LINE = "Direct `cat`, `ls`, `grep`, and Read are allowed — oread recommended for large files and directories."
+        self._apply_sentinel(self_path, DENY_LINE, ALLOW_LINE, oread_always)
 
     def _run_setup(self, project_root=None, research_folder=None):
         research_folder = research_folder or project_root

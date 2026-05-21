@@ -9,8 +9,8 @@ from pathlib import Path
 
 from .utils.terminal import Terminal
 from .utils.logger import get_logger
-from .utils.paths import TASKS_DIR, RUN_OUTPUT_DIR, STATE_FILE, SESSION_DIR, DOCS_DIR
-from .utils.paths import RUN_LOG, EXEC_LOG, READ_LOG, INPUT_FILE
+from .utils.paths import TASKS_DIR, RUN_OUTPUT_DIR, STATE_FILE, SESSION_DIR, SERVERS_DIR, DOCS_DIR
+from .utils.paths import RUN_LOG, EXEC_LOG, READ_LOG, INPUT_FILE, _read_config
 from .utils.paths import session_log, session_input
 
 
@@ -19,7 +19,7 @@ class Manager:
     OUTPUT_DIR = RUN_OUTPUT_DIR
     STATE_FILE = STATE_FILE
 
-    def __init__(self):
+    def __init__(self, port=None):
         self._t_invocation = time.time()
         self._t_cmd_start = None
         self._t_cmd_end = None
@@ -30,6 +30,57 @@ class Manager:
         SESSION_DIR.mkdir(parents=True, exist_ok=True)
         self.TASKS_DIR.mkdir(parents=True, exist_ok=True)
         self.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        config = _read_config()
+        use_multi = config.get("use_multiple_servers", False)
+        if port is not None and use_multi:
+            SERVERS_DIR.mkdir(parents=True, exist_ok=True)
+            self._state_file = str(SERVERS_DIR / f"{port}.json")
+        elif port is None and use_multi:
+            server_url = os.environ.get("OWRAP_SERVER_URL", "")
+            if server_url:
+                try:
+                    p = int(server_url.rsplit(":", 1)[-1])
+                    SERVERS_DIR.mkdir(parents=True, exist_ok=True)
+                    self._state_file = str(SERVERS_DIR / f"{p}.json")
+                except (ValueError, IndexError):
+                    self._state_file = self.STATE_FILE
+            else:
+                # No env var: try session file first, then fall back to mtime scan
+                found = None
+                claude_sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+                if claude_sid:
+                    sf = Path.home() / ".owrap" / "sessions" / f"{claude_sid}.session"
+                    if sf.exists():
+                        for line in sf.read_text().splitlines():
+                            if line.startswith("server_url="):
+                                url_from_file = line.split("=", 1)[1].strip()
+                                try:
+                                    p = int(url_from_file.rsplit(":", 1)[-1])
+                                    SERVERS_DIR.mkdir(parents=True, exist_ok=True)
+                                    candidate = SERVERS_DIR / f"{p}.json"
+                                    if candidate.exists():
+                                        data = json.loads(candidate.read_text())
+                                        pid = data.get("pid")
+                                        if pid:
+                                            os.kill(pid, 0)
+                                            found = str(candidate)
+                                except (OSError, Exception):
+                                    pass
+                                break
+                if found is None and SERVERS_DIR.exists():
+                    for f in sorted(SERVERS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+                        try:
+                            data = json.loads(f.read_text())
+                            pid = data.get("pid")
+                            if pid:
+                                os.kill(pid, 0)
+                                found = str(f)
+                                break
+                        except (OSError, Exception):
+                            pass
+                self._state_file = found if found else self.STATE_FILE
+        else:
+            self._state_file = self.STATE_FILE
         self._resolve_log_file()
         self.cleanup_done_tasks()
         self._housekeeping()
@@ -68,19 +119,19 @@ class Manager:
 
     def _read_state(self):
         try:
-            with open(self.STATE_FILE) as f:
+            with open(self._state_file) as f:
                 return json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             return None
 
     def _write_state(self, state):
-        dir_path = os.path.dirname(self.STATE_FILE)
+        dir_path = os.path.dirname(self._state_file)
         os.makedirs(dir_path, exist_ok=True)
         fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix=".tmp")
         try:
             with os.fdopen(fd, "w") as f:
                 json.dump(state, f)
-            os.rename(tmp_path, self.STATE_FILE)
+            os.rename(tmp_path, self._state_file)
         except Exception:
             os.unlink(tmp_path)
             raise
@@ -155,7 +206,7 @@ class Manager:
                 if self._logger:
                     self._logger.info("stop: server pid=%s already gone", pid)
         try:
-            os.unlink(self.STATE_FILE)
+            os.unlink(self._state_file)
         except OSError:
             pass
 
@@ -282,6 +333,122 @@ class Manager:
         if self._logger:
             self._logger.debug("ensure_running: server not running, starting")
         return self.start(port=port)
+
+    @staticmethod
+    def sessions_per_server() -> dict:
+        """Count sessions per server URL."""
+        sessions_dir = Path.home() / ".owrap" / "sessions"
+        counts = {}
+        if sessions_dir.exists():
+            for sf in sessions_dir.glob("*.session"):
+                try:
+                    for line in sf.read_text().splitlines():
+                        if line.startswith("server_url="):
+                            url = line.split("=", 1)[1].strip()
+                            counts[url] = counts.get(url, 0) + 1
+                except Exception:
+                    pass
+        return counts
+
+    @staticmethod
+    def list_servers() -> list:
+        """Return list of all server state dicts (with 'alive' key)."""
+        config = _read_config()
+        use_multi = config.get("use_multiple_servers", False)
+        servers = []
+        seen_pids = set()
+        seen_urls = set()
+        if use_multi and SERVERS_DIR.exists():
+            for f in sorted(SERVERS_DIR.glob("*.json")):
+                try:
+                    data = json.loads(f.read_text())
+                    pid = data.get("pid")
+                    if pid:
+                        try:
+                            os.kill(pid, 0)
+                            data["alive"] = True
+                            seen_pids.add(pid)
+                            seen_urls.add(data.get("url", ""))
+                            servers.append(data)
+                        except OSError:
+                            f.unlink(missing_ok=True)
+                except Exception:
+                    pass
+        # Always check legacy manager.json — server may have written there (e.g. old shim, transition)
+        try:
+            with open(STATE_FILE) as f:
+                data = json.load(f)
+            pid = data.get("pid")
+            url = data.get("url", "")
+            if pid and pid not in seen_pids and url not in seen_urls:
+                try:
+                    os.kill(pid, 0)
+                    data["alive"] = True
+                except OSError:
+                    data["alive"] = False
+                servers.append(data)
+        except Exception:
+            pass
+        if not servers:
+            # Non-multi fallback already covered above; if empty show nothing
+            pass
+        return servers
+
+    @staticmethod
+    def get_or_start_server(logger=None):
+        """Return (Manager_instance, url) for the session-assigned server."""
+        config = _read_config()
+        use_multi = config.get("use_multiple_servers", False)
+        max_svrs = int(config.get("max_servers", 1))
+        base_port = 4096
+        if not use_multi:
+            m = Manager()
+            url = m.ensure_running(port=base_port)
+            return m, url
+        SERVERS_DIR.mkdir(parents=True, exist_ok=True)
+        running = []
+        for f in sorted(SERVERS_DIR.glob("*.json")):
+            try:
+                data = json.loads(f.read_text())
+                pid = data.get("pid")
+                port = data.get("port")
+                url = data.get("url")
+                if pid and port:
+                    try:
+                        os.kill(pid, 0)
+                        running.append({"port": port, "url": url, "pid": pid})
+                    except OSError:
+                        pass
+            except Exception:
+                pass
+        if len(running) < max_svrs:
+            used_ports = {s["port"] for s in running}
+            port = next(p for p in range(base_port, base_port + max_svrs + 10) if p not in used_ports)
+            m = Manager(port=port)
+            url = m.start(port=port)
+            return m, url
+        else:
+            sess_counts = Manager.sessions_per_server()
+            running.sort(key=lambda s: sess_counts.get(s["url"], 0))
+            best = running[0]
+            return Manager(port=best["port"]), best["url"]
+
+    @staticmethod
+    def stop_all(logger=None):
+        """Stop all running servers."""
+        config = _read_config()
+        use_multi = config.get("use_multiple_servers", False)
+        if use_multi and SERVERS_DIR.exists():
+            for f in SERVERS_DIR.glob("*.json"):
+                try:
+                    data = json.loads(f.read_text())
+                    port = data.get("port")
+                    if port:
+                        Manager(port=port).stop()
+                except Exception:
+                    pass
+        else:
+            Manager().stop()
 
     def is_running(self):
         return self.get_url() is not None

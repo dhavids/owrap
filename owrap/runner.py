@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 from .session import StartRunner, StopRunner, RefreshRunner, RestartRunner, CleanupRunner, EndRunner
-from .commands import ExecRunner, ReadRunner, RunRunner, SetupRunner, WaitRunner
+from .commands import ExecRunner, FinishRunner, ReadRunner, RunRunner, SetupRunner, WaitRunner
 from .manager import Manager
 from .utils.paths import _read_config
 
@@ -22,6 +22,7 @@ def main():
 
     stop_parser = subparsers.add_parser("stop", help="Stop an owrap session")
     stop_parser.add_argument("--session-file", type=str, default=None, help="Session file path")
+    stop_parser.add_argument("--force", action="store_true", default=False, help="Kill server and clear all sessions even if others are active")
 
     end_parser = subparsers.add_parser("end", help="End this session only (server keeps running)")
     end_parser.add_argument("--session-file", type=str, default=None)
@@ -35,6 +36,7 @@ def main():
     restart_parser.add_argument("research", nargs="?", default=None, help="Research project name")
     restart_parser.add_argument("--shell-pid", type=int, default=None, help="Shell PID")
     restart_parser.add_argument("--session-file", type=str, default=None, help="Session file path")
+    restart_parser.add_argument("--force", action="store_true", default=False, help="Kill server and clear all sessions before starting fresh")
 
     setup_parser = subparsers.add_parser("setup", help="Configure owrap for a research project")
     setup_parser.add_argument("project_root", nargs="?", default=None, help="Path to project root (where CLAUDE.md, AGENTS.md, .claude/ live)")
@@ -59,6 +61,11 @@ def main():
     read_parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     read_parser.add_argument("-t", "--timeout", type=int, default=None, help="Timeout in seconds (default: 55)")
     read_parser.add_argument("--no-log-time", action="store_true", help="Suppress the timing block")
+    read_parser.add_argument("-v", "--verbose", action="store_true", default=False, help="Full cat: bypass the 100-line limit")
+    read_parser.add_argument("--list-styles", action="store_true", default=False,
+                             help="List all prompt styles and file-type extension defaults")
+    read_parser.add_argument("-p", "--prompt-style", type=str, default=None,
+                             help="Summary prompt style: default, terse, structured, code, exec, bullets")
 
     run_parser.add_argument("--msg", type=str, default=None, help="Single-line message for task mode")
     run_parser.add_argument("--id", "-i", type=str, default=None, help="Msg ID for parallel tracking")
@@ -70,8 +77,12 @@ def main():
     exec_parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     exec_parser.add_argument("--no-log-time", action="store_true", help="Suppress the timing block")
 
+    finish_parser = subparsers.add_parser("finish", help="Kill a running orun/oexec job by target (exec, task1, task2, ...)")
+    finish_parser.add_argument("target", help="Job to kill: 'exec', 'task', 'task1', 'task2', 'msg1', ...")
+    finish_parser.add_argument("--session", type=str, default=None, help="Session ID override")
+
     wait_parser = subparsers.add_parser("wait", help="Wait for task/read/msg completion")
-    wait_parser.add_argument("type", choices=["run", "exec", "read", "msg"])
+    wait_parser.add_argument("type", choices=["run", "exec", "read", "msg", "input"])
     wait_parser.add_argument("id", nargs="?", default=None, help="ID to wait for (required for read/msg)")
     wait_parser.add_argument("--session", type=str, default=None, help="Session ID override")
     wait_parser.add_argument("--timeout", type=int, default=None, help="Timeout in seconds")
@@ -89,7 +100,7 @@ def main():
         StartRunner(manager, logger, allow_all=allow_all).run(
             shell_pid=args.shell_pid, session_file=args.session_file, research=args.research)
     elif args.command == "stop":
-        StopRunner(manager, logger, allow_all=allow_all).run(session_file=args.session_file)
+        StopRunner(manager, logger, allow_all=allow_all).run(session_file=args.session_file, force=args.force)
     elif args.command == "end":
         EndRunner(manager, logger, allow_all=allow_all).run(session_file=args.session_file)
     elif args.command == "refresh":
@@ -97,16 +108,20 @@ def main():
             shell_pid=args.shell_pid, session_file=args.session_file, research=args.research)
     elif args.command == "restart":
         RestartRunner(manager, logger, allow_all=allow_all).run(
-            shell_pid=args.shell_pid, session_file=args.session_file, research=args.research)
+            shell_pid=args.shell_pid, session_file=args.session_file, research=args.research, force=args.force)
     elif args.command == "setup":
         SetupRunner().run(project_root=args.project_root, research_folder=args.research_folder, update=args.update)
     elif args.command == "read":
+        if getattr(args, 'list_styles', False):
+            ReadRunner(manager, logger, allow_all=allow_all).list_styles()
+            sys.exit(0)
         if args.file is None and args.grep is None:
             import sys as _sys; print("error: -f/--file required unless using -g/--grep", file=_sys.stderr); _sys.exit(1)
         ReadRunner(manager, logger, allow_all=allow_all).run(
             args.file, summarise=args.summarise, details=args.details,
             log_time=not args.no_log_time, grep=args.grep, read_id=getattr(args, 'id', None),
-            timeout=getattr(args, 'timeout', None))
+            timeout=getattr(args, 'timeout', None), verbose=args.verbose,
+            prompt_style=getattr(args, 'prompt_style', None))
     elif args.command in ("run",):
         RunRunner(manager, logger, allow_all=allow_all).run(
             msg=args.msg, msg_id=getattr(args, 'id', None),
@@ -114,6 +129,11 @@ def main():
             log_time=not args.no_log_time, timeout=getattr(args, 'timeout', None))
     elif args.command in ("exec", "work"):
         ExecRunner(manager, logger, allow_all=allow_all).run(log_time=not args.no_log_time)
+    elif args.command == "finish":
+        FinishRunner(manager, logger, allow_all=allow_all).run(
+            target=args.target,
+            session_id=getattr(args, "session", None),
+        )
     elif args.command == "wait":
         WaitRunner(manager, logger, allow_all=allow_all).run(
             wait_type=args.type,

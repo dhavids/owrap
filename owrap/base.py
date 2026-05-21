@@ -38,6 +38,7 @@ class BaseRunner(ABC):
             "kind": kind,
             "title": title,
             "started": time.time(),
+            "server_url": self._get_server_url() or "",
         }
         path = RUNNING_DIR / name
         path.write_text(json.dumps(data))

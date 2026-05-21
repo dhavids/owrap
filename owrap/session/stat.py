@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 from ..base import BaseRunner
-from ..utils.paths import STATE_FILE, RUNNING_DIR, RECENTLY_DONE_DIR, session_input
+from ..utils.paths import RUNNING_DIR, RECENTLY_DONE_DIR, session_input
 
 
 class StatRunner(BaseRunner):
@@ -22,64 +22,74 @@ class StatRunner(BaseRunner):
         global_session = Path.home() / ".owrap" / "session"
         current_id = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
 
-        state = self._read_state()
-
         print("=== OWRAP SESSIONS ===\n")
 
-        if state:
-            pid = state.get("pid")
-            url = state.get("url", "?")
-            active = 0
-            if RUNNING_DIR.exists():
-                for _sf in RUNNING_DIR.iterdir():
-                    try:
-                        _d = json.loads(_sf.read_text())
-                        _pid = _d.get("pid")
-                        if _pid:
-                            try:
-                                os.kill(_pid, 0)
-                                active += 1
-                            except OSError:
-                                pass
-                    except Exception:
-                        pass
-            alive = False
-            responsive = False
-            if pid:
-                try:
-                    os.kill(pid, 0)
-                    alive = True
-                except OSError:
-                    pass
-            if alive:
-                url_to_check = state.get("url", "")
-                if url_to_check:
-                    import socket
-                    try:
-                        addr = url_to_check.replace("http://", "").replace("https://", "")
-                        parts = addr.rsplit(":", 1)
-                        host = parts[0]
-                        port = int(parts[1]) if len(parts) > 1 else 4096
-                        with socket.create_connection((host, port), timeout=3):
-                            responsive = True
-                    except (OSError, ValueError):
-                        pass
-            status = "alive" if responsive else ("unresponsive" if alive else "dead")
-            log_file = state.get("log_file", "")
-            log_info = ""
-            if log_file:
-                lp = Path(log_file)
-                if lp.exists():
-                    size = lp.stat().st_size
-                    log_info = f"  log: {log_file} ({size} bytes)"
-                else:
-                    log_info = f"  log: {log_file} (missing)"
-            print(f"  server: {url}  [{status}]  pid={pid}  tasks={active} active")
-            if log_info:
-                print(f" {log_info}")
-            print()
+        from ..manager import Manager as _Manager
+        servers = _Manager.list_servers()
+        sess_counts = _Manager.sessions_per_server()
+
+        running_tasks, done_tasks = self._load_tasks()
+        all_srv_urls = {srv.get("url") for srv in servers}
+
+        if servers:
+            label = "server:" if len(servers) == 1 else "servers:"
+            print(f"  {label}")
+            _active_by_url = {}
+            _last_task_time = {}
+            for _t in running_tasks:
+                _u = _t.get("server_url", "")
+                if _t.get("alive"):
+                    _active_by_url[_u] = _active_by_url.get(_u, 0) + 1
+                _ts = _t.get("started", 0)
+                if _ts > _last_task_time.get(_u, 0):
+                    _last_task_time[_u] = _ts
+            for _t in done_tasks:
+                _u = _t.get("server_url", "")
+                _ts = _t.get("finished", 0)
+                if _ts > _last_task_time.get(_u, 0):
+                    _last_task_time[_u] = _ts
+            servers = sorted(
+                servers,
+                key=lambda s: (
+                    _active_by_url.get(s.get("url", ""), 0),
+                    _last_task_time.get(s.get("url", ""), 0),
+                ),
+                reverse=True,
+            )
+            for srv in servers:
+                pid = srv.get("pid", "?")
+                url = srv.get("url", "?")
+                port = srv.get("port", "?")
+                session_count = sess_counts.get(url, 0)
+
+                srv_running = [t for t in running_tasks if t.get("server_url") == url]
+                srv_done = [t for t in done_tasks if t.get("server_url") == url]
+                active_count = sum(1 for t in srv_running if t.get("alive"))
+
+                log_file = srv.get("log_file", "")
+                log_info = ""
+                if log_file:
+                    lp = Path(log_file)
+                    if lp.exists():
+                        log_info = f"log: {lp.name} ({lp.stat().st_size} bytes)"
+                print(f"    port {port}  {url}  [alive]  pid={pid}  tasks={active_count} active  sessions={session_count}")
+                if log_info:
+                    print(f"    {log_info}")
+                if srv_running or srv_done:
+                    print("    tasks:")
+                    _print_running(srv_running, show_session=True, indent="      ")
+                    _print_done(srv_done, show_session=True, indent="      ")
+                print()
         else:
             print("  server: not started\n")
+
+        orphan_running = [t for t in running_tasks if t.get("server_url", "") not in all_srv_urls]
+        orphan_done = [t for t in done_tasks if t.get("server_url", "") not in all_srv_urls]
+        if orphan_running or orphan_done:
+            print("tasks:")
+            _print_running(orphan_running, show_session=True)
+            _print_done(orphan_done, show_session=True)
+            print()
 
         session_files = []
         if sessions_dir.exists():
@@ -88,8 +98,6 @@ class StatRunner(BaseRunner):
                 key=lambda p: p.stat().st_mtime,
                 reverse=True,
             )
-
-        self._show_tasks(None)
 
         if session_files:
             print("sessions:")
@@ -103,6 +111,9 @@ class StatRunner(BaseRunner):
                 research = data.get("research", "")
                 if research:
                     print(f"    research: {research}")
+                server_url = data.get("server_url", "")
+                if server_url:
+                    print(f"    server:   {server_url}")
                 print(f"    age:      {age}")
                 print()
         else:
@@ -120,12 +131,33 @@ class StatRunner(BaseRunner):
 
         return 0
 
-    def _read_state(self):
-        try:
-            with open(STATE_FILE) as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            return None
+    def _load_tasks(self):
+        running = []
+        if RUNNING_DIR.exists():
+            for f in sorted(RUNNING_DIR.iterdir()):
+                try:
+                    data = json.loads(f.read_text())
+                    pid = data.get("pid")
+                    alive = False
+                    if pid:
+                        try:
+                            os.kill(pid, 0)
+                            alive = True
+                        except OSError:
+                            pass
+                    data["alive"] = alive
+                    running.append(data)
+                except Exception:
+                    pass
+        done = []
+        if RECENTLY_DONE_DIR.exists():
+            for f in sorted(RECENTLY_DONE_DIR.iterdir()):
+                try:
+                    data = json.loads(f.read_text())
+                    done.append(data)
+                except Exception:
+                    pass
+        return running, done
 
     def _show_tasks(self, filter_arg=None):
         def _matches(t):
@@ -197,17 +229,17 @@ class StatRunner(BaseRunner):
             print()
 
 
-def _print_running(tasks, show_session=True):
+def _print_running(tasks, show_session=True, indent="  "):
     for t in tasks:
         age = _age_str(t.get("started", time.time()))
         status = "running" if t.get("alive") else "stale/crashed"
         kind = t.get("kind", "task")
         tid = str(t.get("task_id", "?"))[:12]
         sess = f"  [{t.get('session_id','?')}/{t.get('research','?')}]" if show_session else ""
-        print(f"  {kind:<6}  {tid:<14}  {status:<14}  started {age} ago   pid={t.get('pid')}{sess}   \"{t.get('title','')[:55]}\"")
+        print(f"{indent}{kind:<6}  {tid:<14}  {status:<14}  started {age} ago   pid={t.get('pid')}{sess}   \"{t.get('title','')[:55]}\"")
 
 
-def _print_done(tasks, show_session=True):
+def _print_done(tasks, show_session=True, indent="  "):
     for t in tasks:
         age = _age_str(t.get("finished", time.time()))
         rc = t.get("rc", "?")
@@ -216,7 +248,7 @@ def _print_done(tasks, show_session=True):
         tid = str(t.get("task_id", "?"))[:12]
         sess = f"  [{t.get('session_id','?')}/{t.get('research','?')}]" if show_session else ""
         status = f"done({result})"
-        print(f"  {kind:<6}  {tid:<14}  {status:<16}  {age} ago{sess}   \"{t.get('title','')[:55]}\"")
+        print(f"{indent}{kind:<6}  {tid:<14}  {status:<16}  {age} ago{sess}   \"{t.get('title','')[:55]}\"")
 
 
 def _parse_session(path: Path) -> dict:

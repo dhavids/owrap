@@ -12,6 +12,7 @@ CONFIG_FILE = CONFIGS_DIR / "owrap.json"
 SESSION_DIR = Path.home() / ".owrap"
 RUNNING_DIR = SESSION_DIR / "running"
 RECENTLY_DONE_DIR = SESSION_DIR / "recently_done"
+SERVERS_DIR = SESSION_DIR / "servers"
 
 # Runtime output paths (all under DOCS_DIR)
 RUN_DIR = DOCS_DIR / "run"
@@ -86,3 +87,7 @@ def get_todo_path(research: str = None) -> Path:
     if research and research_root:
         return Path(research_root) / "projects" / f"{research}.md"
     return DOCS_DIR / "todo.md"
+
+
+def server_state_file(port: int) -> Path:
+    return SERVERS_DIR / f"{port}.json"

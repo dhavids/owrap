@@ -2,7 +2,7 @@ import os
 import sys
 import time
 
-from ..utils.paths import session_log, RUN_LOG, EXEC_LOG, READ_LOG
+from ..utils.paths import session_log, session_input, RUN_LOG, EXEC_LOG, READ_LOG
 from ..base import BaseRunner
 
 
@@ -25,6 +25,8 @@ class WaitRunner(BaseRunner):
                 print("owait: msg requires an id", file=sys.stderr)
                 sys.exit(1)
             self._wait_marker(session_log(RUN_LOG, session_id), f"[m:{wait_id}]", timeout or 300)
+        elif wait_type == "input":
+            self._wait_input_clear(session_input(session_id), timeout or 120)
 
     def _wait_any(self, log_path, timeout, label):
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -61,4 +63,14 @@ class WaitRunner(BaseRunner):
                         sys.exit(0)
             time.sleep(0.2)
         print(f"owait: timed out waiting for {marker}", file=sys.stderr)
+        sys.exit(1)
+
+    def _wait_input_clear(self, input_path, timeout):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if not input_path.exists() or input_path.stat().st_size == 0:
+                print("input clear")
+                sys.exit(0)
+            time.sleep(0.5)
+        print("owait: timed out waiting for input to clear", file=sys.stderr)
         sys.exit(1)
