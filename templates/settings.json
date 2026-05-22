@@ -34,7 +34,6 @@
       "Bash(rm *)"
     ],
     "additionalDirectories": [
-      "<project_root>",
       "$HOME/.owrap"
     ]
   }
