@@ -1,57 +1,63 @@
 import argparse
+import os
 import sys
+import time
 from pathlib import Path
 
 from ..base import BaseRunner
 from .start import StartRunner
-from ..utils.paths import SESSION_DIR, get_plan_path, get_self_path, get_todo_path, session_input, _read_config
+from ..utils.paths import SESSION_DIR, get_plan_path, get_todo_path, session_input, _read_config, context_path, get_workspace_config, BASE_CONFIG_FILE
+from ..utils.session_resolver import resolve, update_session_field, list_sessions, _parse, SESSIONS_DIR
 from .orientation import print_orientation
 
 
 class RefreshRunner(BaseRunner):
-    def run(self, shell_pid=None, session_file=None, research=None):
-        if session_file is None:
-            session_file = SESSION_DIR / "session"
-        if not Path(session_file).exists():
-            if research is None:
-                research = _read_config().get("default_research")
-            StartRunner(self.manager).run(shell_pid=shell_pid, session_file=session_file, research=research)
-            return
+    def run(self, shell_pid=None, session_file=None, research=None, session_id=None):
+        if session_id is not None:
+            session_path = Path.home() / ".owrap" / "sessions" / f"{session_id}.session"
+            if not session_path.exists():
+                print(f"ERROR: session '{session_id}' not found. Use 'owrap stat' to list sessions.")
+                sys.exit(2)
+        else:
+            session_id, session_path, source = resolve(mode="refresh")
+            if session_id is None:
+                print("ERROR: cannot refresh — no SESSION_ID in env and no Claude session anchor matched.")
+                print()
+                print("Known sessions:")
+                for s in list_sessions():
+                    ccsid_val = s.get("claude_session_id", "-")
+                    print(f"  {s['session_id']}  research={s.get('research','-')}  started={s.get('started','-')}  ccsid={ccsid_val[:8] if ccsid_val != '-' else '-'}")
+                print()
+                print("Either: export SESSION_ID=<id>  OR  ~/bin/owrap attach <id>  OR  ~/bin/owrap start <name>")
+                sys.exit(2)
 
-        url = self.manager.get_url()
-        if url is None:
-            if research is None:
-                research = _read_config().get("default_research")
-            StartRunner(self.manager).run(shell_pid=shell_pid, session_file=session_file, research=research)
-            return
-
-        session_id = self.manager.session_id
-        sp = Path(session_file)
-        lines = sp.read_text().splitlines()
-        existing_research = None
-        for line in lines:
-            if line.startswith("session_id="):
-                session_id = line.split("=", 1)[1]
-            if line.startswith("research="):
-                existing_research = line.split("=", 1)[1]
-
+        data = _parse(session_path)
+        existing_research = data.get("research")
+        workspace_name = data.get("workspace") or _read_config().get("default_workspace", "")
         if research is None:
             research = existing_research
         if research is None:
             research = _read_config().get("default_research")
-        elif research != existing_research:
-            new_lines = [l for l in lines if not l.startswith("research=")]
-            new_lines.append(f"research={research}")
-            sp.write_text("\n".join(new_lines) + "\n")
+
+        url = self.manager.get_url()
+        if url is None:
+            os.environ["SESSION_ID"] = session_id
+            StartRunner(self.manager).run(shell_pid=shell_pid, research=research)
+            return
+
+        if research != existing_research:
+            update_session_field(session_id, "research", research)
 
         plan_path = get_plan_path(session_id)
         todo_path = get_todo_path(research)
-        self_path = get_self_path()
         input_path = session_input(session_id)
 
         if self.logger:
             self.logger.info("refresh session=%s research=%s url=%s", session_id, research or "none", url)
-        print_orientation(session_id, research, url, plan_path, todo_path, self_path, input_path)
+        cp = context_path(session_id)
+        print_orientation(session_id, research, url, plan_path, todo_path, input_path, context_path=cp)
+        update_session_field(session_id, "last_refresh", time.strftime("%Y-%m-%dT%H:%M:%S"))
+        print(f"\n__OWRAP_EXPORT__ SESSION_ID={session_id}")
         sys.exit(0)
 
 

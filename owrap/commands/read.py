@@ -7,7 +7,7 @@ from pathlib import Path
 from ..utils.terminal import Terminal
 from ..manager import Manager
 from ..base import BaseRunner
-from ..utils.paths import TASKS_DIR
+from ..utils.paths import TASKS_DIR, context_path, _read_config
 
 OREAD_MAX_CHARS = 8_000
 OREAD_SUMMARY_LINES = 100
@@ -52,18 +52,23 @@ class ReadRunner(BaseRunner):
 
     def _run_grep(self, pattern: str, file_path=None):
         import subprocess
-        target = Path(file_path) if file_path else Path.cwd()
-        if self.logger:
-            self.logger.info("grep pattern=%r target=%s session=%s", pattern, target, self.manager.session_id or "none")
-        if target.is_file():
-            cmd = ["grep", "-n", pattern, str(target)]
+        if isinstance(file_path, list):
+            if self.logger:
+                self.logger.info("grep pattern=%r target=%s session=%s", pattern, file_path, self.manager.session_id or "none")
+            cmd = ["grep", "-n", pattern] + [str(Path(f)) for f in file_path]
         else:
-            cmd = ["grep", "-rn", pattern, str(target)]
+            target = Path(file_path) if file_path else Path.cwd()
+            if self.logger:
+                self.logger.info("grep pattern=%r target=%s session=%s", pattern, target, self.manager.session_id or "none")
+            if target.is_file():
+                cmd = ["grep", "-n", pattern, str(target)]
+            else:
+                cmd = ["grep", "-rn", pattern, str(target)]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.stdout:
             print(result.stdout, end="")
         if result.returncode == 1:
-            print(f"(no matches for {pattern!r} in {target})")
+            print(f"(no matches for {pattern!r} in {file_path})")
         elif result.returncode not in (0, 1):
             print(result.stderr, end="", file=sys.stderr)
         sys.exit(0)
@@ -103,6 +108,8 @@ class ReadRunner(BaseRunner):
         if grep is not None:
             self._run_grep(grep, file_path)
             return
+        if isinstance(file_path, list):
+            file_path = file_path[0]
         if read_id:
             print(f"[r:{read_id}]", flush=True)
         if self.logger:
@@ -135,6 +142,10 @@ class ReadRunner(BaseRunner):
             prompt_style = FILE_TYPE_DEFAULTS.get(ext, _STYLE_FALLBACK)
 
         prompt = f"Read the file at {file_path}"
+        _ctx_cfg = _read_config()
+        cp = context_path(self.manager.session_id)
+        if _ctx_cfg.get("context_enabled", True) and self.manager.session_id and cp.exists() and cp.stat().st_size > 0:
+            prompt = f"First read {cp}, then: " + prompt
         if summarise:
             prompt += ", summarise the content"
         if details:

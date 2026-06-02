@@ -8,7 +8,7 @@ from pathlib import Path
 from ..utils.terminal import Terminal
 from ..manager import Manager
 from ..base import BaseRunner
-from ..utils.paths import EXEC_OUTPUT_DIR, get_plan_path
+from ..utils.paths import EXEC_OUTPUT_DIR, get_plan_path, context_path, _read_config, get_agents_md_path
 
 
 class ExecRunner(BaseRunner):
@@ -53,14 +53,25 @@ class ExecRunner(BaseRunner):
         cmd = ["opencode", "run"]
         if self.allow_all:
             cmd.append("--dangerously-skip-permissions")
+        _ctx_cfg = _read_config()
+        cp = context_path(session_id) if session_id else None
+        ctx_instr = None
+        executor_md = get_agents_md_path()
+        if _ctx_cfg.get("context_enabled", True) and cp and cp.exists() and cp.stat().st_size > 0:
+            if executor_md and executor_md.exists():
+                ctx_instr = f"First read {executor_md}, then read {cp}, then: "
+            else:
+                ctx_instr = f"First read {cp}, then: "
+        plan_str = str(plan_path) if plan_path else ""
+        exec_msg = f"--exec {plan_str}".strip()
         if url:
             cmd.extend(["--attach", url])
-            if plan_path:
-                cmd.extend(["--", "--exec", shlex.quote(str(plan_path))])
-            else:
-                cmd.extend(["--", "--exec"])
+            prompt = f"{ctx_instr}{exec_msg}" if ctx_instr else exec_msg
+            cmd.extend(["--", shlex.quote(prompt)])
         else:
-            cmd.extend(["--", "--execf"])
+            execf_msg = f"--execf {plan_str}".strip()
+            fb_prompt = f"{ctx_instr}{execf_msg}" if ctx_instr else execf_msg
+            cmd.extend(["--", shlex.quote(fb_prompt)])
 
         plan_name = self._get_active_plan_name(plan_path)
 
@@ -103,6 +114,12 @@ class ExecRunner(BaseRunner):
             print(f"timing: {t}")
         self.manager.log_time(log_time)
         self._write_exec_log(plan_name)
+        try:
+            self.manager.append_context_recent(plan_name, rc, ctx=ctx_instr is not None, kind="exec")
+            self.manager.refresh_context_plan(plan_path)
+            self.manager.update_frequent_files()
+        except Exception:
+            pass
 
         sys.exit(rc)
 

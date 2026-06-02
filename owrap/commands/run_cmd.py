@@ -11,7 +11,7 @@ from pathlib import Path
 from ..utils.terminal import Terminal
 from ..manager import Manager
 from ..base import BaseRunner
-from ..utils.paths import TASKS_DIR, RUN_OUTPUT_DIR
+from ..utils.paths import TASKS_DIR, RUN_OUTPUT_DIR, context_path, _read_config, get_agents_md_path
 
 
 class RunRunner(BaseRunner):
@@ -57,11 +57,9 @@ class RunRunner(BaseRunner):
 
     def _run_msg(self, msg, url, log_time, msg_id=None, timeout=None):
         self._install_sigterm_handler()
-        if "\n" in msg:
-            if self.logger:
-                self.logger.error("run msg rejected: contains newlines session=%s", self.manager.session_id or "none")
-            print("Error: --msg must be a single line (no newlines)", file=sys.stderr)
-            sys.exit(1)
+        if msg == "-":
+            import sys as _sys
+            msg = _sys.stdin.read()
         if len(msg) > 1024:
             if self.logger:
                 self.logger.error("run msg rejected: len=%d >1024 session=%s", len(msg), self.manager.session_id or "none")
@@ -72,12 +70,23 @@ class RunRunner(BaseRunner):
             print(f"[m:{msg_id}]", flush=True)
         _msg_sentinel_id = msg_id or f"fg_{int(time.time())}"
         sentinel = self._write_sentinel(_msg_sentinel_id, msg[:60], kind="msg")
+        _ctx_cfg = _read_config()
+        cp = context_path(self.manager.session_id)
+        ctx_injected = False
+        original_msg = msg
+        executor_md = get_agents_md_path()
+        if _ctx_cfg.get("context_enabled", True) and self.manager.session_id and cp.exists() and cp.stat().st_size > 0:
+            if executor_md and executor_md.exists():
+                msg = f"First read {executor_md}, then read {cp}, then: {msg}"
+            else:
+                msg = f"First read {cp}, then: {msg}"
+            ctx_injected = True
         cmd = ["opencode", "run"]
         if self.allow_all:
             cmd.append("--dangerously-skip-permissions")
         if url:
             cmd.extend(["--attach", url])
-        cmd.extend(["--", "--task", "--do", shlex.quote(msg)])
+        cmd.extend(["--", shlex.quote(msg)])
 
         if not url:
             fallback_file = self.TASKS_DIR / "task0.md"
@@ -114,7 +123,12 @@ class RunRunner(BaseRunner):
             self._complete_sentinel(sentinel, rc, timed_out=timed_out)
             if self.logger:
                 self.logger.info("run msg done msg=%.80r rc=%d%s", msg, rc, " (timeout)" if timed_out else "")
-            self._write_run_log(msg[:80], tag=f"[m:{msg_id}]" if msg_id else "")
+            self._write_run_log(original_msg[:80], tag=f"[m:{msg_id}]" if msg_id else "")
+            try:
+                self.manager.append_context_recent(original_msg[:80], rc, ctx=ctx_injected)
+                self.manager.update_frequent_files()
+            except Exception:
+                pass
             self.manager.log_time(log_time)
         sys.exit(rc)
 
@@ -132,6 +146,16 @@ class RunRunner(BaseRunner):
             task_id = self.manager.next_task_id()
             self.manager.register_task(task_id)
             task_file = self.TASKS_DIR / f"task{task_id}.md"
+            _ctx_cfg = _read_config()
+            cp = context_path(self.manager.session_id)
+            ctx_injected = False
+            executor_md = get_agents_md_path()
+            if _ctx_cfg.get("context_enabled", True) and self.manager.session_id and cp.exists() and cp.stat().st_size > 0:
+                if executor_md and executor_md.exists():
+                    content = f"## Context\nFirst read {executor_md}, then read {cp} before starting this task.\n\n" + content
+                else:
+                    content = f"## Context\nFirst read {cp} before starting this task.\n\n" + content
+                ctx_injected = True
             task_file.write_text(content)
             input_path.write_text("")
 
@@ -146,7 +170,7 @@ class RunRunner(BaseRunner):
             if self.allow_all:
                 cmd.append("--dangerously-skip-permissions")
             cmd.extend(["--attach", url])
-            cmd.extend(["--", "--task", shlex.quote(str(task_file))])
+            cmd.extend(["--", shlex.quote(f"--task {task_file}")])
 
             title = self._get_task_title(task_file)
             sentinel = self._write_sentinel(task_id, title)
@@ -190,8 +214,23 @@ class RunRunner(BaseRunner):
                     print(f"timing: {t}")
                 self.manager.log_time(log_time)
                 self._write_run_log(title, tag=f"[t:{task_id}]")
+                try:
+                    self.manager.append_context_recent(title, rc, ctx=ctx_injected)
+                    self.manager.update_frequent_files()
+                except Exception:
+                    pass
         else:
             fallback_file = self.TASKS_DIR / "task0.md"
+            _ctx_cfg_fb = _read_config()
+            cp = context_path(self.manager.session_id)
+            ctx_injected_fb = False
+            executor_md_fb = get_agents_md_path()
+            if _ctx_cfg_fb.get("context_enabled", True) and self.manager.session_id and cp.exists() and cp.stat().st_size > 0:
+                if executor_md_fb and executor_md_fb.exists():
+                    content = f"## Context\nFirst read {executor_md_fb}, then read {cp} before starting this task.\n\n" + content
+                else:
+                    content = f"## Context\nFirst read {cp} before starting this task.\n\n" + content
+                ctx_injected_fb = True
             fallback_file.write_text(content)
             input_path.write_text("")
 
@@ -207,6 +246,11 @@ class RunRunner(BaseRunner):
             rc = 0
             self.manager.log_time(log_time)
             self._write_run_log(title, tag=f"[t:0]")
+            try:
+                self.manager.append_context_recent(title, rc, ctx=ctx_injected_fb)
+                self.manager.update_frequent_files()
+            except Exception:
+                pass
 
         sys.exit(rc)
 

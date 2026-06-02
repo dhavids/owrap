@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 
 from ..base import BaseRunner
+from ..utils.paths import DOCS_DIR
 
 
 TWO_HOURS = 2 * 3600
@@ -38,11 +39,13 @@ class CleanupRunner(BaseRunner):
                     if data.get("session_id", "").startswith(partial) or sf.stem.startswith(partial):
                         sf.unlink(missing_ok=True)
                         removed.append(sf.name)
+                        _cleanup_context(data.get("session_id", sf.stem), removed)
             if global_session.exists():
                 data = _parse_session(global_session)
                 if data.get("session_id", "").startswith(partial):
                     global_session.unlink(missing_ok=True)
                     removed.append("session (global)")
+                    _cleanup_context(data.get("session_id", ""), removed)
         else:
             if sessions_dir.exists():
                 for sf in sessions_dir.glob("*.session"):
@@ -50,15 +53,35 @@ class CleanupRunner(BaseRunner):
                     is_ppid = sf.stem.isdigit()
                     if age > TWO_HOURS or is_ppid:
                         sf.unlink(missing_ok=True)
+                        data = _parse_session(sf)
                         removed.append(sf.name)
+                        _cleanup_context(data.get("session_id", sf.stem), removed)
             if global_session.exists():
                 age = now - global_session.stat().st_mtime
                 if age > TWO_HOURS:
                     global_session.unlink(missing_ok=True)
+                    data = _parse_session(global_session)
                     removed.append("session (global)")
+                    _cleanup_context(data.get("session_id", ""), removed)
             if not server_alive and state is not None:
                 self.manager.stop()
                 removed.append("manager.json (dead server state)")
+
+        # Clean up orphaned context files (no corresponding .session file)
+        active_sids = set()
+        if sessions_dir.exists():
+            for sf in sessions_dir.glob("*.session"):
+                data = _parse_session(sf)
+                sid = data.get("session_id", "").strip()
+                if sid:
+                    active_sids.add(sid)
+        if DOCS_DIR.exists():
+            for suffix in (".md", ".lock"):
+                for f in DOCS_DIR.glob(f"context_*{suffix}"):
+                    sid = f.stem.replace("context_", "")
+                    if sid not in active_sids:
+                        f.unlink(missing_ok=True)
+                        removed.append(f.name)
 
         # Clean up orphaned owrap_start_*.log files
         owrap_dir = Path.home() / ".owrap"
@@ -114,3 +137,11 @@ def _parse_session(path: Path) -> dict:
     except Exception:
         pass
     return data
+
+
+def _cleanup_context(session_id: str, removed: list):
+    for suffix in (".md", ".lock"):
+        p = DOCS_DIR / f"context_{session_id}{suffix}"
+        if p.exists():
+            p.unlink(missing_ok=True)
+            removed.append(f"context_{session_id}{suffix}")

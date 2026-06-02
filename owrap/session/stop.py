@@ -1,20 +1,15 @@
 import sys
 from pathlib import Path
 
-from ..utils.paths import SESSION_DIR, _read_config
+from ..utils.paths import _read_config, DOCS_DIR, get_plan_path, session_input
+from ..utils.session_resolver import resolve, remove_session, BY_CCSID_DIR, list_sessions, _parse
 from ..manager import Manager
 
 
-def _parse_session(path):
-    data = {}
-    try:
-        for line in path.read_text().splitlines():
-            if "=" in line:
-                k, v = line.split("=", 1)
-                data[k.strip()] = v.strip()
-    except Exception:
-        pass
-    return data
+def _teardown_context(session_id: str):
+    for suffix in (".md", ".lock"):
+        p = DOCS_DIR / f"context_{session_id}{suffix}"
+        p.unlink(missing_ok=True)
 
 
 class StopRunner:
@@ -23,22 +18,32 @@ class StopRunner:
         self.logger = logger
         self.allow_all = allow_all
 
-    def run(self, session_file=None, no_exit=False, force=False):
+    def run(self, session_file=None, no_exit=False, force=False, target=None):
         sessions_dir = Path.home() / ".owrap" / "sessions"
         global_session = Path.home() / ".owrap" / "session"
         config = _read_config()
-        use_multi = config.get("use_multiple_servers", False)
 
         if force:
             Manager.stop_all(logger=self.logger)
             count = 0
-            if sessions_dir.exists():
-                for sf in sessions_dir.glob("*.session"):
-                    sf.unlink(missing_ok=True)
-                    count += 1
-            if global_session.exists():
-                global_session.unlink(missing_ok=True)
+            for s in list_sessions():
+                sid = s["session_id"]
+                remove_session(sid)
+                _teardown_context(sid)
+                pp = get_plan_path(sid)
+                pp.unlink(missing_ok=True)
+                ip = session_input(sid)
+                ip.unlink(missing_ok=True)
                 count += 1
+            if global_session.exists():
+                data = _parse(global_session)
+                global_session.unlink(missing_ok=True)
+                _teardown_context(data.get("session_id", ""))
+                count += 1
+            if BY_CCSID_DIR.exists():
+                for ptr in BY_CCSID_DIR.iterdir():
+                    if ptr.is_file():
+                        ptr.unlink(missing_ok=True)
             if self.logger:
                 self.logger.info("stop --force: all servers killed sessions cleared count=%d", count)
             print(f"OWRAP STOPPED  all servers killed  sessions cleared ({count} removed)")
@@ -46,27 +51,49 @@ class StopRunner:
                 sys.exit(0)
             return
 
-        # Non-force: determine current session's server
-        current_name = Path(session_file).name if session_file else None
-        current_server_url = None
+        # Non-force: determine current session via resolver
+        sid = None
+        sf = None
+
+        if target:
+            for s in list_sessions():
+                if s["session_id"].startswith(target) or s.get("research", "") == target:
+                    sid = s["session_id"]
+                    sf = sessions_dir / f"{sid}.session"
+                    break
+            if sid is None:
+                print(f"OWRAP STOP: no session matching '{target}'. Use `owrap stop --force` to clear everything.")
+                sys.exit(0)
+        else:
+            sid, sf, _ = resolve(mode="refresh")
+
+        if sid is None:
+            print("OWRAP STOP: no current session to stop. Use `owrap stop --force` to clear everything.")
+            sys.exit(0)
+
+        data = _parse(sf)
+        server_url = data.get("server_url")
+
+        # Find other sessions for server decision
         other_sessions = []
+        for s in list_sessions():
+            if s["session_id"] != sid:
+                other_sessions.append({"session_id": s["session_id"], "url": s.get("server_url", "")})
 
-        if sessions_dir.exists():
-            for sf in sessions_dir.glob("*.session"):
-                data = _parse_session(sf)
-                if sf.name == current_name:
-                    current_server_url = data.get("server_url")
-                else:
-                    other_sessions.append({"file": sf, "url": data.get("server_url", "")})
+        # Remove session file + by_ccsid pointer
+        remove_session(sid)
+        _teardown_context(sid)
+        pp = get_plan_path(sid)
+        pp.unlink(missing_ok=True)
+        ip = session_input(sid)
+        ip.unlink(missing_ok=True)
 
-        if session_file:
-            Path(session_file).unlink(missing_ok=True)
-
-        if use_multi and current_server_url:
-            same_server = [s for s in other_sessions if s["url"] == current_server_url]
+        use_multi = config.get("use_multiple_servers", False)
+        if use_multi and server_url:
+            same_server = [s for s in other_sessions if s["url"] == server_url]
             if not same_server:
                 try:
-                    port = int(current_server_url.rsplit(":", 1)[-1])
+                    port = int(server_url.rsplit(":", 1)[-1])
                     Manager(port=port).stop()
                     n = len(other_sessions)
                     if n:

@@ -1,17 +1,20 @@
+import fcntl
 import json
 import logging
 import os
 import re
+import shlex
 import subprocess
 import time
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 from .utils.terminal import Terminal
 from .utils.logger import get_logger
-from .utils.paths import TASKS_DIR, RUN_OUTPUT_DIR, STATE_FILE, SESSION_DIR, SERVERS_DIR, DOCS_DIR
-from .utils.paths import RUN_LOG, EXEC_LOG, READ_LOG, INPUT_FILE, _read_config
-from .utils.paths import session_log, session_input
+from .utils.paths import TASKS_DIR, RUN_OUTPUT_DIR, STATE_FILE, SESSION_DIR, SERVERS_DIR, DOCS_DIR, RUNNING_DIR
+from .utils.paths import RUN_LOG, EXEC_LOG, READ_LOG, INPUT_FILE, _read_config, get_plan_path
+from .utils.paths import session_log, session_input, context_path, context_lock_path
 
 
 class Manager:
@@ -421,6 +424,11 @@ class Manager:
                         pass
             except Exception:
                 pass
+        sess_counts = Manager.sessions_per_server()
+        zero_session = [s for s in running if sess_counts.get(s["url"], 0) == 0]
+        if zero_session:
+            best = zero_session[0]
+            return Manager(port=best["port"]), best["url"]
         if len(running) < max_svrs:
             used_ports = {s["port"] for s in running}
             port = next(p for p in range(base_port, base_port + max_svrs + 10) if p not in used_ports)
@@ -428,7 +436,6 @@ class Manager:
             url = m.start(port=port)
             return m, url
         else:
-            sess_counts = Manager.sessions_per_server()
             running.sort(key=lambda s: sess_counts.get(s["url"], 0))
             best = running[0]
             return Manager(port=best["port"]), best["url"]
@@ -449,6 +456,67 @@ class Manager:
                     pass
         else:
             Manager().stop()
+
+    @staticmethod
+    def trim_idle_servers():
+        """Kill all live servers that have 0 active sessions. Returns count killed."""
+        config = _read_config()
+        use_multi = config.get("use_multiple_servers", False)
+        sess_counts = Manager.sessions_per_server()
+        killed = 0
+        if use_multi and SERVERS_DIR.exists():
+            for f in sorted(SERVERS_DIR.glob("*.json")):
+                try:
+                    data = json.loads(f.read_text())
+                    pid = data.get("pid")
+                    port = data.get("port")
+                    url = data.get("url", "")
+                    if not pid or not port:
+                        continue
+                    try:
+                        os.kill(pid, 0)
+                    except OSError:
+                        f.unlink(missing_ok=True)
+                        continue
+                    if sess_counts.get(url, 0) == 0:
+                        try:
+                            os.kill(pid, 15)
+                            print(f"  killed idle server port={port} pid={pid}")
+                            killed += 1
+                        except OSError:
+                            pass
+                        f.unlink(missing_ok=True)
+                except Exception:
+                    pass
+        try:
+            with open(STATE_FILE) as f_st:
+                data = json.load(f_st)
+            pid = data.get("pid")
+            url = data.get("url", "")
+            port = data.get("port", "?")
+            if pid:
+                try:
+                    os.kill(pid, 0)
+                    if sess_counts.get(url, 0) == 0:
+                        os.kill(pid, 15)
+                        print(f"  killed idle server port={port} pid={pid}")
+                        killed += 1
+                        try:
+                            os.unlink(STATE_FILE)
+                        except OSError:
+                            pass
+                except OSError:
+                    try:
+                        os.unlink(STATE_FILE)
+                    except OSError:
+                        pass
+        except Exception:
+            pass
+        if killed == 0:
+            print("owrap trim: no idle servers found")
+        else:
+            print(f"owrap trim: killed {killed} idle server(s)")
+        return killed
 
     def is_running(self):
         return self.get_url() is not None
@@ -568,3 +636,241 @@ class Manager:
             sid = f.stem[len("plan_"):]
             if sid and sid not in active_ids:
                 f.unlink(missing_ok=True)
+
+    @property
+    def context_path(self) -> Path:
+        return context_path(self.session_id)
+
+    def create_context(self, url=None):
+        cp = self.context_path
+        config = _read_config()
+        research_root = config.get("research_root", "")
+        venv = config.get("venv", "")
+        plan = str(get_plan_path(self.session_id)) if self.session_id else "none"
+        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+        url = url or self.get_url() or ""
+        if cp.exists():
+            text = cp.read_text()
+            for field, value in (
+                ("session", self.session_id or "none"),
+                ("research", self.research or "none"),
+                ("server", url),
+                ("plan", plan),
+                ("last_updated", now),
+            ):
+                text = re.sub(rf"^{field}:.*$", f"{field}: {value}", text, flags=re.MULTILINE)
+            cp.write_text(text)
+            return
+        content = (
+            "## Session\n\n"
+            f"session: {self.session_id or 'none'}\n"
+            f"research: {self.research or 'none'}\n"
+            f"server: {url}\n"
+            f"plan: {plan}\n"
+            "phase: 1\n"
+            f"research_root: {research_root}\n"
+            f"venv: {venv}\n"
+            f"last_updated: {now}\n"
+            "\n## Focus\n\n"
+            "## Active Plan\n\n"
+            "## Key Locations\n\n"
+            "## Decisions\n\n"
+            "## Environment\n\n"
+            "## Frequent Files\n\n"
+            "## Recent\n\n"
+        )
+        cp.parent.mkdir(parents=True, exist_ok=True)
+        cp.write_text(content)
+
+    def append_context_recent(self, title: str, rc: int, ctx: bool = True, kind: str = "msg"):
+        cp = self.context_path
+        lock = context_lock_path(self.session_id)
+        if not cp.exists():
+            return
+        try:
+            fd = os.open(str(lock), os.O_CREAT | os.O_WRONLY)
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            try:
+                text = cp.read_text()
+                lines = text.splitlines()
+                recent_idx = None
+                for i, line in enumerate(lines):
+                    if line.startswith("## Recent"):
+                        recent_idx = i
+                        break
+                if recent_idx is None:
+                    return
+                now = datetime.now().strftime("%H:%M")
+                now_full = datetime.now().strftime("%Y-%m-%d %H:%M")
+                title_short = title[:60]
+                ctx_str = "ctx=yes" if ctx else "ctx=no"
+                new_entry = f"- {now} [{kind}] {title_short} (rc={rc}, {ctx_str})"
+                # Update last_updated in Session header
+                new_lines_pre = []
+                for line in lines:
+                    if line.startswith("last_updated:"):
+                        new_lines_pre.append(f"last_updated: {now_full}")
+                    else:
+                        new_lines_pre.append(line)
+                lines = new_lines_pre
+                recent_lines = []
+                for line in lines[recent_idx + 1:]:
+                    if line.startswith("## "):
+                        break
+                    if line.strip():
+                        recent_lines.append(line)
+                recent_lines.insert(0, new_entry)
+                recent_lines = recent_lines[:5]
+                before = lines[:recent_idx + 1]
+                after_start = recent_idx + 1 + len(lines[recent_idx + 1:]) - len(recent_lines)
+                for i in range(recent_idx + 1, len(lines)):
+                    if lines[i].startswith("## "):
+                        after_start = i
+                        break
+                else:
+                    after_start = len(lines)
+                after = lines[after_start:]
+                new_lines = before + recent_lines + [""] + after
+                cp.write_text("\n".join(new_lines) + "\n")
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                os.close(fd)
+        except Exception:
+            pass
+
+    def update_frequent_files(self):
+        cp = self.context_path
+        lock = context_lock_path(self.session_id)
+        read_log = self.read_log_path
+        if not cp.exists() or not read_log.exists():
+            return
+        try:
+            fd = os.open(str(lock), os.O_CREAT | os.O_WRONLY)
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            try:
+                content = read_log.read_text()
+                counts = {}
+                for line in content.splitlines():
+                    match = re.search(r"—\s+(.+)$", line)
+                    if match:
+                        path_str = match.group(1).strip()
+                        counts[path_str] = counts.get(path_str, 0) + 1
+                top5 = sorted(
+                    ((p, c) for p, c in counts.items() if Path(p).exists()),
+                    key=lambda x: x[1], reverse=True
+                )[:5]
+                lines = cp.read_text().splitlines()
+                freq_idx = None
+                for i, line in enumerate(lines):
+                    if line.startswith("## Frequent Files"):
+                        freq_idx = i
+                        break
+                if freq_idx is None:
+                    return
+                next_section = len(lines)
+                for i in range(freq_idx + 1, len(lines)):
+                    if lines[i].startswith("## "):
+                        next_section = i
+                        break
+                before = lines[:freq_idx + 1]
+                after = lines[next_section:]
+                new_lines = before + [f"- {path} ({count})" for path, count in top5] + [""] + after
+                cp.write_text("\n".join(new_lines) + "\n")
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                os.close(fd)
+        except Exception:
+            pass
+
+    def refresh_context_plan(self, plan_path=None):
+        """Update ## Active Plan section from the first 3 uncompleted steps in the active plan."""
+        cp = self.context_path
+        if not cp.exists():
+            return
+        if plan_path is None:
+            plan_path = get_plan_path(self.session_id)
+        plan_path = Path(plan_path)
+        if not plan_path.exists():
+            return
+        plan_text = plan_path.read_text()
+        steps = []
+        in_active = False
+        for line in plan_text.splitlines():
+            if "## [ACTIVE]" in line:
+                in_active = True
+            elif line.startswith("## ") and in_active:
+                break
+            elif in_active and re.match(r"\d+\. \[ \]", line):
+                steps.append(line.strip())
+                if len(steps) >= 3:
+                    break
+        plan_snippet = "\n".join(steps) if steps else "(no active steps)"
+        lock = context_lock_path(self.session_id)
+        try:
+            fd = os.open(str(lock), os.O_CREAT | os.O_WRONLY)
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            try:
+                text = cp.read_text()
+                new_text = re.sub(
+                    r"(## Active Plan\n).*?(\n## )",
+                    lambda m: m.group(1) + "\n" + plan_snippet + "\n" + m.group(2),
+                    text, flags=re.DOTALL
+                )
+                cp.write_text(new_text)
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                os.close(fd)
+        except Exception:
+            pass
+
+    def start_watchdog(self):
+        import threading
+        if not self.session_id:
+            return
+        def _watchdog_loop():
+            while True:
+                time.sleep(600)
+                cp = self.context_path
+                if not cp.exists():
+                    continue
+                try:
+                    size = cp.stat().st_size
+                    if size < 500:
+                        continue
+                    has_active = False
+                    if RUNNING_DIR.exists():
+                        for sentinel in RUNNING_DIR.glob(f"*_{self.session_id}*"):
+                            has_active = True
+                            break
+                    if has_active:
+                        continue
+                    lock = context_lock_path(self.session_id)
+                    fd = os.open(str(lock), os.O_CREAT | os.O_WRONLY)
+                    fcntl.flock(fd, fcntl.LOCK_SH)
+                    snapshot = cp.read_text()
+                    mtime = cp.stat().st_mtime
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                    os.close(fd)
+                    servers = Manager.sessions_per_server()
+                    if not servers:
+                        continue
+                    least_busy_url = min(servers, key=servers.get)
+                    prompt = f"Compress the following session context file. Keep all section headers. Condense entries to the most important facts. Preserve the structure. Return only the compressed content:\n\n{snapshot}"
+                    cmd = f"opencode run --attach {least_busy_url} -- {shlex.quote(prompt)}"
+                    result = Terminal(verbose=False).run(cmd, capture_output=True, print_output=False, timeout=60)
+                    compressed = (result.get("stdout") or "").strip()
+                    if not compressed:
+                        continue
+                    fd = os.open(str(lock), os.O_CREAT | os.O_WRONLY)
+                    fcntl.flock(fd, fcntl.LOCK_EX)
+                    try:
+                        current_mtime = cp.stat().st_mtime
+                        if current_mtime == mtime:
+                            cp.write_text(compressed + "\n")
+                    finally:
+                        fcntl.flock(fd, fcntl.LOCK_UN)
+                        os.close(fd)
+                except Exception:
+                    pass
+        t = threading.Thread(target=_watchdog_loop, daemon=True)
+        t.start()

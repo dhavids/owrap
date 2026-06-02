@@ -1,13 +1,19 @@
 #!/bin/bash
-SESSION_FILE="$HOME/.owrap/sessions/${CLAUDE_CODE_SESSION_ID}.session"
-if [ ! -f "$SESSION_FILE" ]; then SESSION_FILE="$HOME/.owrap/session"; fi
+mkdir -p "$HOME/.owrap/sessions/by_ccsid"
+SID="${SESSION_ID:-}"
+CCSID="${CLAUDE_CODE_SESSION_ID:-}"
+PTR="$HOME/.owrap/sessions/by_ccsid/${CCSID}"
+if [ -z "$SID" ] && [ -n "$CCSID" ] && [ -f "$PTR" ]; then
+  SID=$(cat "$PTR")
+fi
+SESSION_FILE="$HOME/.owrap/sessions/${SID}.session"
 [ -f "$SESSION_FILE" ] && export OWRAP_SESSION=$(grep "^session_id=" "$SESSION_FILE" | cut -d= -f2)
 [ -f "$SESSION_FILE" ] && export OWRAP_RESEARCH=$(grep "^research=" "$SESSION_FILE" | cut -d= -f2)
 cd "<OWRAP_ROOT>"
 if [[ "$1" == "--fg" ]]; then
   <PYTHON> -m owrap.runner exec "${@:2}"
 else
-  echo "[oexec] dispatching (session: $OWRAP_SESSION) ..."
+  echo "[oexec] dispatching (session: $OWRAP_SESSION) ... will notify when complete."
   <PYTHON> -m owrap.runner exec "$@" &
   <PYTHON> -m owrap.runner wait exec
 fi

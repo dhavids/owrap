@@ -2,10 +2,11 @@ import argparse
 import sys
 from pathlib import Path
 
-from .session import StartRunner, StopRunner, RefreshRunner, RestartRunner, CleanupRunner, EndRunner
+from .session import StartRunner, StopRunner, RefreshRunner, RestartRunner, CleanupRunner, EndRunner, AttachRunner
 from .commands import ExecRunner, FinishRunner, ReadRunner, RunRunner, SetupRunner, WaitRunner
+from .commands.sync_cmd import SyncRunner
 from .manager import Manager
-from .utils.paths import _read_config
+from .utils.paths import _read_config, get_workspace_config
 
 
 def main():
@@ -19,29 +20,46 @@ def main():
     start_parser.add_argument("research", nargs="?", default=None, help="Research project name")
     start_parser.add_argument("--shell-pid", type=int, default=None, help="Shell PID")
     start_parser.add_argument("--session-file", type=str, default=None, help="Session file path")
+    start_parser.add_argument("-i", "--session-id", type=str, default=None, help="Session ID: attach if exists, create with this ID if not")
 
     stop_parser = subparsers.add_parser("stop", help="Stop an owrap session")
+    stop_parser.add_argument("target", nargs="?", default=None, help="Session ID prefix or research name to stop (alias for -i/--session-id)")
+    stop_parser.add_argument("-i", "--session-id", type=str, default=None, help="Session ID or research name to stop (alias for positional target)")
     stop_parser.add_argument("--session-file", type=str, default=None, help="Session file path")
     stop_parser.add_argument("--force", action="store_true", default=False, help="Kill server and clear all sessions even if others are active")
 
     end_parser = subparsers.add_parser("end", help="End this session only (server keeps running)")
+    end_parser.add_argument("target", nargs="?", default=None, help="Session ID prefix or research name to end (alias for -i/--session-id)")
+    end_parser.add_argument("-i", "--session-id", type=str, default=None, help="Session ID or research name to end (alias for positional target)")
     end_parser.add_argument("--session-file", type=str, default=None)
 
     refresh_parser = subparsers.add_parser("refresh", help="Refresh an owrap session")
     refresh_parser.add_argument("research", nargs="?", default=None, help="Research project name")
     refresh_parser.add_argument("--shell-pid", type=int, default=None, help="Shell PID")
     refresh_parser.add_argument("--session-file", type=str, default=None, help="Session file path")
+    refresh_parser.add_argument("-i", "--session-id", type=str, default=None, help="Session ID to refresh (skips env resolution)")
+
+    attach_parser = subparsers.add_parser("attach", help="Bind an existing session to this Claude window")
+    attach_parser.add_argument("target_session_id", help="Session ID to attach to")
+    attach_parser.add_argument("--shell-pid", type=int, default=None, help="Shell PID (ignored)")
 
     restart_parser = subparsers.add_parser("restart", help="Stop and restart an owrap session")
     restart_parser.add_argument("research", nargs="?", default=None, help="Research project name")
     restart_parser.add_argument("--shell-pid", type=int, default=None, help="Shell PID")
     restart_parser.add_argument("--session-file", type=str, default=None, help="Session file path")
     restart_parser.add_argument("--force", action="store_true", default=False, help="Kill server and clear all sessions before starting fresh")
+    restart_parser.add_argument("-i", "--session-id", type=str, default=None, help="Session ID to restart")
 
-    setup_parser = subparsers.add_parser("setup", help="Configure owrap for a research project")
-    setup_parser.add_argument("project_root", nargs="?", default=None, help="Path to project root (where CLAUDE.md, AGENTS.md, .claude/ live)")
-    setup_parser.add_argument("research_folder", nargs="?", default=None, help="Path to research folder (where self.md lives; defaults to project_root if omitted)")
-    setup_parser.add_argument("--update", action="store_true", help="Check installed files against current templates and show resolved placeholder values")
+    setup_parser = subparsers.add_parser("setup", help="Configure owrap for a workspace")
+    setup_parser.add_argument("path", nargs="?", default=None, help="Path to workspace directory (derives name from basename)")
+    setup_parser.add_argument("--name", type=str, default=None, help="Workspace name (explicit override)")
+    setup_parser.add_argument("--workspace", type=str, default=None, help="Path to workspace (used with --name for explicit override)")
+    setup_parser.add_argument("--research-root", type=str, default=None, help="Path to research root")
+    setup_parser.add_argument("--allow-all", action="store_true", default=None, help="Allow all permissions")
+    setup_parser.add_argument("--oread", action="store_true", default=None, help="Use oread for all file reads")
+    setup_parser.add_argument("--no-oread", dest="oread", action="store_false", help="Do not use oread for file reads")
+
+    sync_parser = subparsers.add_parser("sync", help="Re-apply staged templates to project files")
 
     read_parser = subparsers.add_parser("read", help="Read a file via opencode")
     run_parser = subparsers.add_parser("run", help="Run a task via opencode")
@@ -53,7 +71,7 @@ def main():
     cleanup_parser = subparsers.add_parser("cleanup", help="Remove stale session files and dead server state")
     cleanup_parser.add_argument("session_id", nargs="?", default=None, help="Partial session ID or filename prefix to target")
 
-    read_parser.add_argument("-f", "--file", required=False, default=None, help="File or directory path")
+    read_parser.add_argument("-f", "--file", nargs="+", required=False, default=None, dest="files", help="File or directory path (repeatable for -g grep)")
     read_parser.add_argument("-g", "--grep", type=str, default=None, help="Grep pattern (fast, no opencode)")
     read_parser.add_argument("-s", "--summarise", action="store_true", help="Summarise content")
     read_parser.add_argument("-d", "--details", type=str, default=None, help="Focus details")
@@ -81,6 +99,8 @@ def main():
     finish_parser.add_argument("target", help="Job to kill: 'exec', 'task', 'task1', 'task2', 'msg1', ...")
     finish_parser.add_argument("--session", type=str, default=None, help="Session ID override")
 
+    subparsers.add_parser("trim", help="Kill all live servers with no active sessions")
+
     wait_parser = subparsers.add_parser("wait", help="Wait for task/read/msg completion")
     wait_parser.add_argument("type", choices=["run", "exec", "read", "msg", "input"])
     wait_parser.add_argument("id", nargs="?", default=None, help="ID to wait for (required for read/msg)")
@@ -94,31 +114,42 @@ def main():
     logger = manager.get_logger(level=level)
     manager.set_logger(logger)
     allow_all = getattr(args, "allow_all", False)
-    allow_all = allow_all or _read_config().get("allow_all", False)
+    _base = _read_config()
+    _ws_cfg = get_workspace_config(_base.get("default_workspace", ""))
+    allow_all = allow_all or _base.get("allow_all", False) or _ws_cfg.get("allow_all", False)
 
     if args.command == "start":
         StartRunner(manager, logger, allow_all=allow_all).run(
-            shell_pid=args.shell_pid, session_file=args.session_file, research=args.research)
+            shell_pid=args.shell_pid, session_file=args.session_file, research=args.research,
+            session_id=getattr(args, 'session_id', None))
     elif args.command == "stop":
-        StopRunner(manager, logger, allow_all=allow_all).run(session_file=args.session_file, force=args.force)
+        target = getattr(args, 'session_id', None) or getattr(args, 'target', None)
+        StopRunner(manager, logger, allow_all=allow_all).run(session_file=args.session_file, force=args.force, target=target)
     elif args.command == "end":
-        EndRunner(manager, logger, allow_all=allow_all).run(session_file=args.session_file)
+        target = getattr(args, 'session_id', None) or getattr(args, 'target', None)
+        EndRunner(manager, logger, allow_all=allow_all).run(session_file=args.session_file, target=target)
     elif args.command == "refresh":
         RefreshRunner(manager, logger, allow_all=allow_all).run(
-            shell_pid=args.shell_pid, session_file=args.session_file, research=args.research)
+            shell_pid=args.shell_pid, session_file=args.session_file, research=args.research,
+            session_id=getattr(args, 'session_id', None))
+    elif args.command == "attach":
+        AttachRunner(manager, logger, allow_all=allow_all).run(target_session_id=args.target_session_id)
     elif args.command == "restart":
         RestartRunner(manager, logger, allow_all=allow_all).run(
-            shell_pid=args.shell_pid, session_file=args.session_file, research=args.research, force=args.force)
+            shell_pid=args.shell_pid, session_file=args.session_file, research=args.research, force=args.force,
+            session_id=getattr(args, 'session_id', None))
     elif args.command == "setup":
-        SetupRunner().run(project_root=args.project_root, research_folder=args.research_folder, update=args.update)
+        SetupRunner().run(path=args.path, project_name=args.name, workspace=args.workspace, research_root=args.research_root, allow_all=args.allow_all, oread=args.oread)
+    elif args.command == "sync":
+        SyncRunner().run()
     elif args.command == "read":
         if getattr(args, 'list_styles', False):
             ReadRunner(manager, logger, allow_all=allow_all).list_styles()
             sys.exit(0)
-        if args.file is None and args.grep is None:
+        if args.files is None and args.grep is None:
             import sys as _sys; print("error: -f/--file required unless using -g/--grep", file=_sys.stderr); _sys.exit(1)
         ReadRunner(manager, logger, allow_all=allow_all).run(
-            args.file, summarise=args.summarise, details=args.details,
+            args.files[0] if args.files and len(args.files)==1 else args.files, summarise=args.summarise, details=args.details,
             log_time=not args.no_log_time, grep=args.grep, read_id=getattr(args, 'id', None),
             timeout=getattr(args, 'timeout', None), verbose=args.verbose,
             prompt_style=getattr(args, 'prompt_style', None))
@@ -134,6 +165,9 @@ def main():
             target=args.target,
             session_id=getattr(args, "session", None),
         )
+    elif args.command == "trim":
+        Manager.trim_idle_servers()
+    
     elif args.command == "wait":
         WaitRunner(manager, logger, allow_all=allow_all).run(
             wait_type=args.type,

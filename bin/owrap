@@ -1,12 +1,38 @@
 #!/bin/bash
-mkdir -p "$HOME/.owrap/sessions"
-SESSION_FILE="$HOME/.owrap/sessions/${CLAUDE_CODE_SESSION_ID}.session"
-[ -f "$SESSION_FILE" ] && export OWRAP_SESSION=$(grep "^session_id=" "$SESSION_FILE" | cut -d= -f2)
-[ -f "$SESSION_FILE" ] && export OWRAP_RESEARCH=$(grep "^research=" "$SESSION_FILE" | cut -d= -f2)
-[ -f "$SESSION_FILE" ] && export OWRAP_SERVER_URL=$(grep "^server_url=" "$SESSION_FILE" | cut -d= -f2)
+mkdir -p "$HOME/.owrap/sessions/by_ccsid"
+
+_resolve_owrap_session() {
+  local SID="${SESSION_ID:-}"
+  local CCSID="${CLAUDE_CODE_SESSION_ID:-}"
+  local PTR="$HOME/.owrap/sessions/by_ccsid/${CCSID}"
+  if [ -z "$SID" ] && [ -n "$CCSID" ] && [ -f "$PTR" ]; then
+    SID=$(cat "$PTR")
+  fi
+  export SESSION_ID="$SID"
+  local SF="$HOME/.owrap/sessions/${SID}.session"
+  if [ -f "$SF" ]; then
+    export OWRAP_SESSION=$(grep "^session_id=" "$SF" | cut -d= -f2)
+    export OWRAP_RESEARCH=$(grep "^research=" "$SF" | cut -d= -f2)
+    export OWRAP_SERVER_URL=$(grep "^server_url=" "$SF" | cut -d= -f2)
+  fi
+}
+_resolve_owrap_session
+
 case "$1" in
-  start|refresh|restart) cd "<OWRAP_ROOT>" && <PYTHON> -m owrap.runner "$1" --shell-pid "$PPID" --session-file "$SESSION_FILE" "${@:2}" ;;
-  stop)                  cd "<OWRAP_ROOT>" && <PYTHON> -m owrap.runner stop --session-file "$SESSION_FILE" "${@:2}" ;;
-  end)                   cd "<OWRAP_ROOT>" && <PYTHON> -m owrap.runner end --session-file "$SESSION_FILE" ;;
-  *)                     cd "<OWRAP_ROOT>" && <PYTHON> -m owrap.runner "$@" ;;
+  start|refresh|attach)
+    TMPOUT=$(mktemp)
+    cd "<OWRAP_ROOT>" && <PYTHON> -m owrap.runner "$@" --shell-pid "$PPID" 2>&1 | tee "$TMPOUT"
+    NEWSID=$(grep "^__OWRAP_EXPORT__ SESSION_ID=" "$TMPOUT" | tail -n1 | sed 's|^__OWRAP_EXPORT__ SESSION_ID=||')
+    rm -f "$TMPOUT"
+    if [ -n "$NEWSID" ]; then
+      export SESSION_ID="$NEWSID"
+    fi
+    ;;
+  stop)
+    cd "<OWRAP_ROOT>" && <PYTHON> -m owrap.runner stop "${@:2}"
+    ;;
+  end)
+    cd "<OWRAP_ROOT>" && <PYTHON> -m owrap.runner end ;;
+  *)
+    cd "<OWRAP_ROOT>" && <PYTHON> -m owrap.runner "$@" ;;
 esac

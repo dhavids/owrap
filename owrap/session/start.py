@@ -1,14 +1,15 @@
 import argparse
 import json
 import os
-import secrets
 import sys
+import time
 from pathlib import Path
 
 from ..base import BaseRunner
 from ..manager import Manager
 from ..utils.paths import SESSION_DIR, TASKS_DIR, RUN_OUTPUT_DIR, EXEC_OUTPUT_DIR, READ_OUTPUT_DIR
-from ..utils.paths import get_plan_path, get_self_path, get_todo_path, session_input, _read_config, SERVERS_DIR, STATE_FILE
+from ..utils.paths import get_plan_path, get_todo_path, session_input, _read_config, SERVERS_DIR, STATE_FILE, context_path, get_workspace_config, BASE_CONFIG_FILE
+from ..utils.session_resolver import resolve, update_session_field, migrate_legacy_files, session_file as _sf, ccsid_pointer, _write as _sr_write, SESSIONS_DIR, BY_CCSID_DIR
 from .orientation import print_orientation
 
 
@@ -55,22 +56,41 @@ def _prune_logs(max_logs: int):
 
 
 class StartRunner(BaseRunner):
-    def run(self, shell_pid=None, session_file=None, research=None):
+    def run(self, shell_pid=None, session_file=None, research=None, session_id=None):
         if research is None:
             research = _read_config().get("default_research")
-        session_id = secrets.token_hex(3)
+        migrate_legacy_files()
+        
+        if session_id is not None:
+            sf_path = _sf(session_id)
+            if sf_path.exists():
+                session_path = sf_path
+            else:
+                ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
+                _sr_write(sf_path, {"session_id": session_id, "claude_session_id": ccsid, "started": time.strftime("%Y-%m-%dT%H:%M:%S")})
+                if ccsid:
+                    BY_CCSID_DIR.mkdir(parents=True, exist_ok=True)
+                    ccsid_pointer(ccsid).write_text(session_id)
+                session_path = sf_path
+        else:
+            session_id, session_path, source = resolve(mode="start")
         _, url = Manager.get_or_start_server()
+        update_session_field(session_id, "server_url", url)
+        if research:
+            update_session_field(session_id, "research", research)
 
-        session_path = Path(session_file) if session_file else SESSION_DIR / "session"
-        session_path.parent.mkdir(parents=True, exist_ok=True)
+        # Resolve workspace name: explicit research → use as workspace key, else default_workspace
+        base = _read_config()
+        workspace_name = research or base.get("default_workspace", "")
+        _pc_check = get_workspace_config(workspace_name) if workspace_name else {}
+        if not _pc_check and workspace_name != base.get("default_workspace", ""):
+            workspace_name = base.get("default_workspace", workspace_name)
+        if workspace_name:
+            update_session_field(session_id, "workspace", workspace_name)
+
         config = _read_config()
         max_logs = int(config.get("max_servers", 1)) * 2
         _prune_logs(max_logs)
-        lines = [f"session_id={session_id}", f"server_url={url}"]
-        if research:
-            lines.append(f"research={research}")
-        with open(session_path, "w") as f:
-            f.write("\n".join(lines) + "\n")
 
         TASKS_DIR.mkdir(parents=True, exist_ok=True)
         RUN_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -88,14 +108,43 @@ class StartRunner(BaseRunner):
                         f"---\nname: {research}\nactive_plan: none\n---\n\n## TODO\n\n## DONE\n"
                     )
 
+        _old_docs = Path(__file__).resolve().parents[2] / "docs"
+        _new_docs = Path.home() / ".owrap" / "docs"
+        if _old_docs.exists() and any(_old_docs.iterdir()):
+            import shutil
+            _new_docs.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(str(_old_docs), str(_new_docs), dirs_exist_ok=True)
+            shutil.rmtree(str(_old_docs))
+            print(f"  [owrap] Migrated {_old_docs} -> {_new_docs}")
+
         plan_path = get_plan_path(session_id)
         todo_path = get_todo_path(research)
-        self_path = get_self_path()
         input_path = session_input(session_id)
+
+        self.manager.session_id = session_id
+        self.manager.create_context(url=url)
+        self.manager.refresh_context_plan(plan_path)
+        # Auto-populate Focus from research project file on first create
+        import re as _re
+        cp2 = context_path(session_id)
+        if cp2.exists() and research:
+            _ct = cp2.read_text()
+            if "## Focus\n\n## " in _ct:
+                _proj = get_todo_path(research)
+                if _proj.exists():
+                    _proj_text = _proj.read_text()
+                    _m = _re.search(r"current_phase:\s*(\d+)", _proj_text)
+                    if _m:
+                        _focus = f"Phase {_m.group(1)}"
+                        _ct = _ct.replace("## Focus\n\n## ", f"## Focus\n{_focus}\n\n## ", 1)
+                        cp2.write_text(_ct)
+        self.manager.start_watchdog()
 
         if self.logger:
             self.logger.info("start session=%s research=%s url=%s", session_id, research or "none", url)
-        print_orientation(session_id, research, url, plan_path, todo_path, self_path, input_path)
+        cp = context_path(session_id)
+        print_orientation(session_id, research, url, plan_path, todo_path, input_path, context_path=cp)
+        print(f"\n__OWRAP_EXPORT__ SESSION_ID={session_id}")
         sys.exit(0)
 
 

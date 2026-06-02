@@ -231,7 +231,7 @@ All runtime paths are session-scoped: log files, task files, and output files ar
 | `~/bin/oread -f <file> -d "..."` | Targeted query; timeout scales 55–180s with file size; partial output on expiry |
 | `~/bin/oread -f <file> -d "..." -t <secs>` | Targeted query with custom timeout in seconds |
 | `~/bin/oread -i <id> -f <file>` | Tag read output with `[r:<id>]` for parallel tracking |
-| `~/bin/orun --msg "..."` | Single-line task dispatch, max 1024 chars (foreground) |
+| `~/bin/orun --msg "..."` | Inline task dispatch, ≤1024 chars (foreground); --msg - reads from stdin for multiline |
 | `~/bin/orun -i <id> --msg "..."` | Parallel tagged msg: output prefixed `[m:<id>]`, waitable by ID |
 | `~/bin/orun --msg "..." -t <secs>` | Custom timeout for `--msg` (default: 180s) |
 | `~/bin/orun` | File task from `input_<id>.md` (auto-background + owait) |
