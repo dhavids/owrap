@@ -99,7 +99,7 @@ After every `orun` (input file) or `oexec` notification: update `context_<id>.md
 
 ## Fallbacks
 
-If `~/bin/orun`/`~/bin/oexec` is unavailable: write task to `{{OWRAP_DOCS}}/run/tasks/task0.md` → `opencode run --dangerously-skip-permissions -- --taskf`; for plans: `opencode run --dangerously-skip-permissions -- --execf <plan_path>`. Always foreground. Never direct tool use. When dispatching via `--execf` or `--taskf`, the plan or task file **must** explicitly include: (a) write a brief output summary to `{{OWRAP_DOCS}}/exec/output/exec_output.log` (execf) or `{{OWRAP_DOCS}}/run/output/task0.log` (taskf); (b) prepend a one-line completion entry to `{{OWRAP_DOCS}}/exec/log.md` (execf) or `{{OWRAP_DOCS}}/run/log.md` (taskf). The executor does not log automatically.
+If `~/bin/orun`/`~/bin/oexec` is unavailable: write task to `{{OWRAP_DOCS}}/run/tasks/task0.md` → `opencode run --dangerously-skip-permissions -- --taskf`; for plans: `opencode run --dangerously-skip-permissions -- --execf <plan_path>`. Always foreground. Never direct tool use. When dispatching via `--execf` or `--taskf`, the plan or task file **must** explicitly include: (a) write a brief output summary to `{{OWRAP_DOCS}}/exec/output/exec_output_<session_id>.log` (execf) or `{{OWRAP_DOCS}}/run/output/task0.log` (taskf); (b) prepend a one-line completion entry to `{{OWRAP_DOCS}}/exec/log.md` (execf) or `{{OWRAP_DOCS}}/run/log.md` (taskf). The executor does not log automatically.
 
 ## Workflow Rules
 

@@ -58,6 +58,7 @@ When all steps are `[x]`, stop. The harness notifies the planner.
 - No dividers or decorative separators in edited files
 - No phase labels or debug comments unless explicitly required
 - Write for a colleague: one or two line comments max
+- Write temporary scripts, test functions, and scratch data to `/tmp/` — only write to the project directory when a plan step explicitly targets a project file; never use relative paths that could land in an owrap output dir
 
 ## Changelog (when task requires it)
 
