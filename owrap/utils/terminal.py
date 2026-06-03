@@ -136,6 +136,7 @@ class Terminal:
         register_signals=True,
         signals=None,
         tee_file=None,
+        cwd=None,
     ):
         if silent:
             print_output = False
@@ -148,7 +149,7 @@ class Terminal:
             elif self.interactive_shell:
                 return self._run_interactive(command, stdin, capture_output, print_output, silent, timeout)
             else:
-                return self._run_standard(command, stdin, capture_output, print_output, silent, timeout, tee_file)
+                return self._run_standard(command, stdin, capture_output, print_output, silent, timeout, tee_file, cwd=cwd)
         finally:
             if register_signals and not detached:
                 self.unregister_signal_handlers()
@@ -213,7 +214,7 @@ class Terminal:
             "success": None,
         }
 
-    def _run_standard(self, command, stdin, capture_output, print_output, silent, timeout, tee_file=None):
+    def _run_standard(self, command, stdin, capture_output, print_output, silent, timeout, tee_file=None, cwd=None):
         import time
         if self.verbose and not silent:
             print(f"Running: {command}")
@@ -225,6 +226,7 @@ class Terminal:
             stdin=subprocess.PIPE if use_stdin_pipe else stdin,
             stdout=subprocess.PIPE if (capture_output or print_output) else None,
             stderr=subprocess.PIPE if (capture_output or print_output) else None,
+            cwd=cwd,
         )
         self._process = proc
         if isinstance(stdin, str):

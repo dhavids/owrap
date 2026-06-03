@@ -212,6 +212,9 @@ class RunRunner(BaseRunner):
                 print(f"log: {log_path}")
                 if t:
                     print(f"timing: {t}")
+                _ctx_remind = context_path(self.manager.session_id)
+                if _ctx_remind and _ctx_remind.exists():
+                    print(f"\n→ Planner: update {_ctx_remind} — Focus (what changed), Key Locations (new paths), Decisions (architectural choices).")
                 self.manager.log_time(log_time)
                 self._write_run_log(title, tag=f"[t:{task_id}]")
                 try:

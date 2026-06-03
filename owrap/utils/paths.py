@@ -119,7 +119,7 @@ def get_agents_md_path() -> Path | None:
     return None
 
 
-def get_project_root() -> Path:
+def get_workspace_path() -> Path:
     """Return workspace from workspace config, else fall back to research_root parent or DOCS_DIR parent."""
     config = _read_config()
     default_ws = config.get("default_workspace")

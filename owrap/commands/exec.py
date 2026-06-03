@@ -8,12 +8,11 @@ from pathlib import Path
 from ..utils.terminal import Terminal
 from ..manager import Manager
 from ..base import BaseRunner
-from ..utils.paths import EXEC_OUTPUT_DIR, get_plan_path, context_path, _read_config, get_agents_md_path
+from ..utils.paths import EXEC_OUTPUT_DIR, get_plan_path, context_path, _read_config, get_agents_md_path, get_workspace_path
 
 
 class ExecRunner(BaseRunner):
     LOG_DIR = EXEC_OUTPUT_DIR
-    LOG_FILE = EXEC_OUTPUT_DIR / "exec_output.log"
 
     def _get_active_plan_name(self, plan_path: Path | None = None) -> str:
         if plan_path is None:
@@ -42,6 +41,8 @@ class ExecRunner(BaseRunner):
         exec_log.write_text(entry + existing)
 
     def run(self, log_time=True):
+        sid = self.manager.session_id or "exec"
+        self.LOG_FILE = EXEC_OUTPUT_DIR / f"exec_output_{sid}.log"
         self._cleanup_recently_done()
         session_id = self.manager.session_id
         plan_path = get_plan_path(session_id) if session_id else None
@@ -94,7 +95,7 @@ class ExecRunner(BaseRunner):
                 log.flush()
                 self.manager.t_cmd_start()
                 terminal = Terminal(verbose=False)
-                result = terminal.run(" ".join(cmd), capture_output=True, print_output=True, tee_file=log)
+                result = terminal.run(" ".join(cmd), capture_output=True, print_output=True, tee_file=log, cwd=str(get_workspace_path()))
                 self.manager.t_cmd_end()
                 rc = result.get("returncode", 1)
         finally:
@@ -112,6 +113,9 @@ class ExecRunner(BaseRunner):
         print(f"log: {self.LOG_FILE}")
         if t:
             print(f"timing: {t}")
+        _ctx_remind = context_path(session_id)
+        if _ctx_remind and _ctx_remind.exists():
+            print(f"\n→ Planner: update {_ctx_remind} — Focus (what changed), Key Locations (new paths), Decisions (architectural choices).")
         self.manager.log_time(log_time)
         self._write_exec_log(plan_name)
         try:
