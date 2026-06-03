@@ -52,8 +52,10 @@ class Manager:
                 found = None
                 claude_sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
                 if claude_sid:
-                    sf = Path.home() / ".owrap" / "sessions" / f"{claude_sid}.session"
-                    if sf.exists():
+                    ptr = Path.home() / ".owrap" / "sessions" / "by_ccsid" / claude_sid
+                    hex_sid = ptr.read_text().strip() if ptr.exists() else ""
+                    sf = Path.home() / ".owrap" / "sessions" / f"{hex_sid}.session" if hex_sid else None
+                    if sf and sf.exists():
                         for line in sf.read_text().splitlines():
                             if line.startswith("server_url="):
                                 url_from_file = line.split("=", 1)[1].strip()
