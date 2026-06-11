@@ -12,7 +12,7 @@ from .orientation import print_orientation
 
 
 class RefreshRunner(BaseRunner):
-    def run(self, shell_pid=None, session_file=None, research=None, session_id=None):
+    def run(self, shell_pid=None, session_file=None, research=None, session_id=None, area=None):
         if session_id is not None:
             session_path = Path.home() / ".owrap" / "sessions" / f"{session_id}.session"
             if not session_path.exists():
@@ -33,31 +33,55 @@ class RefreshRunner(BaseRunner):
 
         data = _parse(session_path)
         existing_research = data.get("research")
+        existing_area = data.get("area")
         workspace_name = data.get("workspace") or _read_config().get("default_workspace", "")
         if research is None:
             research = existing_research
         if research is None:
             research = _read_config().get("default_research")
 
-        url = self.manager.get_url()
-        if url is None:
-            os.environ["SESSION_ID"] = session_id
-            StartRunner(self.manager).run(shell_pid=shell_pid, research=research)
-            return
+        from ..utils.pool import _pool_active, ensure_min_servers, _ensure_keepalive
+        if _pool_active():
+            ensure_min_servers()
+            _ensure_keepalive()
+        else:
+            url = self.manager.ensure_running()
+            if url is None:
+                os.environ["SESSION_ID"] = session_id
+                StartRunner(self.manager).run(shell_pid=shell_pid, research=research)
+                return
 
         if research != existing_research:
             update_session_field(session_id, "research", research)
+        if area is not None:
+            update_session_field(session_id, "area", area)
+        area_val = area if area is not None else existing_area
+
+        self.manager._housekeeping()
 
         plan_path = get_plan_path(session_id)
         todo_path = get_todo_path(research)
         input_path = session_input(session_id)
 
         if self.logger:
-            self.logger.info("refresh session=%s research=%s url=%s", session_id, research or "none", url)
+            self.logger.info("refresh session=%s research=%s", session_id, research or "none")
         cp = context_path(session_id)
-        print_orientation(session_id, research, url, plan_path, todo_path, input_path, context_path=cp)
+        memory_path = project_path = protocol_path = None
+        if research:
+            _rr = _read_config().get("research_root")
+            if _rr:
+                _mp = Path(_rr) / "memory" / f"{research}.md"
+                _pp = Path(_rr) / "projects" / f"{research}.md"
+                _prot = Path(_rr) / "update-protocol.md"
+                memory_path = _mp if _mp.exists() else None
+                project_path = _pp if _pp.exists() else None
+                protocol_path = _prot if _prot.exists() else None
+        print_orientation(session_id, research, plan_path=plan_path, todo_path=todo_path, input_path=input_path, context_path=cp,
+                          area=area_val, memory_path=memory_path, project_path=project_path, protocol_path=protocol_path)
         update_session_field(session_id, "last_refresh", time.strftime("%Y-%m-%dT%H:%M:%S"))
         print(f"\n__OWRAP_EXPORT__ SESSION_ID={session_id}")
+        if area_val:
+            print(f"__OWRAP_EXPORT__ OWRAP_AREA={area_val}")
         sys.exit(0)
 
 

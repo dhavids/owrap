@@ -12,9 +12,12 @@ from pathlib import Path
 
 from .utils.terminal import Terminal
 from .utils.logger import get_logger
-from .utils.paths import TASKS_DIR, RUN_OUTPUT_DIR, STATE_FILE, SESSION_DIR, SERVERS_DIR, DOCS_DIR, RUNNING_DIR
+from .utils.paths import TASKS_DIR, RUN_OUTPUT_DIR, STATE_FILE, SESSION_DIR, SERVERS_DIR, DOCS_DIR, RUNNING_DIR, SERVER_LOGS_DIR
 from .utils.paths import RUN_LOG, EXEC_LOG, READ_LOG, INPUT_FILE, _read_config, get_plan_path
 from .utils.paths import session_log, session_input, context_path, context_lock_path
+
+
+_health_cache: dict[str, tuple[bool, float]] = {}
 
 
 class Manager:
@@ -34,61 +37,21 @@ class Manager:
         self.TASKS_DIR.mkdir(parents=True, exist_ok=True)
         self.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         config = _read_config()
-        use_multi = config.get("use_multiple_servers", False)
+        max_servers = int(config.get("max_servers", 1))
+        min_servers = int(config.get("min_servers", 2))
+        use_multi = max_servers >= min_servers
         if port is not None and use_multi:
             SERVERS_DIR.mkdir(parents=True, exist_ok=True)
             self._state_file = str(SERVERS_DIR / f"{port}.json")
-        elif port is None and use_multi:
-            server_url = os.environ.get("OWRAP_SERVER_URL", "")
-            if server_url:
-                try:
-                    p = int(server_url.rsplit(":", 1)[-1])
-                    SERVERS_DIR.mkdir(parents=True, exist_ok=True)
-                    self._state_file = str(SERVERS_DIR / f"{p}.json")
-                except (ValueError, IndexError):
-                    self._state_file = self.STATE_FILE
-            else:
-                # No env var: try session file first, then fall back to mtime scan
-                found = None
-                claude_sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
-                if claude_sid:
-                    ptr = Path.home() / ".owrap" / "sessions" / "by_ccsid" / claude_sid
-                    hex_sid = ptr.read_text().strip() if ptr.exists() else ""
-                    sf = Path.home() / ".owrap" / "sessions" / f"{hex_sid}.session" if hex_sid else None
-                    if sf and sf.exists():
-                        for line in sf.read_text().splitlines():
-                            if line.startswith("server_url="):
-                                url_from_file = line.split("=", 1)[1].strip()
-                                try:
-                                    p = int(url_from_file.rsplit(":", 1)[-1])
-                                    SERVERS_DIR.mkdir(parents=True, exist_ok=True)
-                                    candidate = SERVERS_DIR / f"{p}.json"
-                                    if candidate.exists():
-                                        data = json.loads(candidate.read_text())
-                                        pid = data.get("pid")
-                                        if pid:
-                                            os.kill(pid, 0)
-                                            found = str(candidate)
-                                except (OSError, Exception):
-                                    pass
-                                break
-                if found is None and SERVERS_DIR.exists():
-                    for f in sorted(SERVERS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
-                        try:
-                            data = json.loads(f.read_text())
-                            pid = data.get("pid")
-                            if pid:
-                                os.kill(pid, 0)
-                                found = str(f)
-                                break
-                        except (OSError, Exception):
-                            pass
-                self._state_file = found if found else self.STATE_FILE
+        elif use_multi:
+            self._state_file = str(SERVERS_DIR / "pool_default.json")  # unused placeholder
         else:
             self._state_file = self.STATE_FILE
         self._resolve_log_file()
         self.cleanup_done_tasks()
-        self._housekeeping()
+        self.cleanup_stale_msg_logs()
+        self._ctx_summary = None
+        self._ctx_summary_stat = None
 
     @property
     def run_log_path(self) -> Path:
@@ -120,7 +83,7 @@ class Manager:
                 return
             except OSError:
                 pass
-        self._log_file = str(SESSION_DIR / f"owrap_{pid or 'new'}.log")
+        self._log_file = str(SERVER_LOGS_DIR / f"owrap_{pid or 'new'}.log")
 
     def _read_state(self):
         try:
@@ -172,7 +135,7 @@ class Manager:
         if url is None:
             proc.terminate()
             raise RuntimeError("opencode serve did not produce a URL within 15s")
-        log_file = str(SESSION_DIR / f"owrap_{pid}.log")
+        log_file = str(SERVER_LOGS_DIR / f"owrap_{pid}.log")
         tmp_log.rename(log_file)
         self._log_file = log_file
         state = {"pid": pid, "url": url, "port": port, "log_file": log_file, "tasks": {}}
@@ -224,14 +187,22 @@ class Manager:
 
     def _server_responsive(self, url, timeout=3):
         import socket
+        now = time.time()
+        cached = _health_cache.get(url)
+        if cached is not None:
+            alive, cached_ts = cached
+            if now // 5 == cached_ts // 5:
+                return alive
         try:
             addr = url.replace("http://", "").replace("https://", "")
             parts = addr.rsplit(":", 1)
             host = parts[0]
             port = int(parts[1]) if len(parts) > 1 else 4096
             with socket.create_connection((host, port), timeout=timeout):
+                _health_cache[url] = (True, now)
                 return True
         except (OSError, ValueError):
+            _health_cache[url] = (False, now)
             return False
 
     def _find_port_pids(self, port):
@@ -339,187 +310,6 @@ class Manager:
             self._logger.debug("ensure_running: server not running, starting")
         return self.start(port=port)
 
-    @staticmethod
-    def sessions_per_server() -> dict:
-        """Count sessions per server URL."""
-        sessions_dir = Path.home() / ".owrap" / "sessions"
-        counts = {}
-        if sessions_dir.exists():
-            for sf in sessions_dir.glob("*.session"):
-                try:
-                    for line in sf.read_text().splitlines():
-                        if line.startswith("server_url="):
-                            url = line.split("=", 1)[1].strip()
-                            counts[url] = counts.get(url, 0) + 1
-                except Exception:
-                    pass
-        return counts
-
-    @staticmethod
-    def list_servers() -> list:
-        """Return list of all server state dicts (with 'alive' key)."""
-        config = _read_config()
-        use_multi = config.get("use_multiple_servers", False)
-        servers = []
-        seen_pids = set()
-        seen_urls = set()
-        if use_multi and SERVERS_DIR.exists():
-            for f in sorted(SERVERS_DIR.glob("*.json")):
-                try:
-                    data = json.loads(f.read_text())
-                    pid = data.get("pid")
-                    if pid:
-                        try:
-                            os.kill(pid, 0)
-                            data["alive"] = True
-                            seen_pids.add(pid)
-                            seen_urls.add(data.get("url", ""))
-                            servers.append(data)
-                        except OSError:
-                            f.unlink(missing_ok=True)
-                except Exception:
-                    pass
-        # Always check legacy manager.json — server may have written there (e.g. old shim, transition)
-        try:
-            with open(STATE_FILE) as f:
-                data = json.load(f)
-            pid = data.get("pid")
-            url = data.get("url", "")
-            if pid and pid not in seen_pids and url not in seen_urls:
-                try:
-                    os.kill(pid, 0)
-                    data["alive"] = True
-                except OSError:
-                    data["alive"] = False
-                servers.append(data)
-        except Exception:
-            pass
-        if not servers:
-            # Non-multi fallback already covered above; if empty show nothing
-            pass
-        return servers
-
-    @staticmethod
-    def get_or_start_server(logger=None):
-        """Return (Manager_instance, url) for the session-assigned server."""
-        config = _read_config()
-        use_multi = config.get("use_multiple_servers", False)
-        max_svrs = int(config.get("max_servers", 1))
-        base_port = 4096
-        if not use_multi:
-            m = Manager()
-            url = m.ensure_running(port=base_port)
-            return m, url
-        SERVERS_DIR.mkdir(parents=True, exist_ok=True)
-        running = []
-        for f in sorted(SERVERS_DIR.glob("*.json")):
-            try:
-                data = json.loads(f.read_text())
-                pid = data.get("pid")
-                port = data.get("port")
-                url = data.get("url")
-                if pid and port:
-                    try:
-                        os.kill(pid, 0)
-                        running.append({"port": port, "url": url, "pid": pid})
-                    except OSError:
-                        pass
-            except Exception:
-                pass
-        sess_counts = Manager.sessions_per_server()
-        zero_session = [s for s in running if sess_counts.get(s["url"], 0) == 0]
-        if zero_session:
-            best = zero_session[0]
-            return Manager(port=best["port"]), best["url"]
-        if len(running) < max_svrs:
-            used_ports = {s["port"] for s in running}
-            port = next(p for p in range(base_port, base_port + max_svrs + 10) if p not in used_ports)
-            m = Manager(port=port)
-            url = m.start(port=port)
-            return m, url
-        else:
-            running.sort(key=lambda s: sess_counts.get(s["url"], 0))
-            best = running[0]
-            return Manager(port=best["port"]), best["url"]
-
-    @staticmethod
-    def stop_all(logger=None):
-        """Stop all running servers."""
-        config = _read_config()
-        use_multi = config.get("use_multiple_servers", False)
-        if use_multi and SERVERS_DIR.exists():
-            for f in SERVERS_DIR.glob("*.json"):
-                try:
-                    data = json.loads(f.read_text())
-                    port = data.get("port")
-                    if port:
-                        Manager(port=port).stop()
-                except Exception:
-                    pass
-        else:
-            Manager().stop()
-
-    @staticmethod
-    def trim_idle_servers():
-        """Kill all live servers that have 0 active sessions. Returns count killed."""
-        config = _read_config()
-        use_multi = config.get("use_multiple_servers", False)
-        sess_counts = Manager.sessions_per_server()
-        killed = 0
-        if use_multi and SERVERS_DIR.exists():
-            for f in sorted(SERVERS_DIR.glob("*.json")):
-                try:
-                    data = json.loads(f.read_text())
-                    pid = data.get("pid")
-                    port = data.get("port")
-                    url = data.get("url", "")
-                    if not pid or not port:
-                        continue
-                    try:
-                        os.kill(pid, 0)
-                    except OSError:
-                        f.unlink(missing_ok=True)
-                        continue
-                    if sess_counts.get(url, 0) == 0:
-                        try:
-                            os.kill(pid, 15)
-                            print(f"  killed idle server port={port} pid={pid}")
-                            killed += 1
-                        except OSError:
-                            pass
-                        f.unlink(missing_ok=True)
-                except Exception:
-                    pass
-        try:
-            with open(STATE_FILE) as f_st:
-                data = json.load(f_st)
-            pid = data.get("pid")
-            url = data.get("url", "")
-            port = data.get("port", "?")
-            if pid:
-                try:
-                    os.kill(pid, 0)
-                    if sess_counts.get(url, 0) == 0:
-                        os.kill(pid, 15)
-                        print(f"  killed idle server port={port} pid={pid}")
-                        killed += 1
-                        try:
-                            os.unlink(STATE_FILE)
-                        except OSError:
-                            pass
-                except OSError:
-                    try:
-                        os.unlink(STATE_FILE)
-                    except OSError:
-                        pass
-        except Exception:
-            pass
-        if killed == 0:
-            print("owrap trim: no idle servers found")
-        else:
-            print(f"owrap trim: killed {killed} idle server(s)")
-        return killed
-
     def is_running(self):
         return self.get_url() is not None
 
@@ -560,10 +350,10 @@ class Manager:
                         max_n = n
         return max_n + 1
 
-    def register_task(self, task_id):
+    def register_task(self, task_id, call_type: str = "task"):
         state = self._read_state() or {}
         tasks = state.setdefault("tasks", {})
-        tasks[str(task_id)] = {"status": "active", "invocation_time": self._t_invocation}
+        tasks[str(task_id)] = {"status": "active", "invocation_time": self._t_invocation, "call_type": call_type}
         self._write_state(state)
 
     def complete_task(self, task_id):
@@ -571,7 +361,7 @@ class Manager:
         if state is None:
             return
         tasks = state.setdefault("tasks", {})
-        entry = tasks[str(task_id)]
+        entry = tasks.get(str(task_id)) or {"status": "active", "invocation_time": self._t_invocation}
         if isinstance(entry, str):
             entry = {"status": entry, "invocation_time": self._t_invocation}
         entry["status"] = "done"
@@ -595,20 +385,45 @@ class Manager:
                 server_alive = True
             except OSError:
                 pass
+        server_died = pid is not None and not server_alive
         tasks = state.get("tasks", {})
         to_remove = []
         for task_id, entry in tasks.items():
             status = entry if isinstance(entry, str) else entry.get("status", "active")
-            if status == "done" or not server_alive:
+            if status == "done" or server_died:
                 to_remove.append(task_id)
         for task_id in to_remove:
-            n = int(task_id)
+            try:
+                n = int(task_id)
+            except ValueError:
+                continue
             (self.TASKS_DIR / f"task{n}.md").unlink(missing_ok=True)
-            (self.OUTPUT_DIR / f"task{n}.log").unlink(missing_ok=True)
-            for suffixed_log in self.OUTPUT_DIR.glob(f"task{n}_*.log"):
-                suffixed_log.unlink(missing_ok=True)
             del tasks[task_id]
         self._write_state(state)
+
+    def cleanup_stale_msg_logs(self, max_age_hours: float = 24):
+        """Remove msg_*.log files older than max_age_hours."""
+        import time
+        now = time.time()
+        cutoff = now - (max_age_hours * 3600)
+        removed = 0
+        for f in self.OUTPUT_DIR.glob("msg_*.log"):
+            try:
+                if f.stat().st_mtime < cutoff:
+                    f.unlink(missing_ok=True)
+                    removed += 1
+            except OSError:
+                pass
+        return removed
+
+    @staticmethod
+    def _trim_logs(directory: Path, pattern: str, max_keep: int = 10):
+        try:
+            files = sorted(directory.glob(pattern), key=lambda f: f.stat().st_mtime)
+            for f in files[:-max_keep] if len(files) > max_keep else []:
+                f.unlink(missing_ok=True)
+        except Exception:
+            pass
 
     def _housekeeping(self):
         sessions_dir = Path.home() / ".owrap" / "sessions"
@@ -643,14 +458,14 @@ class Manager:
     def context_path(self) -> Path:
         return context_path(self.session_id)
 
-    def create_context(self, url=None):
+    def create_context(self):
         cp = self.context_path
         config = _read_config()
         research_root = config.get("research_root", "")
         venv = config.get("venv", "")
         plan = str(get_plan_path(self.session_id)) if self.session_id else "none"
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
-        url = url or self.get_url() or ""
+        url = self.get_url() or ""
         if cp.exists():
             text = cp.read_text()
             for field, value in (
@@ -662,6 +477,7 @@ class Manager:
             ):
                 text = re.sub(rf"^{field}:.*$", f"{field}: {value}", text, flags=re.MULTILINE)
             cp.write_text(text)
+            self._cap_context_sections(cp)
             return
         content = (
             "## Session\n\n"
@@ -683,8 +499,72 @@ class Manager:
         )
         cp.parent.mkdir(parents=True, exist_ok=True)
         cp.write_text(content)
+        self._cap_context_sections(cp)
+
+    def build_context_summary(self) -> str:
+        """Return a cached inline context header string."""
+        cp = context_path(self.session_id)
+        if not cp.exists():
+            return ""
+        try:
+            stat = cp.stat()
+            cache_key = (stat.st_mtime, stat.st_size)
+            if self._ctx_summary is not None and self._ctx_summary_stat == cache_key:
+                return self._ctx_summary
+        except OSError:
+            return ""
+        try:
+            ctx_text = cp.read_text()
+            sid = self.session_id or "none"
+            research = self.research or "none"
+            header_lines = [f"[session: {sid} | research: {research}]"]
+
+            # Focus: first non-empty line after ## Focus
+            focus_match = re.search(r"## Focus\n+(.*?)(?:\n## |\Z)", ctx_text, re.DOTALL)
+            if focus_match:
+                focus_first = focus_match.group(1).strip().splitlines()[0].strip()
+                if focus_first:
+                    header_lines.append(f"Focus: {focus_first}")
+
+            # Active: first uncompleted plan step
+            active_match = re.search(r"## Active Plan\n+(.*?)(?:\n## |\Z)", ctx_text, re.DOTALL)
+            if active_match:
+                for line in active_match.group(1).strip().splitlines():
+                    line = line.strip()
+                    if line.startswith("-") or re.match(r"\d+\. \[ \]", line):
+                        header_lines.append(f"Active: {line}")
+                        break
+
+            # Key files: top-2 from ## Frequent Files
+            freq_match = re.search(r"## Frequent Files\n+(.*?)(?:\n## |\Z)", ctx_text, re.DOTALL)
+            if freq_match:
+                freq_lines = [l.strip() for l in freq_match.group(1).strip().splitlines() if l.strip().startswith("-")]
+                if freq_lines:
+                    header_lines.append(f"Key files: {', '.join(freq_lines[:2])}")
+
+            # Decisions: 2 most recent from ## Decisions
+            dec_match = re.search(r"## Decisions\n+(.*?)(?:\n## |\Z)", ctx_text, re.DOTALL)
+            if dec_match:
+                dec_lines = [l.strip() for l in dec_match.group(1).strip().splitlines() if l.strip().startswith("-")]
+                if dec_lines:
+                    header_lines.append(f"Decisions: {', '.join(dec_lines[:2])}")
+
+            self._ctx_summary = "\n".join(header_lines) + "\n"
+            self._ctx_summary_stat = cache_key
+            return self._ctx_summary
+        except Exception:
+            return ""
+
+    def update_server_last_used(self, url: str):
+        from .utils.pool import update_last_used
+        update_last_used(url)
+
+    def get_keepalive_model(self) -> str:
+        config = _read_config()
+        return config.get("keepalive_model") or config.get("fast_model") or "opencode/deepseek-v4-flash-free"
 
     def append_context_recent(self, title: str, rc: int, ctx: bool = True, kind: str = "msg"):
+        self._ctx_summary = None
         cp = self.context_path
         lock = context_lock_path(self.session_id)
         if not cp.exists():
@@ -734,6 +614,7 @@ class Manager:
                 after = lines[after_start:]
                 new_lines = before + recent_lines + [""] + after
                 cp.write_text("\n".join(new_lines) + "\n")
+                self._cap_context_sections(cp)
             finally:
                 fcntl.flock(fd, fcntl.LOCK_UN)
                 os.close(fd)
@@ -741,6 +622,7 @@ class Manager:
             pass
 
     def update_frequent_files(self):
+        self._ctx_summary = None
         cp = self.context_path
         lock = context_lock_path(self.session_id)
         read_log = self.read_log_path
@@ -778,6 +660,7 @@ class Manager:
                 after = lines[next_section:]
                 new_lines = before + [f"- {path} ({count})" for path, count in top5] + [""] + after
                 cp.write_text("\n".join(new_lines) + "\n")
+                self._cap_context_sections(cp)
             finally:
                 fcntl.flock(fd, fcntl.LOCK_UN)
                 os.close(fd)
@@ -786,6 +669,7 @@ class Manager:
 
     def refresh_context_plan(self, plan_path=None):
         """Update ## Active Plan section from the first 3 uncompleted steps in the active plan."""
+        self._ctx_summary = None
         cp = self.context_path
         if not cp.exists():
             return
@@ -819,9 +703,41 @@ class Manager:
                     text, flags=re.DOTALL
                 )
                 cp.write_text(new_text)
+                self._cap_context_sections(cp)
             finally:
                 fcntl.flock(fd, fcntl.LOCK_UN)
                 os.close(fd)
+        except Exception:
+            pass
+
+    def _cap_context_sections(self, cp: Path):
+        """Ensure context file doesn't grow unbounded; keep each section bounded."""
+        try:
+            text = cp.read_text()
+            lines = text.splitlines()
+            section_limits = {
+                "## Decisions": 20,
+                "## Frequent Files": 10,
+                "## Recent": 10,
+            }
+            new_lines = []
+            current_section = None
+            section_count = 0
+            for line in lines:
+                if line.startswith("## "):
+                    current_section = line.strip()
+                    section_count = 0
+                    new_lines.append(line)
+                elif current_section in section_limits:
+                    if line.strip():
+                        section_count += 1
+                        if section_count <= section_limits[current_section]:
+                            new_lines.append(line)
+                    else:
+                        new_lines.append(line)
+                else:
+                    new_lines.append(line)
+            cp.write_text("\n".join(new_lines) + "\n")
         except Exception:
             pass
 
@@ -853,10 +769,14 @@ class Manager:
                     mtime = cp.stat().st_mtime
                     fcntl.flock(fd, fcntl.LOCK_UN)
                     os.close(fd)
-                    servers = Manager.sessions_per_server()
-                    if not servers:
+                    from .utils.pool import _pool_active, get_pool, _active_load
+                    if not _pool_active():
                         continue
-                    least_busy_url = min(servers, key=servers.get)
+                    pool = get_pool()
+                    if not pool:
+                        continue
+                    best = min(pool, key=lambda e: _active_load(e["url"]))
+                    least_busy_url = best["url"]
                     prompt = f"Compress the following session context file. Keep all section headers. Condense entries to the most important facts. Preserve the structure. Return only the compressed content:\n\n{snapshot}"
                     cmd = f"opencode run --attach {least_busy_url} -- {shlex.quote(prompt)}"
                     result = Terminal(verbose=False).run(cmd, capture_output=True, print_output=False, timeout=60)
@@ -869,6 +789,7 @@ class Manager:
                         current_mtime = cp.stat().st_mtime
                         if current_mtime == mtime:
                             cp.write_text(compressed + "\n")
+                            self._cap_context_sections(cp)
                     finally:
                         fcntl.flock(fd, fcntl.LOCK_UN)
                         os.close(fd)

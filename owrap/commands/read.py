@@ -7,6 +7,8 @@ from pathlib import Path
 from ..utils.terminal import Terminal
 from ..manager import Manager
 from ..base import BaseRunner
+from ..constants import ANTI_SUMMARY_SUFFIX
+from ..utils.pool import _pool_active, pick_server, update_last_used
 from ..utils.paths import TASKS_DIR, context_path, _read_config
 
 OREAD_MAX_CHARS = 8_000
@@ -135,7 +137,10 @@ class ReadRunner(BaseRunner):
                 print(f"[oread] {char_count} chars (>{OREAD_MAX_CHARS}) — forwarding to opencode for summary", flush=True)
                 summarise = True
 
-        url = self.manager.ensure_running()
+        if _pool_active():
+            url = pick_server("read")
+        else:
+            url = self.manager.ensure_running()
 
         if prompt_style is None and file_path:
             ext = Path(file_path).suffix.lower()
@@ -152,10 +157,13 @@ class ReadRunner(BaseRunner):
             prompt += f", focusing on: {details}"
         style_key = prompt_style if prompt_style in PROMPT_STYLES else "default"
         prompt += PROMPT_STYLES[style_key].format(max_lines=OREAD_SUMMARY_LINES)
+        prompt += " " + ANTI_SUMMARY_SUFFIX
 
         cmd = ["opencode", "run"]
         if self.allow_all:
             cmd.append("--dangerously-skip-permissions")
+        if _ctx_cfg.get("fast_model"):
+            cmd.extend(["-m", _ctx_cfg["fast_model"]])
         if url:
             cmd.extend(["--attach", url])
             cmd.extend(["--", shlex.quote(prompt)])
@@ -165,6 +173,8 @@ class ReadRunner(BaseRunner):
             cmd = ["opencode", "run"]
             if self.allow_all:
                 cmd.append("--dangerously-skip-permissions")
+            if _ctx_cfg.get("fast_model"):
+                cmd.extend(["-m", _ctx_cfg["fast_model"]])
             cmd.extend(["--", "--task", shlex.quote(str(fallback_file))])
 
         DEFAULT_TIMEOUT = 55
@@ -186,7 +196,7 @@ class ReadRunner(BaseRunner):
                              self.manager.session_id or "none")
             self.logger.debug("read cmd=%s", " ".join(cmd))
 
-        sentinel = self._write_sentinel(sentinel_id, sentinel_title, kind="read")
+        sentinel = self._write_sentinel(sentinel_id, sentinel_title, kind="read", call_type="read")
         self._install_sigterm_handler()
 
         rc = 1
@@ -221,6 +231,15 @@ class ReadRunner(BaseRunner):
                                  " (timeout)" if timed_out else "")
             self._write_read_log(file_path, tag=f"[r:{read_id}]" if read_id else "")
             self.manager.log_time(log_time)
+            if url:
+                try:
+                    update_last_used(url)
+                except Exception:
+                    pass
+                try:
+                    from ..utils.pool import release_server
+                    release_server(url)
+                except Exception:
+                    pass
         sys.exit(rc)
-
 

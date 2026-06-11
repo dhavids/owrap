@@ -4,103 +4,101 @@ from pathlib import Path
 import pytest
 
 
-def test_read_runner_prompt_construction():
-    with patch("owrap.commands.read.OpenCodeManager") as mock_manager_cls, \
-         patch("owrap.commands.read.Terminal") as mock_terminal_cls:
-        mock_manager = MagicMock()
-        mock_manager.ensure_running.return_value = "http://localhost:4096"
-        mock_manager_cls.return_value = mock_manager
+def test_read_runner_prompt_construction(mock_manager):
+    mock_manager.ensure_running.return_value = "http://localhost:4096"
 
+    with patch("owrap.commands.read.Terminal") as mock_terminal_cls, \
+         patch("owrap.commands.read._pool_active", return_value=False):
         mock_terminal = MagicMock()
+        mock_terminal.run.return_value = {"returncode": 0, "stdout": ""}
         mock_terminal_cls.return_value = mock_terminal
 
         from owrap.commands.read import ReadRunner
 
-        runner = ReadRunner()
-        runner.run("/some/file.txt")
+        runner = ReadRunner(mock_manager)
+        with pytest.raises(SystemExit):
+            runner.run("/some/file.txt", summarise=True)
 
         mock_terminal.run.assert_called_once()
         call_args = mock_terminal.run.call_args[0][0]
         assert "/some/file.txt" in call_args
-        assert "summarise" not in call_args.lower()
+        assert "summarise" in call_args.lower()
 
 
-def test_read_runner_with_summarise():
-    with patch("owrap.commands.read.OpenCodeManager") as mock_manager_cls, \
-         patch("owrap.commands.read.Terminal") as mock_terminal_cls:
-        mock_manager = MagicMock()
-        mock_manager.ensure_running.return_value = "http://localhost:4096"
-        mock_manager_cls.return_value = mock_manager
+def test_read_runner_with_summarise(mock_manager):
+    mock_manager.ensure_running.return_value = "http://localhost:4096"
 
+    with patch("owrap.commands.read.Terminal") as mock_terminal_cls, \
+         patch("owrap.commands.read._pool_active", return_value=False):
         mock_terminal = MagicMock()
+        mock_terminal.run.return_value = {"returncode": 0, "stdout": ""}
         mock_terminal_cls.return_value = mock_terminal
 
         from owrap.commands.read import ReadRunner
 
-        runner = ReadRunner()
-        runner.run("/some/file.txt", summarise=True)
+        runner = ReadRunner(mock_manager)
+        with pytest.raises(SystemExit):
+            runner.run("/some/file.txt", summarise=True)
 
         call_args = mock_terminal.run.call_args[0][0]
         assert "summarise" in call_args.lower()
 
 
-def test_read_runner_with_details():
-    with patch("owrap.commands.read.OpenCodeManager") as mock_manager_cls, \
-         patch("owrap.commands.read.Terminal") as mock_terminal_cls:
-        mock_manager = MagicMock()
-        mock_manager.ensure_running.return_value = "http://localhost:4096"
-        mock_manager_cls.return_value = mock_manager
+def test_read_runner_with_details(mock_manager):
+    mock_manager.ensure_running.return_value = "http://localhost:4096"
 
+    with patch("owrap.commands.read.Terminal") as mock_terminal_cls, \
+         patch("owrap.commands.read._pool_active", return_value=False):
         mock_terminal = MagicMock()
+        mock_terminal.run.return_value = {"returncode": 0, "stdout": ""}
         mock_terminal_cls.return_value = mock_terminal
 
         from owrap.commands.read import ReadRunner
 
-        runner = ReadRunner()
-        runner.run("/some/file.txt", details="specific function")
+        runner = ReadRunner(mock_manager)
+        with pytest.raises(SystemExit):
+            runner.run("/some/file.txt", details="specific function")
 
         call_args = mock_terminal.run.call_args[0][0]
         assert "specific function" in call_args
 
 
-def test_read_runner_with_url():
-    with patch("owrap.commands.read.OpenCodeManager") as mock_manager_cls, \
-         patch("owrap.commands.read.Terminal") as mock_terminal_cls:
-        mock_manager = MagicMock()
-        mock_manager.ensure_running.return_value = "http://localhost:4096"
-        mock_manager_cls.return_value = mock_manager
+def test_read_runner_with_url(mock_manager):
+    mock_manager.ensure_running.return_value = "http://localhost:4096"
 
+    with patch("owrap.commands.read.Terminal") as mock_terminal_cls, \
+         patch("owrap.commands.read._pool_active", return_value=False):
         mock_terminal = MagicMock()
+        mock_terminal.run.return_value = {"returncode": 0, "stdout": ""}
         mock_terminal_cls.return_value = mock_terminal
 
         from owrap.commands.read import ReadRunner
 
-        runner = ReadRunner()
-        runner.run("/some/file.txt")
+        runner = ReadRunner(mock_manager)
+        with pytest.raises(SystemExit):
+            runner.run("/some/file.txt", summarise=True)
 
         call_args = mock_terminal.run.call_args[0][0]
         assert "--attach" in call_args
         assert "http://localhost:4096" in call_args
 
 
-def test_read_runner_fallback_without_url(tmp_path):
+def test_read_runner_fallback_without_url(tmp_path, mock_manager):
     task_dir = tmp_path / "run"
     task_dir.mkdir()
 
-    with patch("owrap.commands.read.OpenCodeManager") as mock_manager_cls, \
-         patch("owrap.commands.read.Terminal") as mock_terminal_cls:
-        mock_manager = MagicMock()
-        mock_manager.ensure_running.return_value = None
-        mock_manager_cls.return_value = mock_manager
-
+    with patch("owrap.commands.read.Terminal") as mock_terminal_cls, \
+         patch("owrap.commands.read._pool_active", return_value=False):
         mock_terminal = MagicMock()
+        mock_terminal.run.return_value = {"returncode": 0, "stdout": ""}
         mock_terminal_cls.return_value = mock_terminal
 
         from owrap.commands.read import ReadRunner
 
-        runner = ReadRunner()
+        runner = ReadRunner(mock_manager)
         runner.TASKS_DIR = task_dir
-        runner.run("/some/file.txt")
+        with pytest.raises(SystemExit):
+            runner.run("/some/file.txt", summarise=True)
 
         call_args = mock_terminal.run.call_args[0][0]
         assert "task0.md" in call_args

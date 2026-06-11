@@ -4,6 +4,8 @@ from pathlib import Path
 
 OWRAP_ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_HOME = Path.home() / ".owrap"
+RUNTIME_DIR = RUNTIME_HOME / "runtime"
+RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 DOCS_DIR = RUNTIME_HOME / "docs"
 TEMPLATES_DIR = OWRAP_ROOT / "templates"
 CONFIGS_DIR = RUNTIME_HOME / "configs"
@@ -22,7 +24,19 @@ INPUT_FILE = TASKS_DIR / "input.md"
 RUN_OUTPUT_DIR = RUN_DIR / "output"
 RUN_LOG = RUN_DIR / "log.md"
 
+SERVER_LOGS_DIR = RUNTIME_HOME / "logs"
+MSG_LOGS_DIR = RUN_OUTPUT_DIR / "msg"
+TASK_LOGS_DIR = RUN_OUTPUT_DIR / "task"
+CONTEXT_DIR = DOCS_DIR / "context"
+
+SERVER_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+MSG_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+TASK_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+CONTEXT_DIR.mkdir(parents=True, exist_ok=True)
+
 EXEC_DIR = DOCS_DIR / "exec"
+PLANS_DIR = EXEC_DIR / "plans"
+PLANS_DIR.mkdir(parents=True, exist_ok=True)
 EXEC_OUTPUT_DIR = EXEC_DIR / "output"
 EXEC_LOG = EXEC_DIR / "log.md"
 
@@ -30,7 +44,13 @@ READ_DIR = DOCS_DIR / "read"
 READ_OUTPUT_DIR = READ_DIR / "output"
 READ_LOG = READ_DIR / "log.md"
 
-STATE_FILE = str(Path.home() / ".owrap" / "manager.json")
+STATE_FILE = str(RUNTIME_DIR / "manager.json")
+POOL_FILE = RUNTIME_DIR / "pool.json"
+KEEPALIVE_PID_FILE = RUNTIME_DIR / "keepalive.pid"
+KEEPALIVE_STATE_FILE = RUNTIME_DIR / "keepalive.state"
+
+_config_cache: dict | None = None
+_config_cache_stat: tuple | None = None
 
 
 def session_log(base_log: Path, session_id: str) -> Path:
@@ -48,10 +68,24 @@ def session_input(session_id: str) -> Path:
 
 
 def _read_config() -> dict:
-    """Read global base config (~/.owrap/configs/base.json). Returns {} if missing."""
+    """Read base config merged with the default workspace config. Base keys are overridden by workspace keys."""
+    global _config_cache, _config_cache_stat
     if BASE_CONFIG_FILE.exists():
+        st = os.stat(BASE_CONFIG_FILE)
+        stat_tuple = (st.st_mtime, st.st_size)
+        if _config_cache is not None and _config_cache_stat == stat_tuple:
+            return _config_cache
         with open(BASE_CONFIG_FILE) as f:
-            return json.load(f)
+            base = json.load(f)
+        ws_name = base.get("default_workspace", "")
+        if ws_name:
+            ws_cfg = get_workspace_config(ws_name)
+            merged = {**base, **ws_cfg}
+        else:
+            merged = base
+        _config_cache = merged
+        _config_cache_stat = stat_tuple
+        return _config_cache
     return {}
 
 
@@ -87,7 +121,7 @@ def staged_dir(project_name: str):
 
 def get_plan_path(session_id: str) -> Path:
     """Return session-scoped plan path. session_id is required (always set after owrap start)."""
-    return DOCS_DIR / f"plan_{session_id}.md"
+    return PLANS_DIR / f"plan_{session_id}.md"
 
 
 def get_self_path() -> Path:
@@ -155,9 +189,9 @@ def server_state_file(port: int) -> Path:
 
 def context_path(session_id: str) -> Path:
     """Return session-scoped context file path."""
-    return DOCS_DIR / f"context_{session_id}.md"
+    return CONTEXT_DIR / f"context_{session_id}.md"
 
 
 def context_lock_path(session_id: str) -> Path:
     """Return session-scoped context lock file path."""
-    return DOCS_DIR / f"context_{session_id}.lock"
+    return CONTEXT_DIR / f"context_{session_id}.lock"

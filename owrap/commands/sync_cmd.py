@@ -28,6 +28,7 @@ class SyncRunner:
         # stage_all() already merged planner.md → CLAUDE.md and executor.md → AGENTS.md
         targets = [
             (staged / "self.md",       f"{research_root}/self.md"),
+            (staged / "update-protocol.md", f"{research_root}/update-protocol.md"),
             (staged / "settings.json", f"{workspace}/.claude/settings.local.json"),
         ]
 

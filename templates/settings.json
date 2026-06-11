@@ -21,10 +21,10 @@
       "Read({{RESEARCH_ROOT}}/self.md)",
       "Edit({{RESEARCH_ROOT}}/projects/**)",
       "Edit({{RESEARCH_ROOT}}/memory/**)",
-      "Edit(~/.owrap/docs/plan_*.md)",
+      "Edit(~/.owrap/docs/exec/plans/plan_*.md)",
       "Edit(~/.owrap/docs/run/tasks/input_*.md)",
       "Edit(~/.owrap/docs/run/tasks/task*.md)",
-      "Edit(~/.owrap/docs/context_*.md)",
+      "Edit(~/.owrap/docs/context/context_*.md)",
       "Read(~/bin/**)",
       "Bash(~/bin/nbread *)",
       "Read({{WORKSPACE}}/**/*.ipynb)"{{IF:NO_OREAD}},
@@ -46,6 +46,20 @@
     "additionalDirectories": [
       "{{OWRAP_HOME}}",
       "{{WORKSPACE}}"
+    ]
+  },
+  "hooks": {
+    "PreCompact": [
+      {
+        "matcher": "auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/bin/owrap stat > {{OWRAP_HOME}}/runtime/pre_compact_stat.txt 2>&1; echo '{}'",
+            "timeout": 15
+          }
+        ]
+      }
     ]
   }
 }

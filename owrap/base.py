@@ -24,7 +24,7 @@ class BaseRunner(ABC):
         """Return the server URL from the manager, or None."""
         return self.manager.get_server_url()
 
-    def _write_sentinel(self, task_id, title, kind="task"):
+    def _write_sentinel(self, task_id, title, kind="task", call_type="task"):
         from .utils.paths import RUNNING_DIR
         RUNNING_DIR.mkdir(parents=True, exist_ok=True)
         session_id = self.manager.session_id or "none"
@@ -36,6 +36,7 @@ class BaseRunner(ABC):
             "session_id": session_id,
             "research": research,
             "kind": kind,
+            "call_type": call_type,
             "title": title,
             "started": time.time(),
             "server_url": self._get_server_url() or "",
@@ -69,26 +70,28 @@ class BaseRunner(ABC):
         from .utils.paths import RUNNING_DIR, RECENTLY_DONE_DIR
         # Reap stale running sentinels whose PID is dead
         if RUNNING_DIR.exists():
-            for f in RUNNING_DIR.iterdir():
-                try:
-                    data = json.loads(f.read_text())
-                    pid = data.get("pid")
-                    alive = False
-                    if pid:
-                        try:
-                            os.kill(pid, 0)
-                            alive = True
-                        except OSError:
-                            pass
-                    if not alive:
-                        RECENTLY_DONE_DIR.mkdir(parents=True, exist_ok=True)
-                        data["finished"] = time.time()
-                        data["rc"] = 143
-                        data["crashed"] = True
-                        (RECENTLY_DONE_DIR / f.name).write_text(json.dumps(data))
-                        f.unlink()
-                except Exception:
-                    pass
+            running_entries = list(RUNNING_DIR.iterdir())
+            if len(running_entries) > 10 or len(running_entries) % 5 == 0:
+                for f in running_entries:
+                    try:
+                        data = json.loads(f.read_text())
+                        pid = data.get("pid")
+                        alive = False
+                        if pid:
+                            try:
+                                os.kill(pid, 0)
+                                alive = True
+                            except OSError:
+                                pass
+                        if not alive:
+                            RECENTLY_DONE_DIR.mkdir(parents=True, exist_ok=True)
+                            data["finished"] = time.time()
+                            data["rc"] = 143
+                            data["crashed"] = True
+                            (RECENTLY_DONE_DIR / f.name).write_text(json.dumps(data))
+                            f.unlink()
+                    except Exception:
+                        pass
         # Remove recently_done entries older than 120s
         if not RECENTLY_DONE_DIR.exists():
             return

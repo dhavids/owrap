@@ -1,0 +1,95 @@
+import json
+import os
+import time
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+
+from owrap.manager import Manager
+
+
+def test_pool_active_false_when_no_pool_file():
+    from owrap.utils.pool import _pool_active
+    with patch("owrap.utils.pool._read_config", return_value={"max_servers": 1, "min_servers": 2}):
+        assert _pool_active() is False
+
+
+def test_pool_active_true_when_configured():
+    from owrap.utils.pool import _pool_active
+    with patch("owrap.utils.pool._read_config", return_value={"max_servers": 3, "min_servers": 2}):
+        assert _pool_active() is True
+
+
+def test_shutdown_idle_respects_min_n(tmp_path):
+    from owrap.utils.pool import shutdown_idle, POOL_FILE, POOL_LOCK_FILE
+
+    pool = [
+        {"pid": os.getpid(), "url": f"http://localhost:{4096+i}", "port": 4096+i, "last_used": 0}
+        for i in range(3)
+    ]
+    fake_pool = tmp_path / "pool.json"
+    fake_pool.write_text(json.dumps(pool))
+    fake_lock = tmp_path / "pool.lock"
+
+    with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
+         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock), \
+         patch("owrap.utils.pool._is_alive", return_value=True), \
+         patch("os.kill"):
+        shutdown_idle(idle_s=0, min_n=2)
+
+    remaining = json.loads(fake_pool.read_text())
+    assert len(remaining) == 2
+
+
+def test_shutdown_idle_killed_counter(tmp_path):
+    from owrap.utils.pool import shutdown_idle, POOL_FILE, POOL_LOCK_FILE
+
+    pool = [
+        {"pid": os.getpid(), "url": f"http://localhost:{4096+i}", "port": 4096+i, "last_used": 0}
+        for i in range(4)
+    ]
+    fake_pool = tmp_path / "pool.json"
+    fake_pool.write_text(json.dumps(pool))
+    fake_lock = tmp_path / "pool.lock"
+
+    with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
+         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock), \
+         patch("owrap.utils.pool._is_alive", return_value=True), \
+         patch("os.kill"):
+        shutdown_idle(idle_s=0, min_n=1)
+
+    remaining = json.loads(fake_pool.read_text())
+    assert len(remaining) == 1
+
+
+def test_update_last_used(tmp_path):
+    from owrap.utils.pool import update_last_used, POOL_FILE, POOL_LOCK_FILE
+
+    before = time.time() - 100
+    pool = [{"pid": 999, "url": "http://localhost:4096", "port": 4096, "last_used": before}]
+    fake_pool = tmp_path / "pool.json"
+    fake_pool.write_text(json.dumps(pool))
+    fake_lock = tmp_path / "pool.lock"
+
+    with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
+         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock):
+        update_last_used("http://localhost:4096")
+
+    updated = json.loads(fake_pool.read_text())
+    assert updated[0]["last_used"] > before
+
+
+def test_trim_logs_keeps_max(tmp_path):
+    for i in range(5):
+        f = tmp_path / f"task_{i:03d}.log"
+        f.write_text("x")
+        os.utime(f, (i, i))
+
+    Manager._trim_logs(tmp_path, "*.log", max_keep=3)
+    remaining = sorted(tmp_path.glob("*.log"))
+    assert len(remaining) == 3
+    names = {f.name for f in remaining}
+    assert "task_002.log" in names
+    assert "task_003.log" in names
+    assert "task_004.log" in names

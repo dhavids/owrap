@@ -1,5 +1,5 @@
 {
-    "_comment": "OWrap configuration file. Copy to owrap/configs/owrap.json",
+    "_comment": "OWrap configuration file. Copy to ~/.owrap/configs/base.json",
     "default_research": "my_project",
     "workspace": "/home/user",
     "research_root": "/home/user/my_project/docs/research",
@@ -7,5 +7,19 @@
     "oread": true,
     "context_enabled": true,
     "use_multiple_servers": false,
-    "max_servers": 1
+    "max_servers": 1,
+    "min_servers": 1,
+    "idle_shutdown_s": 240,
+    "keepalive_interval_s": 10,
+    "keepalive_idle_exit_s": 1800,
+    "keepalive_ping_model": "opencode/deepseek-v4-flash-free",
+    "msg_kill_s": 30,
+    "task_kill_s": 60,
+    "exec_kill_s": 120,
+    "stall_notify_s": 120,
+    "watchdog_poll_s": 10,
+    "expected_duration_msg": 4,
+    "expected_duration_read": 4,
+    "expected_duration_task": 6,
+    "expected_duration_exec": 30
 }

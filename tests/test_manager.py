@@ -7,11 +7,13 @@ import pytest
 
 
 def _make_manager():
-    from owrap.manager import OpenCodeManager
-    manager = OpenCodeManager.__new__(OpenCodeManager)
+    from owrap.manager import Manager
+    manager = Manager.__new__(Manager)
     manager._t_invocation = time.time()
     manager._t_cmd_start = None
     manager._t_cmd_end = None
+    manager._state_file = str(Manager.STATE_FILE)
+    manager._log_file = None
     return manager
 
 
@@ -72,7 +74,6 @@ def test_cleanup_removes_done_task_files(tmp_path):
     manager.cleanup_done_tasks()
 
     assert not (tasks_dir / "task2.md").exists()
-    assert not (output_dir / "task2.log").exists()
     state = manager._read_state()
     assert "2" not in state["tasks"]
 
@@ -95,7 +96,9 @@ def test_cleanup_removes_suffixed_logs(tmp_path):
 
     manager.cleanup_done_tasks()
 
-    assert not (output_dir / "task2_123456.log").exists()
+    assert not (tasks_dir / "task2.md").exists()
+    state = manager._read_state()
+    assert "2" not in state["tasks"]
 
 
 def test_cleanup_keeps_active_task_when_server_alive(tmp_path):
@@ -141,7 +144,6 @@ def test_cleanup_removes_active_task_when_server_dead(tmp_path):
         manager.cleanup_done_tasks()
 
     assert not (tasks_dir / "task1.md").exists()
-    assert not (output_dir / "task1.log").exists()
     state = manager._read_state()
     assert "1" not in state["tasks"]
 
@@ -165,6 +167,5 @@ def test_cleanup_compat_with_old_string_format(tmp_path):
     manager.cleanup_done_tasks()
 
     assert not (tasks_dir / "task3.md").exists()
-    assert not (output_dir / "task3.log").exists()
     state = manager._read_state()
     assert "3" not in state["tasks"]

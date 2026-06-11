@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 
 from ..base import BaseRunner
-from ..utils.paths import DOCS_DIR
+from ..utils.paths import DOCS_DIR, SERVER_LOGS_DIR
 
 
 TWO_HOURS = 2 * 3600
@@ -84,13 +84,12 @@ class CleanupRunner(BaseRunner):
                         removed.append(f.name)
 
         # Clean up orphaned owrap_start_*.log files
-        owrap_dir = Path.home() / ".owrap"
-        for f in owrap_dir.glob("owrap_start_*.log"):
+        for f in SERVER_LOGS_DIR.glob("owrap_start_*.log"):
             f.unlink(missing_ok=True)
             removed.append(f.name)
 
         # Clean up owrap_<pid>.log files for dead PIDs
-        for f in owrap_dir.glob("owrap_*.log"):
+        for f in SERVER_LOGS_DIR.glob("owrap_*.log"):
             if f.name.startswith("owrap_start_"):
                 continue
             try:

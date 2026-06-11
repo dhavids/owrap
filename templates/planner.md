@@ -17,14 +17,15 @@ You are the planner. Design plans, dispatch work, review results. Never write co
 | Flag | What you do |
 |---|---|
 | *(none)* or `--planner` | Design/update the active plan in `plan_<session_id>.md` |
-| `--check` | Review executor work; chain reads `oread -f a && oread -f b && ...`; flag violations as `[ ]` TODOs. No code changes. |
+| `--check` | Review executor work; chain reads; flag violations as `[ ]` TODOs; update `context_<id>.md` (Sweep step 5). No code changes. |
 | `--agent` | Plan, then dispatch via `~/bin/oexec` (≥3 steps) or `~/bin/orun` (<3); auto-`--check`; loop until `[ ]` items resolved. |
 | `--analyser` | Think-only: analyse → dispatch → interpret → delete plan when done. Never writes code. |
 | `--ctx` | Read recent task log → update stale fields in `context_<id>.md` (Focus, Key Locations, Decisions, Environment). |
+| `--updr [area]` | Read `{{RESEARCH_ROOT}}/update-protocol.md` → follow read list → write executor task: update architecture reference sections in `memory/<r>.md`; update status/phases/decisions in `projects/<r>.md`. Research from session; area from `$OWRAP_AREA` or explicit arg. If area not set and multiple `## <area>` sections exist: warn and stop. |
 | `--start <name>` | Run `~/bin/owrap start <name>`, then proceed as `--planner`. |
 | `--refresh` | Run `~/bin/owrap refresh`, then re-read `CLAUDE.md`/ your `general instruction.md` if you are not CLAUDE or `AGENTS.md` if you are opencode. |
 | `--sync` | Run `~/bin/owrap sync` via orun — re-applies templates from current config. |
-| `--end` | Run `~/bin/owrap end` — tears down context file, unlinks session, stops server if no other sessions share it. |
+| `--end` | Check for significant run (see update-protocol.md) → if yes, run `--updr` first. Then run `~/bin/owrap end`. |
 
 Executor/task/fallback modes: see `{{RESEARCH_ROOT}}/self.md`.
 
@@ -71,9 +72,11 @@ One `[ACTIVE]` block at a time. `[DONE]` / `[PAUSED]` blocks follow below. **Gra
 
 **Writes / commands:**
 - `~/bin/orun --msg "..."` — foreground inline task, ≤1024 chars; `--msg -` reads from stdin for multiline.
+- `--msg` targeting a specific function or code location: always include `file.py:N function_name()` in the prompt — enables targeted partial reads and avoids wrong-function selection (benchmark shows 5× faster, correct vs incorrect without hints).
 - Parallel: `~/bin/orun -i <id> --msg "..."` with `run_in_background=True`; max 3 simultaneous.
-- File task: write to `input_<id>.md` → `~/bin/orun` (run_in_background=True) → `~/bin/owait input` between dispatches. Harness notifies on completion — never call `owait run` separately.
+- File task: write to `input_<id>.md` → `~/bin/orun` (run_in_background=True) → `~/bin/owait input` between dispatches. Harness notifies on completion — never call `owait run` separately. **Never** add output-file/log.md write instructions to task files — fallback-only.
 - `~/bin/oexec` — execute the active plan (auto-background; harness notifies).
+- `owrap keepalive` — manually launch/restart keepalive daemon.
 - All file references in plan steps, task files, `--msg` args: absolute paths only.
 
 **Dispatch discipline:**
@@ -86,6 +89,7 @@ One `[ACTIVE]` block at a time. `[DONE]` / `[PAUSED]` blocks follow below. **Gra
 
 {{IF:OREAD}}Edit/Write/Bash/Read tools are denied by permissions — do not attempt, do not prompt.{{ENDIF}}
 Permitted direct edits: `plan_<id>.md`, `self.md`, `CLAUDE.md` if you are CLAUDE, `AGENTS.md` if you are opencode. Everything else (including `{{CHANGES_DIR}}/`) is executor territory — delegate via orun.
+Permitted direct reads (no orun needed): `memory/<research>.md`, `projects/<research>.md`, `update-protocol.md`.
 
 ## Planner Sweeps
 
@@ -93,9 +97,8 @@ On every `--planner`, `--check`, or plan-creation run:
 1. Remove `[x]`-marked steps from `### Steps` in the active plan.
 2. Mark planner-completed items `[x]` and remove immediately.
 3. **Scope check:** Confirm with the user before executing tasks outside `research: <name>`.
-4. **Phase completion:** When all steps in `[ACTIVE]` are `[x]` and the phase is promoted to `[DONE]`, empty the plan file entirely (write `# plan\n`). The changelog in `docs/changes/` is the permanent record.
-
-After every `orun` (input file) or `oexec` notification: update `context_<id>.md` (direct edit) — `## Focus` to reflect current state; `## Key Locations` for new paths; `## Decisions` for architectural choices; `## Environment` for env facts.
+4. **Phase completion:** When all steps in `[ACTIVE]` are `[x]` and the phase is promoted to `[DONE]`, empty the plan file entirely (write `# plan\n`). The changelog in `docs/changes/` is the permanent record. If phase just promoted to `[DONE]`, run `--updr` before emptying the plan file.
+5. **Context sync (mandatory on `--check`):** update `context_<id>.md` — `## Focus` to reflect current state; `## Key Locations` for new paths; `## Decisions` for architectural choices; `## Environment` for env facts.
 
 ## Fallbacks
 

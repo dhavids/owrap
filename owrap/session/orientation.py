@@ -1,4 +1,4 @@
-def print_orientation(session_id, research, url, plan_path, todo_path, input_path, context_path=None):
+def print_orientation(session_id, research, url=None, plan_path=None, todo_path=None, input_path=None, context_path=None, area=None, memory_path=None, project_path=None, protocol_path=None):
     import shutil as _shutil
     import io as _io
     import re as _re
@@ -32,13 +32,24 @@ def print_orientation(session_id, research, url, plan_path, todo_path, input_pat
                         env_line = _line
                         break
     print("=== OWRAP SESSION ===")
-    print(f"  session: {session_id}   research: {r}   server: {url}")
+    server_str = f"   server: {url}" if url else ""
+    print(f"  session: {session_id}   research: {r}{server_str}")
     print()
     print("You are the planner. Design plans, dispatch work, review results. Never write code or run commands directly.")
     print()
     print("KEY FILES")
     print(f"  plan    {plan_path}")
     print(f"  input   {input_path}")
+    if area:
+        print(f"  area    {area}")
+    if memory_path:
+        _area_tag = f"#{area}" if area else ""
+        print(f"  memory  {memory_path}{_area_tag}")
+    if project_path:
+        _area_tag = f"#{area}" if area else ""
+        print(f"  project {project_path}{_area_tag}")
+    if protocol_path:
+        print(f"  updr    {protocol_path}")
     if focus or context_path or plan_steps or env_line:
         print()
         print("FOCUS")

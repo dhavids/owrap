@@ -2,9 +2,10 @@ import argparse
 import sys
 from pathlib import Path
 
-from .session import StartRunner, StopRunner, RefreshRunner, RestartRunner, CleanupRunner, EndRunner, AttachRunner
+from .session import StartRunner, StopRunner, RefreshRunner, RestartRunner, CleanupRunner, EndRunner, AttachRunner, UpdateAreaRunner
 from .commands import ExecRunner, FinishRunner, ReadRunner, RunRunner, SetupRunner, WaitRunner
 from .commands.sync_cmd import SyncRunner
+from .commands.keepalive import KeepaliveRunner
 from .manager import Manager
 from .utils.paths import _read_config, get_workspace_config
 
@@ -21,6 +22,7 @@ def main():
     start_parser.add_argument("--shell-pid", type=int, default=None, help="Shell PID")
     start_parser.add_argument("--session-file", type=str, default=None, help="Session file path")
     start_parser.add_argument("-i", "--session-id", type=str, default=None, help="Session ID: attach if exists, create with this ID if not")
+    start_parser.add_argument("area", nargs="?", default=None, help="Area within research (e.g. self-translator)")
 
     stop_parser = subparsers.add_parser("stop", help="Stop an owrap session")
     stop_parser.add_argument("target", nargs="?", default=None, help="Session ID prefix or research name to stop (alias for -i/--session-id)")
@@ -38,6 +40,7 @@ def main():
     refresh_parser.add_argument("--shell-pid", type=int, default=None, help="Shell PID")
     refresh_parser.add_argument("--session-file", type=str, default=None, help="Session file path")
     refresh_parser.add_argument("-i", "--session-id", type=str, default=None, help="Session ID to refresh (skips env resolution)")
+    refresh_parser.add_argument("area", nargs="?", default=None, help="Update area for this session")
 
     attach_parser = subparsers.add_parser("attach", help="Bind an existing session to this Claude window")
     attach_parser.add_argument("target_session_id", help="Session ID to attach to")
@@ -91,6 +94,8 @@ def main():
     run_parser.add_argument("-t", "--timeout", type=int, default=None, help="Timeout in seconds (default: 180 for --msg)")
     run_parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     run_parser.add_argument("--no-log-time", action="store_true", help="Suppress the timing block")
+    run_parser.add_argument("--no-context", action="store_true", help="Suppress inline context header")
+    run_parser.add_argument("--model", "-m", type=str, default=None, help="Model override")
 
     exec_parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     exec_parser.add_argument("--no-log-time", action="store_true", help="Suppress the timing block")
@@ -100,6 +105,15 @@ def main():
     finish_parser.add_argument("--session", type=str, default=None, help="Session ID override")
 
     subparsers.add_parser("trim", help="Kill all live servers with no active sessions")
+
+    killservers_parser = subparsers.add_parser("killservers", help="Kill all servers and running tasks without clearing session/context state")
+    killservers_parser.add_argument("--session", type=str, default=None, help="Limit to a specific session ID")
+
+    update_area_parser = subparsers.add_parser("update-area", help="Set research and area for the current session")
+    update_area_parser.add_argument("research", help="Research name")
+    update_area_parser.add_argument("area", help="Area within research (e.g. self-translator)")
+
+    keepalive_parser = subparsers.add_parser("keepalive", help="Run the keepalive daemon")
 
     wait_parser = subparsers.add_parser("wait", help="Wait for task/read/msg completion")
     wait_parser.add_argument("type", choices=["run", "exec", "read", "msg", "input"])
@@ -121,7 +135,7 @@ def main():
     if args.command == "start":
         StartRunner(manager, logger, allow_all=allow_all).run(
             shell_pid=args.shell_pid, session_file=args.session_file, research=args.research,
-            session_id=getattr(args, 'session_id', None))
+            session_id=getattr(args, 'session_id', None), area=getattr(args, 'area', None))
     elif args.command == "stop":
         target = getattr(args, 'session_id', None) or getattr(args, 'target', None)
         StopRunner(manager, logger, allow_all=allow_all).run(session_file=args.session_file, force=args.force, target=target)
@@ -131,7 +145,7 @@ def main():
     elif args.command == "refresh":
         RefreshRunner(manager, logger, allow_all=allow_all).run(
             shell_pid=args.shell_pid, session_file=args.session_file, research=args.research,
-            session_id=getattr(args, 'session_id', None))
+            session_id=getattr(args, 'session_id', None), area=getattr(args, 'area', None))
     elif args.command == "attach":
         AttachRunner(manager, logger, allow_all=allow_all).run(target_session_id=args.target_session_id)
     elif args.command == "restart":
@@ -154,7 +168,7 @@ def main():
             timeout=getattr(args, 'timeout', None), verbose=args.verbose,
             prompt_style=getattr(args, 'prompt_style', None))
     elif args.command in ("run",):
-        RunRunner(manager, logger, allow_all=allow_all).run(
+        RunRunner(manager, logger, allow_all=allow_all, no_context=args.no_context, model=args.model).run(
             msg=args.msg, msg_id=getattr(args, 'id', None),
             input_path=Path(args.input) if args.input else None,
             log_time=not args.no_log_time, timeout=getattr(args, 'timeout', None))
@@ -167,7 +181,13 @@ def main():
         )
     elif args.command == "trim":
         Manager.trim_idle_servers()
-    
+    elif args.command == "killservers":
+        from .session.killservers import KillServersRunner
+        KillServersRunner().run(session_id=getattr(args, "session", None))
+    elif args.command == "keepalive":
+        KeepaliveRunner(manager, logger, allow_all=allow_all).run()
+    elif args.command == "update-area":
+        UpdateAreaRunner(manager, logger, allow_all=allow_all).run(research=args.research, area=args.area)
     elif args.command == "wait":
         WaitRunner(manager, logger, allow_all=allow_all).run(
             wait_type=args.type,

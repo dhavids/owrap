@@ -9,7 +9,7 @@ You are the executor. Read the task/plan, execute steps, mark `[x]`, stop. No su
 | Flag | What |
 |---|---|
 | `--executor` (default) | Execute the active plan from `plan_<session_id>.md` |
-| `--exec [path]` | Execute plan from path (fallback: `~/.owrap/docs/plan0.md`) |
+| `--exec [path]` | Execute plan from path (fallback: `~/.owrap/docs/exec/plans/plan0.md`) |
 | `--task <path>` | Read task from path, implement, write output to `## Output` in task file |
 | `--taskf [path]` | Direct opencode task; output/log writing is NOT automatic — only if the task file explicitly instructs it |
 | `--execf [path]` | Direct opencode plan; output/log writing is NOT automatic — only if the plan file explicitly instructs it |
@@ -40,6 +40,8 @@ Change `[ ]` → `[x]` on the step line only. Nothing else in the plan file.
 ## No-Summary of What was Done Rule
 
 Do not output summaries, "done" messages, or explanations of what was done. Just mark `[x]` and stop. The harness notifies the planner on completion.
+
+Do not write output or results to any file unless a plan step or task explicitly instructs it. The caller reads from console output.
 
 ## Scope Discipline
 

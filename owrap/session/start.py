@@ -56,7 +56,7 @@ def _prune_logs(max_logs: int):
 
 
 class StartRunner(BaseRunner):
-    def run(self, shell_pid=None, session_file=None, research=None, session_id=None):
+    def run(self, shell_pid=None, session_file=None, research=None, session_id=None, area=None):
         if research is None:
             research = _read_config().get("default_research")
         migrate_legacy_files()
@@ -74,10 +74,18 @@ class StartRunner(BaseRunner):
                 session_path = sf_path
         else:
             session_id, session_path, source = resolve(mode="start")
-        _, url = Manager.get_or_start_server()
-        update_session_field(session_id, "server_url", url)
+
+        from ..utils.pool import _pool_active, ensure_min_servers, _ensure_keepalive
+        if _pool_active():
+            ensure_min_servers()
+            _ensure_keepalive()
+        else:
+            Manager().ensure_running()
+
         if research:
             update_session_field(session_id, "research", research)
+        if area:
+            update_session_field(session_id, "area", area)
 
         # Resolve workspace name: explicit research → use as workspace key, else default_workspace
         base = _read_config()
@@ -122,7 +130,8 @@ class StartRunner(BaseRunner):
         input_path = session_input(session_id)
 
         self.manager.session_id = session_id
-        self.manager.create_context(url=url)
+        self.manager.create_context()
+        self.manager._housekeeping()
         self.manager.refresh_context_plan(plan_path)
         # Auto-populate Focus from research project file on first create
         import re as _re
@@ -141,10 +150,25 @@ class StartRunner(BaseRunner):
         self.manager.start_watchdog()
 
         if self.logger:
-            self.logger.info("start session=%s research=%s url=%s", session_id, research or "none", url)
+            self.logger.info("start session=%s research=%s", session_id, research or "none")
         cp = context_path(session_id)
-        print_orientation(session_id, research, url, plan_path, todo_path, input_path, context_path=cp)
+        from ..utils.session_resolver import _parse as _sp
+        area_val = area or _sp(_sf(session_id)).get("area")
+        memory_path = project_path = protocol_path = None
+        if research:
+            _rr = _read_config().get("research_root")
+            if _rr:
+                _mp = Path(_rr) / "memory" / f"{research}.md"
+                _pp = Path(_rr) / "projects" / f"{research}.md"
+                _prot = Path(_rr) / "update-protocol.md"
+                memory_path = _mp if _mp.exists() else None
+                project_path = _pp if _pp.exists() else None
+                protocol_path = _prot if _prot.exists() else None
+        print_orientation(session_id, research, plan_path=plan_path, todo_path=todo_path, input_path=input_path, context_path=cp,
+                          area=area_val, memory_path=memory_path, project_path=project_path, protocol_path=protocol_path)
         print(f"\n__OWRAP_EXPORT__ SESSION_ID={session_id}")
+        if area_val:
+            print(f"__OWRAP_EXPORT__ OWRAP_AREA={area_val}")
         sys.exit(0)
 
 

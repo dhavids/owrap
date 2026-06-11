@@ -8,6 +8,8 @@ from pathlib import Path
 from ..utils.terminal import Terminal
 from ..manager import Manager
 from ..base import BaseRunner
+from ..constants import ANTI_SUMMARY_SUFFIX, EXEC_KILL_S
+from ..utils.pool import _pool_active, pick_server, update_last_used
 from ..utils.paths import EXEC_OUTPUT_DIR, get_plan_path, context_path, _read_config, get_agents_md_path, get_workspace_path
 
 
@@ -49,7 +51,11 @@ class ExecRunner(BaseRunner):
 
         if self.logger:
             self.logger.info("exec session=%s plan=%s", session_id or "none", plan_path or "none")
-        url = self.manager.ensure_running()
+
+        if _pool_active():
+            url = pick_server("exec")
+        else:
+            url = self.manager.ensure_running()
 
         cmd = ["opencode", "run"]
         if self.allow_all:
@@ -65,6 +71,7 @@ class ExecRunner(BaseRunner):
                 ctx_instr = f"First read {cp}, then: "
         plan_str = str(plan_path) if plan_path else ""
         exec_msg = f"--exec {plan_str}".strip()
+        exec_msg += " " + ANTI_SUMMARY_SUFFIX
         if url:
             cmd.extend(["--attach", url])
             prompt = f"{ctx_instr}{exec_msg}" if ctx_instr else exec_msg
@@ -72,6 +79,7 @@ class ExecRunner(BaseRunner):
         else:
             execf_msg = f"--execf {plan_str}".strip()
             fb_prompt = f"{ctx_instr}{execf_msg}" if ctx_instr else execf_msg
+            fb_prompt += " " + ANTI_SUMMARY_SUFFIX
             cmd.extend(["--", shlex.quote(fb_prompt)])
 
         plan_name = self._get_active_plan_name(plan_path)
@@ -86,20 +94,34 @@ class ExecRunner(BaseRunner):
                 ts = datetime.now().strftime("%H%M%S")
                 self.LOG_FILE = self.LOG_FILE.parent / f"{self.LOG_FILE.stem}_{ts}{self.LOG_FILE.suffix}"
 
-        sentinel = self._write_sentinel(session_id or "exec", plan_name[:60], kind="exec")
+        task_id = session_id or "exec"
+        self.manager.register_task(task_id, "exec")
+        sentinel = self._write_sentinel(task_id, plan_name[:60], kind="exec", call_type="exec")
         self._install_sigterm_handler()
         rc = 1
+        watchdog = None
         try:
             with open(self.LOG_FILE, "w") as log:
                 log.write(f"[{datetime.now().isoformat()}] EXEC SESSION START\n")
                 log.flush()
                 self.manager.t_cmd_start()
                 terminal = Terminal(verbose=False)
+                from ..utils.watchdog import Watchdog, write_sentinel_health
+                watchdog = Watchdog(
+                    log_path=self.LOG_FILE,
+                    kill_callback=lambda: (setattr(self, '_stall_killed', True), terminal.terminate_process()),
+                    notify_callback=lambda state: (write_sentinel_health(sentinel, state), print(f"[watchdog] exec {state}", flush=True)),
+                    kill_after_s=float(_read_config().get("exec_kill_s", EXEC_KILL_S)),
+                )
+                watchdog.start()
                 result = terminal.run(" ".join(cmd), capture_output=True, print_output=True, tee_file=log, cwd=str(get_workspace_path()))
                 self.manager.t_cmd_end()
                 rc = result.get("returncode", 1)
         finally:
+            if watchdog:
+                watchdog.stop()
             self._complete_sentinel(sentinel, rc)
+            self.manager.complete_task(task_id)
 
         t = ""
         if self.manager._t_cmd_end is not None:
@@ -124,6 +146,17 @@ class ExecRunner(BaseRunner):
             self.manager.update_frequent_files()
         except Exception:
             pass
+        if url:
+            try:
+                update_last_used(url)
+            except Exception:
+                pass
+            try:
+                from ..utils.pool import release_server
+                release_server(url)
+            except Exception:
+                pass
+            Manager._trim_logs(EXEC_OUTPUT_DIR, "exec_output_*.log")
 
         sys.exit(rc)
 

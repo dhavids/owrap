@@ -24,64 +24,69 @@ class StatRunner(BaseRunner):
 
         print("=== OWRAP SESSIONS ===\n")
 
-        from ..manager import Manager as _Manager
-        servers = _Manager.list_servers()
-        sess_counts = _Manager.sessions_per_server()
+        from ..utils.pool import get_pool, _active_load, _estimate_remaining
+        pool = get_pool()
 
         running_tasks, done_tasks = self._load_tasks()
-        all_srv_urls = {srv.get("url") for srv in servers}
+        all_srv_urls = {entry.get("url") for entry in pool}
 
-        if servers:
-            label = "server:" if len(servers) == 1 else "servers:"
+        if pool:
+            label = "server:" if len(pool) == 1 else "servers:"
             print(f"  {label}")
-            _active_by_url = {}
-            _last_task_time = {}
-            for _t in running_tasks:
-                _u = _t.get("server_url", "")
-                if _t.get("alive"):
-                    _active_by_url[_u] = _active_by_url.get(_u, 0) + 1
-                _ts = _t.get("started", 0)
-                if _ts > _last_task_time.get(_u, 0):
-                    _last_task_time[_u] = _ts
-            for _t in done_tasks:
-                _u = _t.get("server_url", "")
-                _ts = _t.get("finished", 0)
-                if _ts > _last_task_time.get(_u, 0):
-                    _last_task_time[_u] = _ts
-            servers = sorted(
-                servers,
-                key=lambda s: (
-                    _active_by_url.get(s.get("url", ""), 0),
-                    _last_task_time.get(s.get("url", ""), 0),
-                ),
-                reverse=True,
-            )
-            for srv in servers:
-                pid = srv.get("pid", "?")
-                url = srv.get("url", "?")
-                port = srv.get("port", "?")
-                session_count = sess_counts.get(url, 0)
-
-                srv_running = [t for t in running_tasks if t.get("server_url") == url]
-                srv_done = [t for t in done_tasks if t.get("server_url") == url]
-                active_count = sum(1 for t in srv_running if t.get("alive"))
-
-                log_file = srv.get("log_file", "")
-                log_info = ""
-                if log_file:
-                    lp = Path(log_file)
-                    if lp.exists():
-                        log_info = f"log: {lp.name} ({lp.stat().st_size} bytes)"
-                print(f"    port {port}  {url}  [alive]  pid={pid}  tasks={active_count} active  sessions={session_count}")
-                if log_info:
-                    print(f"    {log_info}")
-                if srv_running or srv_done:
-                    print("    tasks:")
-                    _print_running(srv_running, show_session=True, indent="      ")
-                    _print_done(srv_done, show_session=True, indent="      ")
-                print()
+            for entry in pool:
+                pid = entry.get("pid", "?")
+                url = entry.get("url", "?")
+                port = entry.get("port", "?")
+                alive = "alive" if _is_alive(pid) else "dead"
+                load = _active_load(url)
+                remaining = _estimate_remaining(url)
+                last_used = entry.get("last_used", 0)
+                if load > 0:
+                    lu_str = "in use"
+                elif last_used:
+                    lu_age = time.time() - last_used
+                    if lu_age < 60:
+                        lu_str = f"used {lu_age:.0f}s ago"
+                    elif lu_age < 3600:
+                        lu_str = f"used {lu_age/60:.0f}m ago"
+                    else:
+                        lu_str = f"used {lu_age/3600:.0f}h ago"
+                else:
+                    lu_str = "never used"
+                print(f"    port {port}  {url}  [{alive}]  pid={pid}  load={load}  remaining={remaining:.0f}s  {lu_str}")
+            print()
         else:
             print("  server: not started\n")
+
+        # keepalive status
+        from ..utils.paths import KEEPALIVE_PID_FILE, KEEPALIVE_STATE_FILE
+        keepalive_pid_file = KEEPALIVE_PID_FILE
+        keepalive_state_file = KEEPALIVE_STATE_FILE
+        if keepalive_pid_file.exists():
+            try:
+                kpid = int(keepalive_pid_file.read_text().strip())
+                os.kill(kpid, 0)
+                ka_extra = ""
+                if keepalive_state_file.exists():
+                    try:
+                        import json as _json
+                        ks = _json.loads(keepalive_state_file.read_text())
+                        model = ks.get("model", "")
+                        idle_since = ks.get("idle_since")
+                        idle_exit_s = ks.get("idle_exit_s", 300)
+                        model_str = f"  model={model}" if model else ""
+                        if idle_since is not None:
+                            remaining_idle = max(0, idle_exit_s - (time.time() - idle_since))
+                            ka_extra = f"{model_str}  idle  dies in {remaining_idle:.0f}s"
+                        else:
+                            ka_extra = f"{model_str}  active"
+                    except Exception:
+                        pass
+                print(f"  keepalive: pid={kpid} running{ka_extra}\n")
+            except (ValueError, OSError):
+                print("  keepalive: stopped\n")
+        else:
+            print("  keepalive: stopped\n")
 
         orphan_running = [t for t in running_tasks if t.get("server_url", "") not in all_srv_urls]
         orphan_done = [t for t in done_tasks if t.get("server_url", "") not in all_srv_urls]
@@ -111,9 +116,9 @@ class StatRunner(BaseRunner):
                 research = data.get("research", "")
                 if research:
                     print(f"    research: {research}")
-                server_url = data.get("server_url", "")
-                if server_url:
-                    print(f"    server:   {server_url}")
+                area = data.get("area", "")
+                if area:
+                    print(f"    area:     {area}")
                 print(f"    age:      {age}")
                 print()
         else:
@@ -127,6 +132,9 @@ class StatRunner(BaseRunner):
             research = data.get("research", "")
             if research:
                 print(f"    research: {research}")
+            area = data.get("area", "")
+            if area:
+                print(f"    area:     {area}")
             print(f"    age:      {age}")
 
         return 0
@@ -229,6 +237,14 @@ class StatRunner(BaseRunner):
             print()
 
 
+def _is_alive(pid) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
 def _print_running(tasks, show_session=True, indent="  "):
     for t in tasks:
         age = _age_str(t.get("started", time.time()))
@@ -236,7 +252,9 @@ def _print_running(tasks, show_session=True, indent="  "):
         kind = t.get("kind", "task")
         tid = str(t.get("task_id", "?"))[:12]
         sess = f"  [{t.get('session_id','?')}/{t.get('research','?')}]" if show_session else ""
-        print(f"{indent}{kind:<6}  {tid:<14}  {status:<14}  started {age} ago   pid={t.get('pid')}{sess}   \"{t.get('title','')[:55]}\"")
+        health = t.get("health", "healthy") if status == "running" else None
+        health_display = f"  {'STALLED' if health == 'stalled' else 'healthy'}" if health else ""
+        print(f"{indent}{kind:<6}  {tid:<14}  {status:<14}  started {age} ago   pid={t.get('pid')}{sess}   \"{t.get('title','')[:55]}\"{health_display}")
 
 
 def _print_done(tasks, show_session=True, indent="  "):
@@ -248,7 +266,10 @@ def _print_done(tasks, show_session=True, indent="  "):
         tid = str(t.get("task_id", "?"))[:12]
         sess = f"  [{t.get('session_id','?')}/{t.get('research','?')}]" if show_session else ""
         status = f"done({result})"
-        print(f"{indent}{kind:<6}  {tid:<14}  {status:<16}  {age} ago{sess}   \"{t.get('title','')[:55]}\"")
+        started = t.get('started')
+        finished = t.get('finished')
+        dur_str = f'{finished - started:.1f}s' if started and finished else '?s'
+        print(f"{indent}{kind:<6}  {tid:<14}  {status:<16}  {age} ago{sess}   {dur_str}   \"{t.get('title','')[:55]}\"")
 
 
 def _parse_session(path: Path) -> dict:
