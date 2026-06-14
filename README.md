@@ -19,22 +19,23 @@ python3 setup.py     # installs shims to ~/bin/, checks deps
 
 Make sure `~/bin/` is on your `$PATH`.
 
-## Updating Shims
+## Updating
 
-After `git pull`, re-install shims only (Python source is live via editable install):
+After `git pull`, re-run setup to refresh shims (Python source is live via editable install):
 
 ```bash
-python3 update.py
+python3 setup.py
 ```
 
 ## Getting Started
 
 ```bash
-~/bin/owrap setup [path] [--name <project>] [--workspace <ws>] [--research-root <path>]
+~/bin/owrap setup <path>                                      # workspace name inferred from basename
+~/bin/owrap setup --name <name> --workspace <path>            # explicit name override
 ~/bin/owrap start <research_name>
 ```
 
-`setup` writes `~/.owrap/configs/base.json`, installs templates, and prints the FILES/SETTINGS instructions Claude needs to read. `start` generates a session ID, starts the server, and prints the orientation block.
+`setup` writes a workspace config under `~/.owrap/configs/`, installs templates into the workspace, and prints the FILES/SETTINGS block Claude needs to read. The workspace name is inferred from the basename of `<path>`; use `--name` to override it. `start` generates a session ID, resolves or starts a server, and prints the orientation block.
 
 ## Updating Planner Files
 
@@ -59,7 +60,7 @@ All output is isolated to `tmp_path` per test. Servers are killed before and aft
 
 | Limit | Value | Notes |
 |---|---|---|
-| `orun --msg` max length | 1024 chars | Longer tasks should use file-based `orun` via `input_<id>.md` |
+| `orun --msg` max length | 1024 chars | Longer tasks should use file-based `orun` via the session input file |
 | `oread -d` / `-s` timeout | 55–180s (scales with file size) | Partial output on expiry; use `-t <secs>` to extend |
 | `oread` auto-summarise threshold | 8000 chars | Files above this are forwarded to opencode for summary |
 
@@ -73,9 +74,12 @@ Base config: `~/.owrap/configs/base.json`. Copy `templates/config.json` there to
 | `project_root` | string | Path to the project root (`CLAUDE.md`, `AGENTS.md`, `.claude/`) |
 | `research_root` | string | Path to the research folder (`self.md`; often `<project_root>/docs/research`) |
 | `allow_all` | bool | Always pass `--dangerously-skip-permissions` to opencode |
-| `oread_always` | bool | Require all file reads to go through `oread` (default: `true`) |
+| `oread` | bool | Require all file reads to go through `oread` (default: `true`) |
 | `max_servers` | int | Maximum concurrent opencode servers. Pool is active when `max_servers >= min_servers` (default: `1`) |
 | `min_servers` | int | Minimum live servers the keepalive maintains (default: `2`) |
+| `context_enabled` | bool | Inject session context file into task/msg prompts (default: `true`) |
+| `max_msg_output_logs` | int | Max per-session msg output logs to retain (default: `10`) |
+| `max_task_output_logs` | int | Max per-session task output logs to retain (default: `5`) |
 | `idle_shutdown_s` | float | Idle seconds before server shutdown (default: `600`) |
 | `keepalive_interval_s` | float | Seconds between keepalive ping cycles (default: `10`) |
 | `keepalive_idle_exit_s` | float | Seconds with empty pool before keepalive exits (default: `300`) |
@@ -96,6 +100,42 @@ Base config: `~/.owrap/configs/base.json`. Copy `templates/config.json` there to
 
 ## Commands Reference
 
+### File reads (`oread`)
+
+| Command | What it does |
+|---|---|
+| `~/bin/oread -f <file>` | Print file; if >8000 chars, summarise via opencode |
+| `~/bin/oread -f <file> -v` | Full cat, no summarise threshold |
+| `~/bin/oread -f <dir>` | List directory (instant) |
+| `~/bin/oread -g <pattern> [-f <path>]` | Grep recursively (instant) |
+| `~/bin/oread -f <file> -s [-p <style>]` | Summarise via opencode |
+| `~/bin/oread -f <file> -d "..."` | Targeted query; timeout scales 55–180s with file size |
+| `~/bin/oread -f <file> -d "..." -t <secs>` | Targeted query with custom timeout |
+| `~/bin/oread -i <id> -f <file>` | Tag read output with `[r:<id>]` for parallel tracking |
+| `~/bin/oread --list-styles` | List all styles and extension defaults |
+
+### Inline task dispatch (`orun --msg`)
+
+| Command | What it does |
+|---|---|
+| `~/bin/orun --msg "..."` | Inline task, ≤1024 chars (foreground); `--msg -` reads from stdin |
+| `~/bin/orun -i <id> --msg "..."` | Parallel tagged msg: output prefixed `[m:<id>]` |
+| `~/bin/orun --msg "..." -t <secs>` | Custom timeout (default: 180s) |
+
+### File task dispatch (`orun`)
+
+| Command | What it does |
+|---|---|
+| `~/bin/orun [--input <path>]` | File task from session input.md or custom `--input <path>` (auto-background) |
+
+### Plan execution (`oexec`)
+
+| Command | What it does |
+|---|---|
+| `~/bin/oexec` | Execute active plan (auto-background) |
+
+### Session
+
 | Command | What it does |
 |---|---|
 | `~/bin/owrap start [name]` | Start session: generate ID, start server, print orientation |
@@ -106,44 +146,51 @@ Base config: `~/.owrap/configs/base.json`. Copy `templates/config.json` there to
 | `~/bin/owrap attach <session_id>` | Bind this Claude window to an existing session |
 | `~/bin/owrap stat [filter]` | Show sessions, server pool (alive/dead, warm/cold, load), keepalive status |
 | `~/bin/owrap cleanup [id]` | Remove stale sessions; optional partial ID to target one |
-| `~/bin/owrap finish <target>` | Kill a running job by target (`exec`, `task1`, `msg1`, …) — SIGTERM to its PID |
+| `~/bin/owrap finish <target>` | Kill a running `orun`/`oexec` job by target (`exec`, `task1`, `msg1`, …) — SIGTERM |
 | `~/bin/owrap sync` | Re-stage templates and write sync task for planner to apply |
+| `~/bin/owrap setup <path>` | Configure workspace config, install templates (name inferred from basename; `--name`/`--workspace` for explicit override) |
+| `~/bin/owrap get <what>` | Inspect session files: `plan`, `input`, `context`, `session`, `memory`, `project`, `area`, `research`, `config` |
+| `~/bin/owrap update-area <research> <area>` | Set the active research area for the current session (updates `$OWRAP_AREA`) |
+| `~/bin/owrap precompact` | PreCompact hook handler — summarises transcript before compaction and dispatches a context update |
+
+### Server
+
+| Command | What it does |
+|---|---|
 | `~/bin/owrap trim` | Kill pool servers with no active sessions |
 | `~/bin/owrap killservers [--session <id>]` | Kill all servers and running tasks without touching session/context state |
 | `~/bin/owrap keepalive` | Run the keepalive daemon (pings servers, shuts down idle ones) |
-| `~/bin/owrap setup [path] [--name] [--workspace] [--research-root]` | Configure base.json, install templates |
-| `~/bin/oread -f <file>` | Print file; if >8000 chars, summarise via opencode |
-| `~/bin/oread -f <file> -v` | Full cat, no summarise threshold |
-| `~/bin/oread -f <dir>` | List directory (instant) |
-| `~/bin/oread -g <pattern> [-f <path>]` | Grep recursively (instant) |
-| `~/bin/oread -f <file> -s [-p <style>]` | Summarise via opencode |
-| `~/bin/oread -f <file> -d "..."` | Targeted query; timeout scales 55–180s with file size |
-| `~/bin/oread -f <file> -d "..." -t <secs>` | Targeted query with custom timeout |
-| `~/bin/oread -i <id> -f <file>` | Tag read output with `[r:<id>]` for parallel tracking |
-| `~/bin/oread --list-styles` | List all styles and extension defaults |
-| `~/bin/orun --msg "..."` | Inline task, ≤1024 chars (foreground); `--msg -` reads from stdin |
-| `~/bin/orun -i <id> --msg "..."` | Parallel tagged msg: output prefixed `[m:<id>]` |
-| `~/bin/orun --msg "..." -t <secs>` | Custom timeout (default: 180s) |
-| `~/bin/orun [--input <path>]` | File task from `input_<id>.md` or custom path (auto-background) |
-| `~/bin/oexec` | Execute active plan (auto-background) |
-| `~/bin/owait run <id>` | Block until run task completes |
-| `~/bin/owait exec <id>` | Block until exec completes |
-| `~/bin/owait read <id>` | Block until read completes |
+
+### Fallback dispatch (`owrap f`)
+
+| Command | What it does |
+|---|---|
+| `~/bin/owrap f <path>` | Fallback dispatch: run `--execf` or `--taskf` directly (no server); mode inferred from filename ("task" in name → `--taskf`, else `--execf`); tees output to `~/.owrap/docs/f/{exec,task}/output.log`; logs completion to `~/.owrap/docs/f/{exec,task}/log.md`; writes live status to `~/.owrap/docs/f/{exec,task}/status.json` |
+| `~/bin/owrap f tstop` | Stop a running/stalled task fallback (SIGTERM + mark status stopped) |
+| `~/bin/owrap f estop` | Stop a running/stalled exec fallback |
+
+### Wait / sync (`owait`)
+
+| Command | What it does |
+|---|---|
+| `~/bin/owait run` | Block until any run task completes (next entry in run log) |
+| `~/bin/owait exec` | Block until any exec completes (next entry in exec log) |
+| `~/bin/owait read <id>` | Block until read tagged `[r:<id>]` completes |
 | `~/bin/owait msg <id>` | Block until tagged `--msg` completes |
-| `~/bin/owait input` | Block until `input_<id>.md` is cleared |
+| `~/bin/owait input` | Block until session `input.md` is cleared |
 
 ## Parallel Task Dispatch
 
-```
-write task A → input_<id>.md
-~/bin/orun          ← picks up, creates task1.md, clears input, backgrounds
-~/bin/owait input   ← blocks until cleared
-write task B → input_<id>.md
-~/bin/orun          ← creates task2.md, backgrounds
-~/bin/owait input
-# task1 and task2 running in parallel
-~/bin/owait run <id>   ← unblocks on first completion
-~/bin/owait run <id>   ← unblocks on second
-```
+Write to session `input.md`, dispatch with `orun`, then `owait input` before writing the next — both tasks run in parallel while you wait for completions:
 
-Use `--fg` on `orun`/`oexec` to force foreground. Cancel a job with `owrap finish <target>` — reads the PID from `~/.owrap/running/` and sends SIGTERM.
+```
+write task A → ~/.owrap/docs/sessions/<sid>/run/input.md
+~/bin/orun          ← picks up, creates task_<timestamp>.md, clears input, backgrounds
+~/bin/owait input   ← blocks until input.md is cleared
+write task B → ~/.owrap/docs/sessions/<sid>/run/input.md
+~/bin/orun          ← creates another task_<timestamp>.md, backgrounds
+~/bin/owait input
+# task A and task B running in parallel
+~/bin/owait run   ← unblocks on next task completion
+~/bin/owait run   ← unblocks on next task completion
+```
