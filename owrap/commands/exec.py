@@ -1,5 +1,5 @@
 import argparse
-import re
+import os
 import shlex
 import sys
 from datetime import datetime
@@ -10,25 +10,18 @@ from ..manager import Manager
 from ..base import BaseRunner
 from ..constants import ANTI_SUMMARY_SUFFIX, EXEC_KILL_S
 from ..utils.pool import _pool_active, pick_server, update_last_used
-from ..utils.paths import EXEC_OUTPUT_DIR, get_plan_path, context_path, _read_config, get_agents_md_path, get_workspace_path
+from ..utils.paths import session_exec_output_path, get_plan_path, context_path, _read_config, get_agents_md_path, get_workspace_path, format_failure_pointer
+from ..utils.snippet import extract_snippet
 
 
 class ExecRunner(BaseRunner):
-    LOG_DIR = EXEC_OUTPUT_DIR
 
     def _get_active_plan_name(self, plan_path: Path | None = None) -> str:
         if plan_path is None:
             plan_path = get_plan_path(self.manager.session_id) if self.manager.session_id else None
         if plan_path is None:
             return "exec"
-        try:
-            content = plan_path.read_text()
-            match = re.search(r'^## \[ACTIVE\]\s+(.+)$', content, re.MULTILINE)
-            if match:
-                return match.group(1).split(' — ')[0].strip()
-        except Exception:
-            pass
-        return "exec"
+        return extract_snippet(plan_path, default="exec")
 
     def _write_exec_log(self, plan_name: str):
         exec_log = self.manager.exec_log_path
@@ -42,9 +35,9 @@ class ExecRunner(BaseRunner):
                 pass
         exec_log.write_text(entry + existing)
 
-    def run(self, log_time=True):
+    def run(self, log_time=False):
         sid = self.manager.session_id or "exec"
-        self.LOG_FILE = EXEC_OUTPUT_DIR / f"exec_output_{sid}.log"
+        self.LOG_FILE = session_exec_output_path(sid)
         self._cleanup_recently_done()
         session_id = self.manager.session_id
         plan_path = get_plan_path(session_id) if session_id else None
@@ -53,7 +46,11 @@ class ExecRunner(BaseRunner):
             self.logger.info("exec session=%s plan=%s", session_id or "none", plan_path or "none")
 
         if _pool_active():
-            url = pick_server("exec")
+            try:
+                url = pick_server("exec")
+            except Exception:
+                print(format_failure_pointer("NO_SERVER", session_id))
+                sys.exit(1)
         else:
             url = self.manager.ensure_running()
 
@@ -86,7 +83,7 @@ class ExecRunner(BaseRunner):
 
         if self.logger:
             self.logger.debug("exec cmd=%s", " ".join(cmd))
-        self.LOG_DIR.mkdir(parents=True, exist_ok=True)
+        self.LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
         if self.LOG_FILE.exists():
             try:
                 self.LOG_FILE.unlink()
@@ -117,6 +114,8 @@ class ExecRunner(BaseRunner):
                 result = terminal.run(" ".join(cmd), capture_output=True, print_output=True, tee_file=log, cwd=str(get_workspace_path()))
                 self.manager.t_cmd_end()
                 rc = result.get("returncode", 1)
+                if result.get("timed_out"):
+                    print(format_failure_pointer("TIMED_OUT", session_id))
         finally:
             if watchdog:
                 watchdog.stop()
@@ -135,9 +134,18 @@ class ExecRunner(BaseRunner):
         print(f"log: {self.LOG_FILE}")
         if t:
             print(f"timing: {t}")
-        _ctx_remind = context_path(session_id)
-        if _ctx_remind and _ctx_remind.exists():
-            print(f"\n→ Planner: update {_ctx_remind} — Focus (what changed), Key Locations (new paths), Decisions (architectural choices).")
+        area = os.environ.get("OWRAP_AREA", "")
+        if not area and session_id:
+            try:
+                from ..utils.session_resolver import _parse, session_file
+                d = _parse(session_file(session_id))
+                area = d.get("area", "")
+            except Exception:
+                pass
+        from ..utils.donow import check_donow
+        donow_msg = check_donow(self.manager, session_id, area, self.manager.research, kind="exec")
+        if donow_msg:
+            print(f"\n{donow_msg}")
         self.manager.log_time(log_time)
         self._write_exec_log(plan_name)
         try:
@@ -156,17 +164,19 @@ class ExecRunner(BaseRunner):
                 release_server(url)
             except Exception:
                 pass
-            Manager._trim_logs(EXEC_OUTPUT_DIR, "exec_output_*.log")
+
+        if rc != 0 and rc != 2:
+            print(format_failure_pointer("TASK_FAILED", session_id))
 
         sys.exit(rc)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Execute the active plan via opencode")
-    parser.add_argument("--no-log-time", action="store_true", help="Suppress the timing block")
+    parser.add_argument("--log-time", action="store_true", help="Show the [timing] block (debugging/tests only)")
     args = parser.parse_args()
     manager = Manager()
-    ExecRunner(manager).run(log_time=not args.no_log_time)
+    ExecRunner(manager).run(log_time=args.log_time)
 
 
 if __name__ == "__main__":

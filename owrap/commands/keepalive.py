@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 
 from ..base import BaseRunner
-from ..utils.pool import get_pool, shutdown_idle, _active_load
+from ..utils.pool import get_pool, _active_load, shutdown_idle
 from ..utils.paths import _read_config
 from ..utils.terminal import Terminal
 
@@ -32,7 +32,7 @@ class KeepaliveRunner(BaseRunner):
                         idle_since = time.time()
                     elif time.time() - idle_since >= keepalive_idle_exit_s:
                         break
-                    shutdown_idle(idle_s=idle_shutdown_s, min_n=0)
+                    shutdown_idle(idle_s=idle_shutdown_s)
                 else:
                     idle_since = None
 
@@ -65,10 +65,6 @@ class KeepaliveRunner(BaseRunner):
 
                 time.sleep(keepalive_interval_s)
         finally:
-            try:
-                shutdown_idle(idle_s=0, min_n=0)
-            except Exception:
-                pass
             try:
                 keepalive_pid_file.unlink(missing_ok=True)
             except OSError:

@@ -16,7 +16,6 @@ def test_keepalive_writes_pid_file(tmp_path):
 
     with patch("owrap.commands.keepalive.Path.home", return_value=tmp_path), \
          patch("owrap.commands.keepalive.get_pool", side_effect=fake_get_pool), \
-         patch("owrap.commands.keepalive.shutdown_idle"), \
          patch("owrap.commands.keepalive._read_config", return_value={
              "keepalive_interval_s": 0.01,
              "keepalive_idle_exit_s": 0.0,
@@ -39,7 +38,6 @@ def test_keepalive_exits_after_idle_timeout(tmp_path):
 
     with patch("owrap.commands.keepalive.Path.home", return_value=tmp_path), \
          patch("owrap.commands.keepalive.get_pool", side_effect=fake_get_pool), \
-         patch("owrap.commands.keepalive.shutdown_idle"), \
          patch("owrap.commands.keepalive._read_config", return_value={
              "keepalive_interval_s": 0.01,
              "keepalive_idle_exit_s": 0.0,
@@ -64,7 +62,6 @@ def test_keepalive_pings_cold_server(tmp_path):
 
     with patch("owrap.commands.keepalive.Path.home", return_value=tmp_path), \
          patch("owrap.commands.keepalive.get_pool", side_effect=lambda: seq.pop(0) if seq else []), \
-         patch("owrap.commands.keepalive.shutdown_idle"), \
          patch("owrap.commands.keepalive._read_config", return_value={
              "idle_shutdown_s": 240,
              "keepalive_interval_s": 0.01,
@@ -89,7 +86,6 @@ def test_keepalive_skips_warm_server(tmp_path):
 
     with patch("owrap.commands.keepalive.Path.home", return_value=tmp_path), \
          patch("owrap.commands.keepalive.get_pool", side_effect=lambda: seq.pop(0) if seq else []), \
-         patch("owrap.commands.keepalive.shutdown_idle"), \
          patch("owrap.commands.keepalive._read_config", return_value={
              "idle_shutdown_s": 240,
              "keepalive_interval_s": 0.01,
@@ -110,7 +106,6 @@ def test_keepalive_cleans_pid_file_on_exit(tmp_path):
 
     with patch("owrap.commands.keepalive.Path.home", return_value=tmp_path), \
          patch("owrap.commands.keepalive.get_pool", return_value=[]), \
-         patch("owrap.commands.keepalive.shutdown_idle"), \
          patch("owrap.commands.keepalive._read_config", return_value={
              "keepalive_interval_s": 0.01,
              "keepalive_idle_exit_s": 0.0,

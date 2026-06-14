@@ -81,7 +81,7 @@ def main():
     read_parser.add_argument("--id", "-i", type=str, default=None, help="Read ID for parallel tracking")
     read_parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     read_parser.add_argument("-t", "--timeout", type=int, default=None, help="Timeout in seconds (default: 55)")
-    read_parser.add_argument("--no-log-time", action="store_true", help="Suppress the timing block")
+    read_parser.add_argument("--log-time", action="store_true", help="Show the [timing] block (debugging/tests only)")
     read_parser.add_argument("-v", "--verbose", action="store_true", default=False, help="Full cat: bypass the 100-line limit")
     read_parser.add_argument("--list-styles", action="store_true", default=False,
                              help="List all prompt styles and file-type extension defaults")
@@ -93,12 +93,12 @@ def main():
     run_parser.add_argument("--input", type=str, default=None, help="Input file path")
     run_parser.add_argument("-t", "--timeout", type=int, default=None, help="Timeout in seconds (default: 180 for --msg)")
     run_parser.add_argument("--debug", action="store_true", help="Enable debug logging")
-    run_parser.add_argument("--no-log-time", action="store_true", help="Suppress the timing block")
+    run_parser.add_argument("--log-time", action="store_true", help="Show the [timing] block (debugging/tests only)")
     run_parser.add_argument("--no-context", action="store_true", help="Suppress inline context header")
     run_parser.add_argument("--model", "-m", type=str, default=None, help="Model override")
 
     exec_parser.add_argument("--debug", action="store_true", help="Enable debug logging")
-    exec_parser.add_argument("--no-log-time", action="store_true", help="Suppress the timing block")
+    exec_parser.add_argument("--log-time", action="store_true", help="Show the [timing] block (debugging/tests only)")
 
     finish_parser = subparsers.add_parser("finish", help="Kill a running orun/oexec job by target (exec, task1, task2, ...)")
     finish_parser.add_argument("target", help="Job to kill: 'exec', 'task', 'task1', 'task2', 'msg1', ...")
@@ -109,9 +109,21 @@ def main():
     killservers_parser = subparsers.add_parser("killservers", help="Kill all servers and running tasks without clearing session/context state")
     killservers_parser.add_argument("--session", type=str, default=None, help="Limit to a specific session ID")
 
+    fallback_parser = subparsers.add_parser("f", help="Run a fallback --execf/--taskf invocation directly (no server); mode inferred from filename")
+    fallback_parser.add_argument("path", help="Path to a plan or task .md file, or 'tstop'/'estop' to stop a running task/exec fallback")
+
     update_area_parser = subparsers.add_parser("update-area", help="Set research and area for the current session")
     update_area_parser.add_argument("research", help="Research name")
     update_area_parser.add_argument("area", help="Area within research (e.g. self-translator)")
+
+    precompact_parser = subparsers.add_parser("precompact", help="PreCompact hook handler")
+
+    precompact_worker_parser = subparsers.add_parser("precompact-worker", help="PreCompact worker")
+    precompact_worker_parser.add_argument("--input", type=str, required=True, help="Input JSON path")
+
+    get_parser = subparsers.add_parser("get", help="Inspect session files")
+    get_parser.add_argument("what", choices=["plan", "input", "context", "session", "memory", "project", "area", "research", "config"])
+    get_parser.add_argument("--session", default=None)
 
     keepalive_parser = subparsers.add_parser("keepalive", help="Run the keepalive daemon")
 
@@ -120,6 +132,15 @@ def main():
     wait_parser.add_argument("id", nargs="?", default=None, help="ID to wait for (required for read/msg)")
     wait_parser.add_argument("--session", type=str, default=None, help="Session ID override")
     wait_parser.add_argument("--timeout", type=int, default=None, help="Timeout in seconds")
+
+    if len(sys.argv) > 1 and sys.argv[1] == "read":
+        from .constants import OREAD_DISABLED_MSG
+        _cfg = _read_config()
+        _ws_cfg = get_workspace_config(_cfg.get("default_workspace", ""))
+        _oread_enabled = _ws_cfg.get("oread", _cfg.get("oread", True))
+        if not _oread_enabled:
+            print(OREAD_DISABLED_MSG)
+            sys.exit(0)
 
     args = parser.parse_args()
 
@@ -164,16 +185,16 @@ def main():
             import sys as _sys; print("error: -f/--file required unless using -g/--grep", file=_sys.stderr); _sys.exit(1)
         ReadRunner(manager, logger, allow_all=allow_all).run(
             args.files[0] if args.files and len(args.files)==1 else args.files, summarise=args.summarise, details=args.details,
-            log_time=not args.no_log_time, grep=args.grep, read_id=getattr(args, 'id', None),
+            log_time=args.log_time, grep=args.grep, read_id=getattr(args, 'id', None),
             timeout=getattr(args, 'timeout', None), verbose=args.verbose,
             prompt_style=getattr(args, 'prompt_style', None))
     elif args.command in ("run",):
         RunRunner(manager, logger, allow_all=allow_all, no_context=args.no_context, model=args.model).run(
             msg=args.msg, msg_id=getattr(args, 'id', None),
             input_path=Path(args.input) if args.input else None,
-            log_time=not args.no_log_time, timeout=getattr(args, 'timeout', None))
+            log_time=args.log_time, timeout=getattr(args, 'timeout', None))
     elif args.command in ("exec", "work"):
-        ExecRunner(manager, logger, allow_all=allow_all).run(log_time=not args.no_log_time)
+        ExecRunner(manager, logger, allow_all=allow_all).run(log_time=args.log_time)
     elif args.command == "finish":
         FinishRunner(manager, logger, allow_all=allow_all).run(
             target=args.target,
@@ -182,7 +203,7 @@ def main():
     elif args.command == "trim":
         Manager.trim_idle_servers()
     elif args.command == "killservers":
-        from .session.killservers import KillServersRunner
+        from .session.stop import KillServersRunner
         KillServersRunner().run(session_id=getattr(args, "session", None))
     elif args.command == "keepalive":
         KeepaliveRunner(manager, logger, allow_all=allow_all).run()
@@ -200,6 +221,18 @@ def main():
         sys.exit(StatRunner(manager, logger, allow_all).run(args))
     elif args.command == "cleanup":
         sys.exit(CleanupRunner(manager, logger, allow_all).run(args))
+    elif args.command == "f":
+        from .commands.fallback import FallbackRunner
+        FallbackRunner().run(args.path)
+    elif args.command == "precompact":
+        from .commands.precompact import PrecompactRunner
+        PrecompactRunner().run()
+    elif args.command == "precompact-worker":
+        from .commands.precompact import PrecompactWorkerRunner
+        PrecompactWorkerRunner().run(input_path=Path(args.input))
+    elif args.command == "get":
+        from .commands.get_cmd import GetRunner
+        sys.exit(GetRunner().run(args.what, session_id=args.session) or 0)
     else:
         parser.print_help()
 

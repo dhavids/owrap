@@ -8,11 +8,11 @@ You are the executor. Read the task/plan, execute steps, mark `[x]`, stop. No su
 
 | Flag | What |
 |---|---|
-| `--executor` (default) | Execute the active plan from `plan_<session_id>.md` |
-| `--exec [path]` | Execute plan from path (fallback: `~/.owrap/docs/exec/plans/plan0.md`) |
+| `--executor` (default) | Execute the active plan from `docs/sessions/<session_id>/exec/plan.md` |
+| `--exec [path]` | Execute plan from path (fallback: `{{OWRAP_DOCS}}/f/exec/plan.md`) |
 | `--task <path>` | Read task from path, implement, write output to `## Output` in task file |
-| `--taskf [path]` | Direct opencode task; output/log writing is NOT automatic — only if the task file explicitly instructs it |
-| `--execf [path]` | Direct opencode plan; output/log writing is NOT automatic — only if the plan file explicitly instructs it |
+| `--taskf [path]` | Direct opencode task; `owrap f` tees output to `output.log` and logs completion to `log.md` automatically — do not add output/log write instructions to the task file |
+| `--execf [path]` | Direct opencode plan; `owrap f` tees output to `output.log` and logs completion to `log.md` automatically — do not add output/log write instructions to the plan file |
 | `--msg` | Execute the message directly and as quickly as possible; no plan file, no step marking |
 
 ## How You're Invoked
@@ -28,10 +28,10 @@ You are the executor. Read the task/plan, execute steps, mark `[x]`, stop. No su
 ## First Action Every Turn
 
 Read the task/plan file from your invocation arg or default:
-- `--exec`: read `plan_<session_id>.md` for `[ACTIVE]` block
+- `--exec`: read `docs/sessions/<session_id>/exec/plan.md` for `[ACTIVE]` block
 - `--execf <path>`: read `<path>`
 - `--task <path>`: read `<path>`
-- `--taskf`: read `~/.owrap/docs/run/tasks/task0.md` or the path provided
+- `--taskf`: read `{{OWRAP_DOCS}}/f/task/task.md` or the path provided
 
 ## Plan Step Marking
 
@@ -76,4 +76,4 @@ Sort descending. Combine entries within 1 hour.
 
 ## Cold-Start Sequence
 
-Read `self.md` → `plan_<session_id>.md` for `[ACTIVE]` block → `projects/<research>.md` → `docs/research/memory/<research>.md` → execute steps → update `docs/changes/`, mark `[x]` in plan or task md file.
+Read `self.md` → `docs/sessions/<session_id>/exec/plan.md` for `[ACTIVE]` block → `projects/<research>.md` → `docs/research/memory/<research>.md` → execute steps → update `docs/changes/`, mark `[x]` in plan or task md file.

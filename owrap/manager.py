@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import time
 import tempfile
@@ -12,9 +13,10 @@ from pathlib import Path
 
 from .utils.terminal import Terminal
 from .utils.logger import get_logger
-from .utils.paths import TASKS_DIR, RUN_OUTPUT_DIR, STATE_FILE, SESSION_DIR, SERVERS_DIR, DOCS_DIR, RUNNING_DIR, SERVER_LOGS_DIR
+from .utils.paths import TASKS_DIR, RUN_OUTPUT_DIR, STATE_FILE, SESSION_DIR, SERVERS_DIR, DOCS_DIR, SESSIONS_DIR, RUNNING_DIR, SERVER_LOGS_DIR
 from .utils.paths import RUN_LOG, EXEC_LOG, READ_LOG, INPUT_FILE, _read_config, get_plan_path
 from .utils.paths import session_log, session_input, context_path, context_lock_path
+from .utils.paths import session_tasks_dir, session_msg_output_dir, session_task_output_dir
 
 
 _health_cache: dict[str, tuple[bool, float]] = {}
@@ -34,8 +36,9 @@ class Manager:
         self.session_id = os.environ.get("OWRAP_SESSION", "")
         self.research = os.environ.get("OWRAP_RESEARCH", "")
         SESSION_DIR.mkdir(parents=True, exist_ok=True)
-        self.TASKS_DIR.mkdir(parents=True, exist_ok=True)
-        self.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        if not self.session_id:
+            self.TASKS_DIR.mkdir(parents=True, exist_ok=True)
+            self.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         config = _read_config()
         max_servers = int(config.get("max_servers", 1))
         min_servers = int(config.get("min_servers", 2))
@@ -339,16 +342,8 @@ class Manager:
             time.sleep(interval)
         return False
 
-    def next_task_id(self):
-        max_n = 0
-        if self.TASKS_DIR.exists():
-            for path in self.TASKS_DIR.glob("task*.md"):
-                match = re.match(r"task(\d+)\.md", path.name)
-                if match:
-                    n = int(match.group(1))
-                    if n > max_n:
-                        max_n = n
-        return max_n + 1
+    def next_task_name(self):
+        return f"task_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.md"
 
     def register_task(self, task_id, call_type: str = "task"):
         state = self._read_state() or {}
@@ -392,29 +387,33 @@ class Manager:
             status = entry if isinstance(entry, str) else entry.get("status", "active")
             if status == "done" or server_died:
                 to_remove.append(task_id)
-        for task_id in to_remove:
-            try:
-                n = int(task_id)
-            except ValueError:
-                continue
-            (self.TASKS_DIR / f"task{n}.md").unlink(missing_ok=True)
-            del tasks[task_id]
+        tasks_dir = session_tasks_dir(self.session_id) if self.session_id else self.TASKS_DIR
+        for task_name in to_remove:
+            (tasks_dir / task_name).unlink(missing_ok=True)
+            del tasks[task_name]
         self._write_state(state)
 
     def cleanup_stale_msg_logs(self, max_age_hours: float = 24):
-        """Remove msg_*.log files older than max_age_hours."""
-        import time
-        now = time.time()
-        cutoff = now - (max_age_hours * 3600)
-        removed = 0
-        for f in self.OUTPUT_DIR.glob("msg_*.log"):
-            try:
-                if f.stat().st_mtime < cutoff:
-                    f.unlink(missing_ok=True)
-                    removed += 1
-            except OSError:
-                pass
-        return removed
+        """Remove msg_*.log files older than max_age_hours from session-scoped dir."""
+        if self.session_id:
+            msg_dir = session_msg_output_dir(self.session_id)
+            msg_dir.mkdir(parents=True, exist_ok=True)
+            now = time.time()
+            cutoff = now - (max_age_hours * 3600)
+            removed = 0
+            for f in msg_dir.glob("msg_*.log"):
+                try:
+                    if f.stat().st_mtime < cutoff:
+                        f.unlink(missing_ok=True)
+                        removed += 1
+                except OSError:
+                    pass
+            self._trim_logs(msg_dir, "msg_*.log", max_keep=_read_config().get("max_msg_output_logs", 10))
+            task_dir = session_task_output_dir(self.session_id)
+            task_dir.mkdir(parents=True, exist_ok=True)
+            self._trim_logs(task_dir, "task_*.log", max_keep=_read_config().get("max_task_output_logs", 5))
+            return removed
+        return 0
 
     @staticmethod
     def _trim_logs(directory: Path, pattern: str, max_keep: int = 10):
@@ -439,20 +438,10 @@ class Manager:
                 pass
         if not active_ids:
             return
-        for f in self.TASKS_DIR.glob("input_*.md"):
-            sid = f.stem[len("input_"):]
-            if sid and sid not in active_ids:
-                f.unlink(missing_ok=True)
-        for log_base in [RUN_LOG, EXEC_LOG, READ_LOG]:
-            prefix = log_base.stem + "_"
-            for f in log_base.parent.glob(f"{log_base.stem}_*.md"):
-                sid = f.stem[len(prefix):]
-                if sid and sid not in active_ids:
-                    f.unlink(missing_ok=True)
-        for f in DOCS_DIR.glob("plan_*.md"):
-            sid = f.stem[len("plan_"):]
-            if sid and sid not in active_ids:
-                f.unlink(missing_ok=True)
+        if SESSIONS_DIR.exists():
+            for d in SESSIONS_DIR.iterdir():
+                if d.is_dir() and d.name not in active_ids:
+                    shutil.rmtree(d, ignore_errors=True)
 
     @property
     def context_path(self) -> Path:
@@ -687,7 +676,10 @@ class Manager:
             elif line.startswith("## ") and in_active:
                 break
             elif in_active and re.match(r"\d+\. \[ \]", line):
-                steps.append(line.strip())
+                s = line.strip()
+                if len(s) > 100:
+                    s = s[:99].rsplit(" ", 1)[0]
+                steps.append(s)
                 if len(steps) >= 3:
                     break
         plan_snippet = "\n".join(steps) if steps else "(no active steps)"
@@ -716,9 +708,14 @@ class Manager:
             text = cp.read_text()
             lines = text.splitlines()
             section_limits = {
-                "## Decisions": 20,
-                "## Frequent Files": 10,
-                "## Recent": 10,
+                "## Focus": 5,
+                "## Active Plan": 3,
+                "## Key Locations": 5,
+                "## Decisions": 7,
+                "## Environment": 3,
+                "## Frequent Files": 5,
+                "## Recent": 5,
+                "## How To": 3,
             }
             new_lines = []
             current_section = None

@@ -1,0 +1,12 @@
+{
+  "groups": [
+    {
+      "rules": ["Grep", "Bash(grep *)", "Bash(find *)", "Bash(ls *)", "Bash(cat *)"],
+      "condition": "OREAD"
+    },
+    {
+      "rules": ["Bash(rm *)"],
+      "condition": null
+    }
+  ]
+}

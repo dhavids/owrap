@@ -1,0 +1,109 @@
+{
+  "groups": [
+    {
+      "rules": [
+        "Bash(owrap*)",
+        "Bash(~/bin/owrap*)",
+        "Bash(orun*)",
+        "Bash(~/bin/orun*)",
+        "Bash(oexec*)",
+        "Bash(~/bin/oexec*)",
+        "Bash(owait*)",
+        "Bash(~/bin/owait*)",
+        "Bash(~/bin/nbread *)",
+        "Bash(wait)",
+        "Bash(cd *)"
+      ],
+      "condition": null,
+      "display": {"section": "commands", "text": "`owrap*`, `orun*`, `oexec*`, `owait*`, `nbread *` (and `~/bin/` variants), `wait`, `cd *`"}
+    },
+    {
+      "rules": [
+        "Bash(opencode run *)",
+        "Bash(opencode --help)",
+        "Bash(oread*)",
+        "Bash(~/bin/oread*)"
+      ],
+      "condition": null,
+      "display": null
+    },
+    {
+      "rules": [],
+      "condition": "OREAD",
+      "display": {"section": "commands", "text": "`oread*` (and `~/bin/` variant)"}
+    },
+    {
+      "rules": [
+        "Read({{WORKSPACE_TILDE}}/**/*.ipynb)",
+        "Grep",
+        "Bash(grep *)",
+        "Bash(find *)",
+        "Bash(ls *)",
+        "Bash(cat *)",
+        "Read"
+      ],
+      "condition": "NO_OREAD",
+      "display": {"section": "commands", "text": "`Read` (any path), `Grep`, `grep *`, `find *`, `ls *`, `cat *`"}
+    },
+    {
+      "rules": [
+        "Read(~/bin/**)",
+        "Read({{WORKSPACE}}/**/*.ipynb)"
+      ],
+      "condition": null,
+      "display": {"section": "files", "text": "`~/bin/**`, `**/*.ipynb` — read"}
+    },
+    {
+      "rules": [
+        "Read({{WORKSPACE}}/CLAUDE.md)",
+        "Read({{WORKSPACE_TILDE}}/CLAUDE.md)",
+        "Read({{WORKSPACE}}/AGENTS.md)",
+        "Read({{WORKSPACE_TILDE}}/AGENTS.md)",
+        "Edit({{WORKSPACE}}/CLAUDE.md)",
+        "Edit({{WORKSPACE_TILDE}}/CLAUDE.md)",
+        "Edit({{WORKSPACE}}/AGENTS.md)",
+        "Edit({{WORKSPACE_TILDE}}/AGENTS.md)"
+      ],
+      "condition": null,
+      "display": {"section": "files", "text": "`CLAUDE.md`, `AGENTS.md` — read + edit"}
+    },
+    {
+      "rules": [
+        "Read({{RESEARCH_ROOT}}/self.md)",
+        "Read({{RESEARCH_ROOT_TILDE}}/self.md)"
+      ],
+      "condition": null,
+      "display": {"section": "files", "text": "`{{RESEARCH_ROOT}}/self.md` — read only"}
+    },
+    {
+      "rules": [
+        "Edit({{RESEARCH_ROOT}}/projects/**)",
+        "Edit({{RESEARCH_ROOT_TILDE}}/projects/**)",
+        "Edit({{RESEARCH_ROOT}}/memory/**)",
+        "Edit({{RESEARCH_ROOT_TILDE}}/memory/**)"
+      ],
+      "condition": null,
+      "display": {"section": "files", "text": "`{{RESEARCH_ROOT}}/projects/**`, `{{RESEARCH_ROOT}}/memory/**` — edit only via `#DO NOW`, `--ctx`, `--updr`"}
+    },
+    {
+      "rules": [
+        "Edit(~/.owrap/docs/sessions/*/exec/plan.md)",
+        "Edit(~/.owrap/docs/sessions/*/run/input*.md)",
+        "Edit(~/.owrap/docs/sessions/*/run/tasks/task*.md)",
+        "Edit(~/.owrap/docs/sessions/*/context.md)"
+      ],
+      "condition": null,
+      "display": {"section": "files", "text": "`docs/sessions/<session_id>/exec/plan.md`, `docs/sessions/<session_id>/run/input*.md`, `docs/sessions/<session_id>/run/tasks/task*.md`, `docs/sessions/<session_id>/context.md` — edit"}
+    },
+    {
+      "rules": [
+        "Edit(~/.owrap/docs/f/exec/plan.md)",
+        "Write(~/.owrap/docs/f/exec/plan.md)",
+        "Edit(~/.owrap/docs/f/task/task.md)",
+        "Write(~/.owrap/docs/f/task/task.md)"
+      ],
+      "condition": null,
+      "display": {"section": "files", "text": "`{{OWRAP_DOCS}}/f/exec/plan.md`, `{{OWRAP_DOCS}}/f/task/task.md` — write + edit"}
+    }
+  ]
+}

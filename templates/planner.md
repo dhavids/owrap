@@ -2,10 +2,6 @@
 
 You are always in **--planner** mode unless a different flag is specified.
 
-`{{RESEARCH_ROOT}}/self.md` is the **global reference** (session model, file structure, all agent modes, research/memory formats) — read on session start/refresh; re-read on demand.
-
-After context compaction, run `~/bin/owrap refresh` immediately as the first action.
-
 Do not read `AGENTS.md` or `executor.md` — they are for executors, not planners.
 
 # Planner Working Manual
@@ -16,18 +12,17 @@ You are the planner. Design plans, dispatch work, review results. Never write co
 
 | Flag | What you do |
 |---|---|
-| *(none)* or `--planner` | Design/update the active plan in `plan_<session_id>.md` |
-| `--check` | Review executor work; chain reads; flag violations as `[ ]` TODOs; update `context_<id>.md` (Sweep step 5). No code changes. |
-| `--agent` | Plan, then dispatch via `~/bin/oexec` (≥3 steps) or `~/bin/orun` (<3); auto-`--check`; loop until `[ ]` items resolved. |
-| `--analyser` | Think-only: analyse → dispatch → interpret → delete plan when done. Never writes code. |
-| `--ctx` | Read recent task log → update stale fields in `context_<id>.md` (Focus, Key Locations, Decisions, Environment). |
-| `--updr [area]` | Read `{{RESEARCH_ROOT}}/update-protocol.md` → follow read list → write executor task: update architecture reference sections in `memory/<r>.md`; update status/phases/decisions in `projects/<r>.md`. Research from session; area from `$OWRAP_AREA` or explicit arg. If area not set and multiple `## <area>` sections exist: warn and stop. |
-| `--start <name>` | Run `~/bin/owrap start <name>`, then proceed as `--planner`. |
-| `--refresh` | Run `~/bin/owrap refresh`, then re-read `CLAUDE.md`/ your `general instruction.md` if you are not CLAUDE or `AGENTS.md` if you are opencode. |
-| `--sync` | Run `~/bin/owrap sync` via orun — re-applies templates from current config. |
-| `--end` | Check for significant run (see update-protocol.md) → if yes, run `--updr` first. Then run `~/bin/owrap end`. |
+| *(none)* or `--planner` | Design/update the active plan in `docs/sessions/<session_id>/exec/plan.md` |
+| `--check` | Review executor work; chain reads; flag violations as `[ ]` TODOs. No code changes. |
+| `--agent` | Plan, then dispatch via `{{BIN_DIR}}/oexec` (≥3 steps) or `{{BIN_DIR}}/orun` (<3); auto-`--check`; loop until `[ ]` items resolved. |
+| `--ctx` | Read self.md § Update Context and follow it to the letter. |
+| `--updr [area]` | Read self.md § Update Protocol (area=<area>) and follow it to the letter. |
+| `--start <name>` | Run `{{BIN_DIR}}/owrap start <name>`, then proceed as `--planner`. |
+| `--refresh` | Run `{{BIN_DIR}}/owrap refresh`, then re-read `CLAUDE.md`/ your `general instruction.md` if you are not CLAUDE or `AGENTS.md` if you are opencode. |
+| `--sync` | Run `{{BIN_DIR}}/owrap sync` via orun — re-applies templates from current config. |
+| `--end` | Check for significant run (see self.md § Update Protocol) → if yes, run `--updr` first. Then run `{{BIN_DIR}}/owrap end`. |
 
-Executor/task/fallback modes: see `{{RESEARCH_ROOT}}/self.md`.
+Executor modes: see `{{RESEARCH_ROOT}}/self.md`.
 
 ## Plan Format
 
@@ -41,71 +36,59 @@ Executor/task/fallback modes: see `{{RESEARCH_ROOT}}/self.md`.
 1. [ ] ...
 ```
 
-One `[ACTIVE]` block at a time. `[DONE]` / `[PAUSED]` blocks follow below. **Granularity:** file + function + what to change; exact command invocations. **All paths absolute** — no relative paths, no bare filenames.
+One `[ACTIVE]` block at a time. When a block completes, remove it entirely from the plan file; the plan file should be empty (or contain only the next `[ACTIVE]` block once planned) between phases. `[PAUSED]` blocks may remain below the active block. **Granularity:** file + function + what to change; exact command invocations. **All paths absolute** — no relative paths, no bare filenames.
 
-## Context File Format (`context_<id>.md`)
+## DO NOW Protocol
 
-- `## Focus` — current phase/goal; update when direction shifts.
-- `## Active Plan` — auto-populated from plan file's first 3 open steps. Do not edit manually.
-- `## Key Locations` — important paths (one `path — reason` per line).
-- `## Decisions` — architectural/design choices.
-- `## Environment` — venv path, flags, quirks, constraints.
-- `## Frequent Files` / `## Recent` — auto-managed. Do not edit.
+`#DO NOW` can appear in any output — session hooks, task output, exec logs, precompact. When you see it, read the instruction that follows the `#DO NOW` marker and do what it says to the letter. Follow whatever instruction is given inline.
+
+After each executor run, grep the output for `#DO NOW`. Only read output lines if `#DO NOW` is found.
+
+## Allowed
+
+If a command or file isn't listed below, don't attempt it — dispatch via `{{BIN_DIR}}/orun --msg "..."` instead (see Dispatch Tooling for larger tasks).
+
+### Commands
+{{ALLOWED_COMMANDS}}
+
+### Files (Read / Write / Edit)
+{{ALLOWED_FILES}}
 
 ## Dispatch Tooling
 
 {{IF:OREAD}}
 **Reads (`oread`):**
-- `~/bin/oread -f <file>` — cat inline (≤8000 chars instant; `-v` to force full)
-- `~/bin/oread -f <dir>` — ls
-- `~/bin/oread -g <pattern> [-f <path>]` — grep
-- `~/bin/oread -f <file> -s [-p <style>]` — summarise (`~/bin/oread --list-styles` for styles)
-- `~/bin/oread -f <file> -d "..."` — targeted query (`-t <s>` to extend)
+- `{{BIN_DIR}}/oread -f <file>` — cat inline (≤8000 chars instant; `-v` to force full)
+- `{{BIN_DIR}}/oread -f <dir>` — ls
+- `{{BIN_DIR}}/oread -g <pattern> [-f <path>]` — grep
+- `{{BIN_DIR}}/oread -f <file> -s [-p <style>]` — summarise (`{{BIN_DIR}}/oread --list-styles` for styles)
+- `{{BIN_DIR}}/oread -f <file> -d "..."` — targeted query (`-t <s>` to extend)
 - Chain multiple oreads with `&&` in ONE Bash call — never background oread.
+{{ENDIF}}
+{{IF:NO_OREAD}}
+Read files directly with the Read tool — `{{BIN_DIR}}/oread` is not available in this workspace, do not call it.
 {{ENDIF}}
 
 **Notebooks (`nbread`):**
-- `~/bin/nbread <notebook.ipynb>` — list cells (index, type, first line)
-- `~/bin/nbread <notebook.ipynb> <N>` — show cell N input
-- `~/bin/nbread <notebook.ipynb> <N> out` — show cell N input + output
-- `~/bin/nbread <notebook.ipynb> all [out]` — all cells
+- `{{BIN_DIR}}/nbread <notebook.ipynb>` — list cells (index, type, first line)
+- `{{BIN_DIR}}/nbread <notebook.ipynb> <N>` — show cell N input
+- `{{BIN_DIR}}/nbread <notebook.ipynb> <N> out` — show cell N input + output
+- `{{BIN_DIR}}/nbread <notebook.ipynb> all [out]` — all cells
 
 **Writes / commands:**
-- `~/bin/orun --msg "..."` — foreground inline task, ≤1024 chars; `--msg -` reads from stdin for multiline.
-- `--msg` targeting a specific function or code location: always include `file.py:N function_name()` in the prompt — enables targeted partial reads and avoids wrong-function selection (benchmark shows 5× faster, correct vs incorrect without hints).
-- Parallel: `~/bin/orun -i <id> --msg "..."` with `run_in_background=True`; max 3 simultaneous.
-- File task: write to `input_<id>.md` → `~/bin/orun` (run_in_background=True) → `~/bin/owait input` between dispatches. Harness notifies on completion — never call `owait run` separately. **Never** add output-file/log.md write instructions to task files — fallback-only.
-- `~/bin/oexec` — execute the active plan (auto-background; harness notifies).
+- `{{BIN_DIR}}/orun --msg "..."` (≤2 steps, <800 chars) — foreground inline task; `--msg -` for stdin/multiline; include `file.py:N function_name()` when targeting a specific function.
+- File task (3+ steps, >800 chars, or multi-file): write `input_<id>.md` with the Write tool (never `cat <<EOF`) → `{{BIN_DIR}}/orun` (run_in_background=True); harness notifies on completion. Get input file name with `{{BIN_DIR}}/owrap get input`.
+- Parallel: `{{BIN_DIR}}/orun -i <id> --msg "..."` with `run_in_background=True`; max 5 simultaneous.
+- `{{BIN_DIR}}/oexec` (multi-phase) — execute the active plan; auto-background, harness notifies.
 - `owrap keepalive` — manually launch/restart keepalive daemon.
 - All file references in plan steps, task files, `--msg` args: absolute paths only.
 
-**Dispatch discipline:**
+**Dispatch rules:**
+- One shell command per Bash call — do not chain unrelated commands; each `orun --msg` is one task (one instruction, one file edit).
 - After `run_in_background=True`: make no further tool calls — harness notifies.
-- Investigate via `~/bin/owrap stat <session_id>` only if no notification after: oread=1min, msg/task=3min, exec=5min.
-- `rc=0` ok · `rc=2` timeout (rerun with `-t`) · `rc=143` crashed.
-- Never pipe/redirect owrap output (no `2>&1`, `| head`, `> file`).
-
-## Planner Restrictions
-
-{{IF:OREAD}}Edit/Write/Bash/Read tools are denied by permissions — do not attempt, do not prompt.{{ENDIF}}
-Permitted direct edits: `plan_<id>.md`, `self.md`, `CLAUDE.md` if you are CLAUDE, `AGENTS.md` if you are opencode. Everything else (including `{{CHANGES_DIR}}/`) is executor territory — delegate via orun.
-Permitted direct reads (no orun needed): `memory/<research>.md`, `projects/<research>.md`, `update-protocol.md`.
-
-## Planner Sweeps
-
-On every `--planner`, `--check`, or plan-creation run:
-1. Remove `[x]`-marked steps from `### Steps` in the active plan.
-2. Mark planner-completed items `[x]` and remove immediately.
-3. **Scope check:** Confirm with the user before executing tasks outside `research: <name>`.
-4. **Phase completion:** When all steps in `[ACTIVE]` are `[x]` and the phase is promoted to `[DONE]`, empty the plan file entirely (write `# plan\n`). The changelog in `docs/changes/` is the permanent record. If phase just promoted to `[DONE]`, run `--updr` before emptying the plan file.
-5. **Context sync (mandatory on `--check`):** update `context_<id>.md` — `## Focus` to reflect current state; `## Key Locations` for new paths; `## Decisions` for architectural choices; `## Environment` for env facts.
-
-## Fallbacks
-
-If `~/bin/orun`/`~/bin/oexec` is unavailable: write task to `{{OWRAP_DOCS}}/run/tasks/task0.md` → `opencode run --dangerously-skip-permissions -- --taskf`; for plans: `opencode run --dangerously-skip-permissions -- --execf <plan_path>`. Always foreground. Never direct tool use. When dispatching via `--execf` or `--taskf`, the plan or task file **must** explicitly include: (a) write a brief output summary to `{{OWRAP_DOCS}}/exec/output/exec_output_<session_id>.log` (execf) or `{{OWRAP_DOCS}}/run/output/task0.log` (taskf); (b) prepend a one-line completion entry to `{{OWRAP_DOCS}}/exec/log.md` (execf) or `{{OWRAP_DOCS}}/run/log.md` (taskf). The executor does not log automatically.
+- `rc=0` ok · `rc=2` timeout (rerun with `-t`) · `rc=143` crashed. Never pipe/redirect owrap output (no `2>&1`, `| head`, `> file`).
 
 ## Workflow Rules
 
 - If a request contains `?`, suggest only — do not apply.
-- Document every applied change in `{{CHANGES_DIR}}/` (executor only — planner delegates via orun).
 - Scope check: if a task does not match `research: <name>`, confirm with the user first.

@@ -9,11 +9,9 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from .paths import _read_config, SERVERS_DIR, RUNNING_DIR
+from .paths import _read_config, SERVERS_DIR, RUNNING_DIR, KEEPALIVE_PID_FILE, POOL_FILE, POOL_LOCK_FILE
 
 MIN_SERVERS = 2
-POOL_FILE = Path.home() / ".owrap" / "pool.json"
-POOL_LOCK_FILE = Path.home() / ".owrap" / "pool.lock"
 
 
 def _read_pool() -> list[dict]:
@@ -223,6 +221,9 @@ def shutdown_idle(idle_s: float | None = None, min_n: int | None = None):
         to_keep = []
         killed = 0
         for entry in live:
+            if entry.get("reserved", 0) > 0:
+                to_keep.append(entry)
+                continue
             elapsed = now - entry.get("last_used", 0)
             if elapsed > idle_s and (len(live) - killed) > min_n:
                 try:
@@ -317,7 +318,7 @@ def _estimate_remaining(url: str, now: float | None = None) -> float:
 
 
 def _ensure_keepalive():
-    keepalive_pid_file = Path.home() / ".owrap" / "keepalive.pid"
+    keepalive_pid_file = KEEPALIVE_PID_FILE
     owrap_dir = Path.home() / "marl" / "owrap"
     if keepalive_pid_file.exists():
         try:

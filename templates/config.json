@@ -21,5 +21,8 @@
     "expected_duration_msg": 4,
     "expected_duration_read": 4,
     "expected_duration_task": 6,
-    "expected_duration_exec": 30
+    "expected_duration_exec": 30,
+    "ctx_update_every_orun": 3,
+    "updr_every_plans": 2,
+    "updr_every_steps": 15
 }

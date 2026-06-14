@@ -28,7 +28,6 @@ class SyncRunner:
         # stage_all() already merged planner.md → CLAUDE.md and executor.md → AGENTS.md
         targets = [
             (staged / "self.md",       f"{research_root}/self.md"),
-            (staged / "update-protocol.md", f"{research_root}/update-protocol.md"),
             (staged / "settings.json", f"{workspace}/.claude/settings.local.json"),
         ]
 
@@ -56,7 +55,7 @@ class SyncRunner:
                             return line.split('=', 1)[1].strip()
         sid = os.environ.get('SESSION_ID', '').strip()
         if not sid:
-            cs = Path.home() / '.owrap' / 'current_session'
+            cs = Path.home() / '.owrap' / 'runtime' / 'current_session'
             if cs.exists():
                 sid = cs.read_text().strip()
         if sid:

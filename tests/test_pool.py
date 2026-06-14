@@ -93,3 +93,26 @@ def test_trim_logs_keeps_max(tmp_path):
     assert "task_002.log" in names
     assert "task_003.log" in names
     assert "task_004.log" in names
+
+
+def test_shutdown_idle_preserves_reserved_entries(tmp_path):
+    from owrap.utils.pool import shutdown_idle, POOL_FILE, POOL_LOCK_FILE
+
+    pool = [
+        {"pid": os.getpid(), "url": "http://localhost:4096", "port": 4096, "last_used": 0, "reserved": 1},
+        {"pid": os.getpid(), "url": "http://localhost:4097", "port": 4097, "last_used": 0, "reserved": 0},
+    ]
+    fake_pool = tmp_path / "pool.json"
+    fake_pool.write_text(json.dumps(pool))
+    fake_lock = tmp_path / "pool.lock"
+
+    with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
+         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock), \
+         patch("owrap.utils.pool._is_alive", return_value=True), \
+         patch("os.kill"):
+        shutdown_idle(idle_s=0, min_n=0)
+
+    remaining = json.loads(fake_pool.read_text())
+    assert len(remaining) == 1
+    assert remaining[0]["url"] == "http://localhost:4096"
+    assert remaining[0]["reserved"] == 1

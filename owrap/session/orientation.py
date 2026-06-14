@@ -1,4 +1,4 @@
-def print_orientation(session_id, research, url=None, plan_path=None, todo_path=None, input_path=None, context_path=None, area=None, memory_path=None, project_path=None, protocol_path=None):
+def print_orientation(session_id, research, url=None, plan_path=None, todo_path=None, input_path=None, context_path=None, area=None, memory_path=None, project_path=None):
     import shutil as _shutil
     import io as _io
     import re as _re
@@ -37,9 +37,29 @@ def print_orientation(session_id, research, url=None, plan_path=None, todo_path=
     print()
     print("You are the planner. Design plans, dispatch work, review results. Never write code or run commands directly.")
     print()
+    _gi_path = None
+    if session_id:
+        try:
+            from ..utils.paths import resolve_general_instruction_path as _rgip
+            _gi_path = _rgip(session_id)
+        except Exception:
+            pass
+    if _gi_path or context_path:
+        print("RELOAD")
+        if _gi_path:
+            print(f"  {_gi_path} — read this file now before continuing.")
+        if context_path:
+            print(f"  {context_path} — also re-read this file for current session context.")
+    print()
+    _fallback_note = ""
+    if research == "owrap":
+        from ..utils.paths import FALLBACK_PLAN, FALLBACK_TASK
+        plan_path = FALLBACK_PLAN
+        input_path = FALLBACK_TASK
+        _fallback_note = "  (research=owrap: dispatch via `owrap f <path>`)"
     print("KEY FILES")
-    print(f"  plan    {plan_path}")
-    print(f"  input   {input_path}")
+    print(f"  plan    {plan_path}{_fallback_note}")
+    print(f"  input   {input_path}{_fallback_note}")
     if area:
         print(f"  area    {area}")
     if memory_path:
@@ -48,8 +68,6 @@ def print_orientation(session_id, research, url=None, plan_path=None, todo_path=
     if project_path:
         _area_tag = f"#{area}" if area else ""
         print(f"  project {project_path}{_area_tag}")
-    if protocol_path:
-        print(f"  updr    {protocol_path}")
     if focus or context_path or plan_steps or env_line:
         print()
         print("FOCUS")

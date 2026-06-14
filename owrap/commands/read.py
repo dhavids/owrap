@@ -9,7 +9,7 @@ from ..manager import Manager
 from ..base import BaseRunner
 from ..constants import ANTI_SUMMARY_SUFFIX
 from ..utils.pool import _pool_active, pick_server, update_last_used
-from ..utils.paths import TASKS_DIR, context_path, _read_config
+from ..utils.paths import TASKS_DIR, context_path, _read_config, FALLBACK_TASK
 
 OREAD_MAX_CHARS = 8_000
 OREAD_SUMMARY_LINES = 100
@@ -51,6 +51,7 @@ def _scale_timeout(size: int, base: int = 55) -> int:
 
 class ReadRunner(BaseRunner):
     TASKS_DIR = TASKS_DIR
+    FALLBACK_TASK = FALLBACK_TASK
 
     def _run_grep(self, pattern: str, file_path=None):
         import subprocess
@@ -168,7 +169,7 @@ class ReadRunner(BaseRunner):
             cmd.extend(["--attach", url])
             cmd.extend(["--", shlex.quote(prompt)])
         else:
-            fallback_file = self.TASKS_DIR / "task0.md"
+            fallback_file = self.FALLBACK_TASK
             fallback_file.write_text(f"## Do\n\n{prompt}\n")
             cmd = ["opencode", "run"]
             if self.allow_all:

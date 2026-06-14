@@ -9,15 +9,17 @@ from owrap.manager import Manager
 @pytest.fixture(scope="session", autouse=True)
 def kill_servers_around_tests():
     """Kill all servers before and after the test session."""
-    from owrap.session.killservers import KillServersRunner
+    from owrap.session.stop import KillServersRunner
     KillServersRunner().run()
     yield
     KillServersRunner().run()
 
 
 @pytest.fixture(autouse=True)
-def isolate_owrap_dirs(tmp_path):
+def isolate_owrap_dirs(tmp_path, monkeypatch):
     """Redirect all owrap output dirs to tmp_path so tests don't pollute live state."""
+    monkeypatch.delenv("OWRAP_SESSION", raising=False)
+    monkeypatch.delenv("OWRAP_RESEARCH", raising=False)
     dirs = {
         "RUNNING_DIR":      tmp_path / "running",
         "RECENTLY_DONE_DIR": tmp_path / "recently_done",
@@ -25,14 +27,34 @@ def isolate_owrap_dirs(tmp_path):
         "MSG_LOGS_DIR":     tmp_path / "msg_logs",
         "EXEC_OUTPUT_DIR":  tmp_path / "exec_output",
         "PLANS_DIR":        tmp_path / "plans",
+        "DOCS_DIR":         tmp_path / "docs",
+        "SESSIONS_DIR":     tmp_path / "docs" / "sessions",
+        "RUN_DIR":          tmp_path / "docs" / "run",
+        "RUN_LOG":          tmp_path / "docs" / "run" / "log.md",
+        "RUN_OUTPUT_DIR":   tmp_path / "docs" / "run" / "output",
+        "READ_DIR":         tmp_path / "docs" / "read",
+        "READ_LOG":         tmp_path / "docs" / "read" / "log.md",
+        "READ_OUTPUT_DIR":  tmp_path / "docs" / "read" / "output",
+        "EXEC_DIR":         tmp_path / "docs" / "exec",
+        "EXEC_LOG":         tmp_path / "docs" / "exec" / "log.md",
+        "TASKS_DIR":        tmp_path / "docs" / "run" / "tasks",
+        "CONTEXT_DIR":      tmp_path / "docs" / "context",
     }
-    for d in dirs.values():
-        d.mkdir(parents=True, exist_ok=True)
+    _log_keys = {"RUN_LOG", "READ_LOG", "EXEC_LOG", "TASKS_DIR", "RUN_OUTPUT_DIR"}
+    for k, d in dirs.items():
+        if k not in _log_keys:
+            d.mkdir(parents=True, exist_ok=True)
 
     patches = [patch(f"owrap.utils.paths.{k}", v) for k, v in dirs.items()]
-    # Also patch the class-level OUTPUT_DIR used in runners
-    exec_patch = patch("owrap.commands.exec.EXEC_OUTPUT_DIR", dirs["EXEC_OUTPUT_DIR"])
-    patches.append(exec_patch)
+    patches += [
+        patch("owrap.manager.RUN_LOG", dirs["RUN_LOG"]),
+        patch("owrap.manager.EXEC_LOG", dirs["EXEC_LOG"]),
+        patch("owrap.manager.READ_LOG", dirs["READ_LOG"]),
+        patch("owrap.manager.TASKS_DIR", dirs["TASKS_DIR"]),
+        patch("owrap.manager.RUN_OUTPUT_DIR", dirs["RUN_OUTPUT_DIR"]),
+        patch("owrap.manager.Manager.TASKS_DIR", dirs["TASKS_DIR"]),
+        patch("owrap.manager.Manager.OUTPUT_DIR", dirs["RUN_OUTPUT_DIR"]),
+    ]
 
     for p in patches:
         p.start()
@@ -58,7 +80,7 @@ def mock_manager(tmp_path):
     manager.t_cmd_start = MagicMock()
     manager.t_cmd_end = MagicMock()
     manager.log_time = MagicMock()
-    manager.next_task_id = MagicMock(return_value=1)
+    manager.next_task_name = MagicMock(return_value="task_20260613_120000_000001.md")
     manager.register_task = MagicMock()
     manager.complete_task = MagicMock()
     manager.build_context_summary = MagicMock(return_value="")

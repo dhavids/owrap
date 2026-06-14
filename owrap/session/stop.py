@@ -1,7 +1,12 @@
+import json
+import os
+import shutil
 import sys
+import time
 from pathlib import Path
 
-from ..utils.paths import _read_config, DOCS_DIR, get_plan_path, session_input, context_path, context_lock_path
+from ..base import BaseRunner
+from ..utils.paths import _read_config, DOCS_DIR, RUNTIME_DIR, get_plan_path, session_input, context_path, context_lock_path, SERVER_LOGS_DIR, SERVERS_DIR, RUNNING_DIR, RECENTLY_DONE_DIR, session_dir
 from ..utils.session_resolver import resolve, remove_session, BY_CCSID_DIR, list_sessions, _parse
 from ..manager import Manager
 
@@ -23,18 +28,14 @@ class StopRunner:
             for s in list_sessions():
                 sid = s["session_id"]
                 remove_session(sid)
-                context_path(sid).unlink(missing_ok=True)
-                context_lock_path(sid).unlink(missing_ok=True)
-                pp = get_plan_path(sid)
-                pp.unlink(missing_ok=True)
-                ip = session_input(sid)
-                ip.unlink(missing_ok=True)
+                shutil.rmtree(session_dir(sid), ignore_errors=True)
                 count += 1
             if global_session.exists():
                 data = _parse(global_session)
+                gsid = data.get("session_id", "")
                 global_session.unlink(missing_ok=True)
-                context_path(data.get("session_id", "")).unlink(missing_ok=True)
-                context_lock_path(data.get("session_id", "")).unlink(missing_ok=True)
+                if gsid:
+                    shutil.rmtree(session_dir(gsid), ignore_errors=True)
                 count += 1
             if BY_CCSID_DIR.exists():
                 for ptr in BY_CCSID_DIR.iterdir():
@@ -69,12 +70,7 @@ class StopRunner:
 
         # Remove session file + by_ccsid pointer
         remove_session(sid)
-        context_path(sid).unlink(missing_ok=True)
-        context_lock_path(sid).unlink(missing_ok=True)
-        pp = get_plan_path(sid)
-        pp.unlink(missing_ok=True)
-        ip = session_input(sid)
-        ip.unlink(missing_ok=True)
+        shutil.rmtree(session_dir(sid), ignore_errors=True)
 
         # Find other sessions
         other_sessions = []
@@ -90,3 +86,278 @@ class StopRunner:
 
         if not no_exit:
             sys.exit(0)
+
+
+def _parse_session(path: Path) -> dict:
+    data = {}
+    try:
+        for line in path.read_text().splitlines():
+            if "=" in line:
+                k, v = line.split("=", 1)
+                data[k.strip()] = v.strip()
+    except Exception:
+        pass
+    return data
+
+
+def _kill_pid(pid: int, signum: int = 15) -> bool:
+    try:
+        os.kill(pid, signum)
+        return True
+    except OSError:
+        return False
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _wait_dead(pids: list[int], timeout: float = 3.0):
+    deadline = time.time() + timeout
+    remaining = list(pids)
+    while remaining and time.time() < deadline:
+        time.sleep(0.2)
+        remaining = [p for p in remaining if _pid_alive(p)]
+    for p in remaining:
+        _kill_pid(p, 9)
+
+
+def _cleanup_context(session_id: str, removed: list):
+    for suffix in (".md", ".lock"):
+        p = DOCS_DIR / f"context_{session_id}{suffix}"
+        if p.exists():
+            p.unlink(missing_ok=True)
+            removed.append(f"context_{session_id}{suffix}")
+
+
+class EndRunner:
+    def __init__(self, manager, logger=None, allow_all=False):
+        self.manager = manager
+        self.logger = logger
+        self.allow_all = allow_all
+
+    def run(self, session_file=None, target=None):
+        sessions_dir = Path.home() / ".owrap" / "sessions"
+
+        session_id = ""
+
+        if target:
+            for s in list_sessions():
+                if s["session_id"].startswith(target) or s.get("research", "") == target:
+                    matched_sid = s["session_id"]
+                    session_file = str(sessions_dir / f"{matched_sid}.session")
+                    break
+            else:
+                print(f"OWRAP END: no session matching '{target}'.")
+                sys.exit(0)
+
+        if session_file is None and self.manager.session_id:
+            candidate = Path.home() / '.owrap' / 'sessions' / f'{self.manager.session_id}.session'
+            if candidate.exists():
+                session_file = str(candidate)
+
+        if session_file:
+            sp = Path(session_file)
+            if sp.exists():
+                data = _parse_session(sp)
+                session_id = data.get("session_id", "")
+                shutil.rmtree(session_dir(session_id), ignore_errors=True)
+                sp.unlink(missing_ok=True)
+
+        session_runtime = RUNTIME_DIR / session_id
+        if session_runtime.exists():
+            import shutil
+            shutil.rmtree(session_runtime, ignore_errors=True)
+
+        if self.logger:
+            self.logger.info("end session=%s", session_id)
+        print(f"OWRAP SESSION ENDED  session: {session_id}")
+        sys.exit(0)
+
+
+class KillServersRunner:
+    def __init__(self, manager=None, logger=None, allow_all=False):
+        pass
+
+    def run(self, session_id: str | None = None):
+        from ..utils.pool import POOL_FILE, _read_pool
+
+        killed_tasks = 0
+        killed_servers = 0
+        task_pids = []
+
+        if RUNNING_DIR.exists():
+            for sentinel in RUNNING_DIR.glob("*.json"):
+                try:
+                    data = json.loads(sentinel.read_text())
+                    if session_id and data.get("session_id") != session_id:
+                        continue
+                    pid = data.get("pid")
+                    if pid and _pid_alive(pid):
+                        _kill_pid(pid)
+                        task_pids.append(pid)
+                        killed_tasks += 1
+                    data["rc"] = -9
+                    data["killed"] = True
+                    data["ended"] = time.time()
+                    RECENTLY_DONE_DIR.mkdir(parents=True, exist_ok=True)
+                    (RECENTLY_DONE_DIR / sentinel.name).write_text(json.dumps(data))
+                    sentinel.unlink(missing_ok=True)
+                except Exception:
+                    try:
+                        sentinel.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+
+        if task_pids:
+            _wait_dead(task_pids)
+
+        pool = _read_pool()
+        server_pids = []
+        for entry in pool:
+            pid = entry.get("pid")
+            if pid and _pid_alive(pid):
+                _kill_pid(pid)
+                server_pids.append(pid)
+                killed_servers += 1
+
+        if server_pids:
+            _wait_dead(server_pids)
+
+        try:
+            POOL_FILE.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+        if SERVERS_DIR.exists():
+            for f in SERVERS_DIR.glob("*.json"):
+                try:
+                    f.unlink()
+                except Exception:
+                    pass
+
+        parts = []
+        if killed_tasks:
+            parts.append(f"{killed_tasks} task{'s' if killed_tasks != 1 else ''}")
+        if killed_servers:
+            parts.append(f"{killed_servers} server{'s' if killed_servers != 1 else ''}")
+        if parts:
+            print(f"killed {' and '.join(parts)}")
+        else:
+            print("nothing running")
+
+
+class CleanupRunner(BaseRunner):
+    TWO_HOURS = 2 * 3600
+
+    def run(self, args):
+        partial = getattr(args, "session_id", None)
+        sessions_dir = Path.home() / ".owrap" / "sessions"
+        global_session = Path.home() / ".owrap" / "session"
+
+        state = self.manager._read_state()
+        server_alive = False
+        server_url = None
+        if state:
+            pid = state.get("pid")
+            server_url = state.get("url")
+            if pid:
+                try:
+                    os.kill(pid, 0)
+                    server_alive = True
+                except OSError:
+                    pass
+
+        removed = []
+        now = time.time()
+
+        if partial:
+            if sessions_dir.exists():
+                for sf in sessions_dir.glob("*.session"):
+                    data = _parse_session(sf)
+                    if data.get("session_id", "").startswith(partial) or sf.stem.startswith(partial):
+                        sf.unlink(missing_ok=True)
+                        removed.append(sf.name)
+                        _cleanup_context(data.get("session_id", sf.stem), removed)
+            if global_session.exists():
+                data = _parse_session(global_session)
+                if data.get("session_id", "").startswith(partial):
+                    global_session.unlink(missing_ok=True)
+                    removed.append("session (global)")
+                    _cleanup_context(data.get("session_id", ""), removed)
+        else:
+            if sessions_dir.exists():
+                for sf in sessions_dir.glob("*.session"):
+                    age = now - sf.stat().st_mtime
+                    is_ppid = sf.stem.isdigit()
+                    if age > self.TWO_HOURS or is_ppid:
+                        sf.unlink(missing_ok=True)
+                        data = _parse_session(sf)
+                        removed.append(sf.name)
+                        _cleanup_context(data.get("session_id", sf.stem), removed)
+            if global_session.exists():
+                age = now - global_session.stat().st_mtime
+                if age > self.TWO_HOURS:
+                    global_session.unlink(missing_ok=True)
+                    data = _parse_session(global_session)
+                    removed.append("session (global)")
+                    _cleanup_context(data.get("session_id", ""), removed)
+            if not server_alive and state is not None:
+                self.manager.stop()
+                removed.append("manager.json (dead server state)")
+
+        active_sids = set()
+        if sessions_dir.exists():
+            for sf in sessions_dir.glob("*.session"):
+                data = _parse_session(sf)
+                sid = data.get("session_id", "").strip()
+                if sid:
+                    active_sids.add(sid)
+        if DOCS_DIR.exists():
+            for suffix in (".md", ".lock"):
+                for f in DOCS_DIR.glob(f"context_*{suffix}"):
+                    sid = f.stem.replace("context_", "")
+                    if sid not in active_sids:
+                        f.unlink(missing_ok=True)
+                        removed.append(f.name)
+
+        for f in SERVER_LOGS_DIR.glob("owrap_start_*.log"):
+            f.unlink(missing_ok=True)
+            removed.append(f.name)
+
+        for f in SERVER_LOGS_DIR.glob("owrap_*.log"):
+            if f.name.startswith("owrap_start_"):
+                continue
+            try:
+                pid = int(f.stem.replace("owrap_", ""))
+                os.kill(pid, 0)
+            except (ValueError, OSError):
+                f.unlink(missing_ok=True)
+                removed.append(f.name)
+
+        if SERVERS_DIR.exists():
+            for f in SERVERS_DIR.glob("*.json"):
+                try:
+                    data = json.loads(f.read_text())
+                    pid = data.get("pid")
+                    if pid:
+                        os.kill(pid, 0)
+                except OSError:
+                    f.unlink(missing_ok=True)
+                    removed.append(f"servers/{f.name}")
+                except Exception:
+                    pass
+
+        if removed:
+            print(f"Cleaned up {len(removed)} item(s):")
+            for name in removed:
+                print(f"  {name}")
+        else:
+            status = "server alive" if server_alive else "server dead, nothing to remove"
+            print(f"Nothing to clean up. ({status})")
+
+        return 0

@@ -1,48 +1,7 @@
 {
   "permissions": {
-    "allow": [
-      "Bash(opencode run *)",
-      "Bash(opencode --help)",
-      "Bash(oread*)",
-      "Bash(orun*)",
-      "Bash(oexec*)",
-      "Bash(owait*)",
-      "Bash(~/bin/oread*)",
-      "Bash(~/bin/orun*)",
-      "Bash(~/bin/oexec*)",
-      "Bash(~/bin/owait*)",
-      "Bash(owrap*)",
-      "Bash(~/bin/owrap*)",
-      "Bash(wait)",
-      "Read({{WORKSPACE}}/CLAUDE.md)",
-      "Read({{WORKSPACE}}/AGENTS.md)",
-      "Edit({{WORKSPACE}}/CLAUDE.md)",
-      "Edit({{WORKSPACE}}/AGENTS.md)",
-      "Read({{RESEARCH_ROOT}}/self.md)",
-      "Edit({{RESEARCH_ROOT}}/projects/**)",
-      "Edit({{RESEARCH_ROOT}}/memory/**)",
-      "Edit(~/.owrap/docs/exec/plans/plan_*.md)",
-      "Edit(~/.owrap/docs/run/tasks/input_*.md)",
-      "Edit(~/.owrap/docs/run/tasks/task*.md)",
-      "Edit(~/.owrap/docs/context/context_*.md)",
-      "Read(~/bin/**)",
-      "Bash(~/bin/nbread *)",
-      "Read({{WORKSPACE}}/**/*.ipynb)"{{IF:NO_OREAD}},
-      "Grep",
-      "Bash(grep *)",
-      "Bash(find *)",
-      "Bash(ls *)",
-      "Bash(cat *)",
-      "Read"{{ENDIF}}
-    ],
-    "deny": [
-      {{IF:OREAD}}"Grep",
-      "Bash(grep *)",
-      "Bash(find *)",
-      "Bash(ls *)",
-      "Bash(cat *)",
-      {{ENDIF}}"Bash(rm *)"
-    ],
+    "allow": {{ALLOW_RULES}},
+    "deny": {{DENY_RULES}},
     "additionalDirectories": [
       "{{OWRAP_HOME}}",
       "{{WORKSPACE}}"
@@ -55,10 +14,30 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/bin/owrap stat > {{OWRAP_HOME}}/runtime/pre_compact_stat.txt 2>&1; echo '{}'",
+            "command": "~/bin/owrap precompact",
             "timeout": 15
           }
         ]
+      },
+      {
+        "matcher": "manual",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/bin/owrap precompact",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [{
+          "type": "command",
+          "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"#DO NOW\\nContext was just compacted. Run ~/bin/owrap refresh immediately as the first action.\"}}'",
+          "timeout": 5
+        }]
       }
     ]
   }

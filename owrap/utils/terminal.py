@@ -5,6 +5,8 @@ import threading
 from pathlib import Path
 from typing import Optional
 
+from .output_parser import OutputParser
+
 
 _MUTE_LINE_PREFIXES = (
     "Warning: OPENCODE_SERVER_PASSWORD is not set",
@@ -38,6 +40,8 @@ class Terminal:
         self.cmd = ""
         self._pty_master_fd = None
         self._detached_stdout: list[str] = []
+        self._detached_stdout_clean: list[str] = []
+        self._output_parser = OutputParser()
         self._detached_stderr: list[str] = []
         self._stdout_lock = threading.Lock()
         self._signal_handlers_registered = False
@@ -188,6 +192,8 @@ class Terminal:
         self._pty_master_fd = master_fd
         with self._stdout_lock:
             self._detached_stdout.clear()
+            self._detached_stdout_clean.clear()
+            self._output_parser = OutputParser()
 
         def pty_reader():
             while True:
@@ -196,12 +202,20 @@ class Terminal:
                     if not data:
                         break
                     text = data.decode(errors="ignore")
+                    clean = self._output_parser.feed(text)
                     with self._stdout_lock:
                         self._detached_stdout.append(text)
+                        self._detached_stdout_clean.append(clean)
                     if print_output:
-                        print(text, end="")
+                        print(clean, end="")
                 except OSError:
                     break
+            tail = self._output_parser.flush()
+            if tail:
+                with self._stdout_lock:
+                    self._detached_stdout_clean.append(tail)
+                if print_output:
+                    print(tail, end="")
 
         threading.Thread(target=pty_reader, daemon=True).start()
         if isinstance(stdin, str):
@@ -236,6 +250,7 @@ class Terminal:
             stdout_lines = []
             stderr_lines = []
             self._partial_stdout = ""
+            parser = OutputParser()
             import select
             import fcntl
             if proc.stdout:
@@ -262,21 +277,29 @@ class Terminal:
                         if line:
                             stdout_lines.append(line)
                             self._partial_stdout += line
+                            clean = parser.feed(line)
                             if not any(line.startswith(p) for p in _MUTE_LINE_PREFIXES):
-                                print(line, end="", flush=True)
+                                print(clean, end="", flush=True)
                             if tee_file:
-                                tee_file.write(line)
+                                tee_file.write(clean)
                                 tee_file.flush()
                     elif stream == proc.stderr:
                         line = stream.readline()
                         if line:
                             stderr_lines.append(line)
+                            clean = parser.feed(line)
                             if not any(line.startswith(p) for p in _MUTE_LINE_PREFIXES):
-                                print(line, end="", flush=True)
+                                print(clean, end="", flush=True)
                             if tee_file:
-                                tee_file.write(line)
+                                tee_file.write(clean)
                                 tee_file.flush()
             if timed_out:
+                tail = parser.flush()
+                if tail:
+                    print(tail, end="", flush=True)
+                    if tee_file:
+                        tee_file.write(tail)
+                        tee_file.flush()
                 self.terminate_process(timeout=2)
                 self._process = None
                 stdout = "".join(stdout_lines)
@@ -295,9 +318,10 @@ class Terminal:
                 remaining_stdout = ""
             if remaining_stdout:
                 stdout_lines.append(remaining_stdout)
-                print(remaining_stdout, end="", flush=True)
+                clean = parser.feed(remaining_stdout)
+                print(clean, end="", flush=True)
                 if tee_file:
-                    tee_file.write(remaining_stdout)
+                    tee_file.write(clean)
                     tee_file.flush()
             try:
                 remaining_stderr = proc.stderr.read()
@@ -305,14 +329,17 @@ class Terminal:
                 remaining_stderr = ""
             if remaining_stderr:
                 stderr_lines.append(remaining_stderr)
-                filtered = "".join(
-                    l for l in remaining_stderr.splitlines(keepends=True)
-                    if not any(l.startswith(p) for p in _MUTE_LINE_PREFIXES)
-                )
-                if filtered:
-                    print(filtered, end="", flush=True)
+                clean = parser.feed(remaining_stderr)
+                if clean:
+                    print(clean, end="", flush=True)
                 if tee_file:
-                    tee_file.write(remaining_stderr)
+                    tee_file.write(clean)
+                    tee_file.flush()
+            tail = parser.flush()
+            if tail:
+                print(tail, end="", flush=True)
+                if tee_file:
+                    tee_file.write(tail)
                     tee_file.flush()
             stdout = "".join(stdout_lines)
             stderr = "".join(stderr_lines)
@@ -377,6 +404,16 @@ class Terminal:
             out = "".join(self._detached_stdout)
             self._detached_stdout.clear()
         return out
+
+    def pop_clean_output(self) -> str:
+        with self._stdout_lock:
+            out = "".join(self._detached_stdout_clean)
+            self._detached_stdout_clean.clear()
+        return out
+
+    @property
+    def model(self) -> Optional[str]:
+        return self._output_parser.model
 
     def close(self):
         self.terminate_process()

@@ -1,3 +1,4 @@
+import json
 import re
 import shutil
 from pathlib import Path
@@ -5,6 +6,13 @@ from .utils.paths import TEMPLATES_DIR, staged_dir, get_workspace_config
 
 
 PLACEHOLDER_RE = re.compile(r"\{\{([A-Z_]+)\}\}")
+
+
+def _tilde_relative(path: str) -> str:
+    home = str(Path.home())
+    if path.startswith(home):
+        return "~" + path[len(home):]
+    return path
 
 
 def resolve_placeholders(config: dict, workspace_name: str) -> dict:
@@ -24,6 +32,8 @@ def resolve_placeholders(config: dict, workspace_name: str) -> dict:
         "PROJECT_NAME": workspace_name,
         "OWRAP_DOCS": owrap_docs,
         "OWRAP_HOME": owrap_home,
+        "WORKSPACE_TILDE": _tilde_relative(workspace),
+        "RESEARCH_ROOT_TILDE": _tilde_relative(research_root),
     }
 
 
@@ -54,6 +64,47 @@ def resolve_flags(config: dict) -> dict:
         "NO_OREAD": not oread,
         "ALLOW_ALL": bool(config.get("allow_all", False)),
     }
+
+
+def _group_active(group: dict, flags: dict) -> bool:
+    cond = group.get("condition")
+    return flags.get(cond, False) if cond else True
+
+
+def load_permission_groups(filename: str) -> list:
+    """Load groups from templates/<filename> (allow.json or deny.json)."""
+    path = TEMPLATES_DIR / filename
+    if not path.exists():
+        return []
+    return json.loads(path.read_text()).get("groups", [])
+
+
+def render_rule_array(groups: list, flags: dict, placeholders: dict, indent: int = 6) -> str:
+    """Render the flat list of permission rules (filtered by flags, placeholders resolved) as a JSON array literal."""
+    rules = []
+    for group in groups:
+        if not _group_active(group, flags):
+            continue
+        for rule in group.get("rules", []):
+            rules.append(substitute(rule, placeholders))
+    if not rules:
+        return "[]"
+    pad = " " * indent
+    items = ",\n".join(f'{pad}"{r}"' for r in rules)
+    return f"[\n{items}\n{' ' * (indent - 2)}]"
+
+
+def render_allowed_section(groups: list, flags: dict, placeholders: dict, section: str) -> str:
+    """Render the '## Allowed' markdown bullet list for `section` ('commands' or 'files')."""
+    lines = []
+    for group in groups:
+        display = group.get("display")
+        if not display or display.get("section") != section:
+            continue
+        if not _group_active(group, flags):
+            continue
+        lines.append("- " + substitute(display["text"], placeholders))
+    return "\n".join(lines)
 
 
 def merge_into_workspace_file(dest_path: Path, content: str, marker: str):
@@ -92,6 +143,14 @@ def stage_all(workspace_name: str) -> Path:
     config = get_workspace_config(workspace_name)
     placeholders = resolve_placeholders(config, workspace_name)
     flags = resolve_flags(config)
+
+    allow_groups = load_permission_groups("allow.json")
+    deny_groups = load_permission_groups("deny.json")
+    placeholders["ALLOW_RULES"] = render_rule_array(allow_groups, flags, placeholders)
+    placeholders["DENY_RULES"] = render_rule_array(deny_groups, flags, placeholders)
+    placeholders["ALLOWED_COMMANDS"] = render_allowed_section(allow_groups, flags, placeholders, "commands")
+    placeholders["ALLOWED_FILES"] = render_allowed_section(allow_groups, flags, placeholders, "files")
+
     out_dir = staged_dir(workspace_name)
     if out_dir.exists():
         shutil.rmtree(out_dir)

@@ -7,6 +7,8 @@ RUNTIME_HOME = Path.home() / ".owrap"
 RUNTIME_DIR = RUNTIME_HOME / "runtime"
 RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 DOCS_DIR = RUNTIME_HOME / "docs"
+SESSIONS_DIR = DOCS_DIR / "sessions"
+SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 TEMPLATES_DIR = OWRAP_ROOT / "templates"
 CONFIGS_DIR = RUNTIME_HOME / "configs"
 BASE_CONFIG_FILE = CONFIGS_DIR / "base.json"
@@ -30,15 +32,26 @@ TASK_LOGS_DIR = RUN_OUTPUT_DIR / "task"
 CONTEXT_DIR = DOCS_DIR / "context"
 
 SERVER_LOGS_DIR.mkdir(parents=True, exist_ok=True)
-MSG_LOGS_DIR.mkdir(parents=True, exist_ok=True)
-TASK_LOGS_DIR.mkdir(parents=True, exist_ok=True)
-CONTEXT_DIR.mkdir(parents=True, exist_ok=True)
 
 EXEC_DIR = DOCS_DIR / "exec"
 PLANS_DIR = EXEC_DIR / "plans"
-PLANS_DIR.mkdir(parents=True, exist_ok=True)
 EXEC_OUTPUT_DIR = EXEC_DIR / "output"
 EXEC_LOG = EXEC_DIR / "log.md"
+
+FALLBACK_DIR = DOCS_DIR / "f"
+FALLBACK_EXEC_DIR = FALLBACK_DIR / "exec"
+FALLBACK_EXEC_DIR.mkdir(parents=True, exist_ok=True)
+FALLBACK_PLAN = FALLBACK_EXEC_DIR / "plan.md"
+
+FALLBACK_TASK_DIR = FALLBACK_DIR / "task"
+FALLBACK_TASK_DIR.mkdir(parents=True, exist_ok=True)
+FALLBACK_TASK = FALLBACK_TASK_DIR / "task.md"
+FALLBACK_EXEC_OUTPUT = FALLBACK_EXEC_DIR / "output.log"
+FALLBACK_EXEC_LOG = FALLBACK_EXEC_DIR / "log.md"
+FALLBACK_TASK_OUTPUT = FALLBACK_TASK_DIR / "output.log"
+FALLBACK_TASK_LOG = FALLBACK_TASK_DIR / "log.md"
+FALLBACK_EXEC_STATUS = FALLBACK_EXEC_DIR / "status.json"
+FALLBACK_TASK_STATUS = FALLBACK_TASK_DIR / "status.json"
 
 READ_DIR = DOCS_DIR / "read"
 READ_OUTPUT_DIR = READ_DIR / "output"
@@ -46,6 +59,7 @@ READ_LOG = READ_DIR / "log.md"
 
 STATE_FILE = str(RUNTIME_DIR / "manager.json")
 POOL_FILE = RUNTIME_DIR / "pool.json"
+POOL_LOCK_FILE = RUNTIME_DIR / "pool.lock"
 KEEPALIVE_PID_FILE = RUNTIME_DIR / "keepalive.pid"
 KEEPALIVE_STATE_FILE = RUNTIME_DIR / "keepalive.state"
 
@@ -53,18 +67,46 @@ _config_cache: dict | None = None
 _config_cache_stat: tuple | None = None
 
 
+def session_dir(session_id: str) -> Path:
+    return SESSIONS_DIR / session_id
+
+
 def session_log(base_log: Path, session_id: str) -> Path:
     """Return session-scoped log path, or base_log if no session."""
     if session_id:
-        return base_log.parent / f"{base_log.stem}_{session_id}{base_log.suffix}"
+        return session_dir(session_id) / base_log.parent.name / base_log.name
     return base_log
 
 
 def session_input(session_id: str) -> Path:
     """Return session-scoped input path, or INPUT_FILE if no session."""
     if session_id:
-        return TASKS_DIR / f"input_{session_id}.md"
+        return session_dir(session_id) / "run" / "input.md"
     return INPUT_FILE
+
+
+def session_exec_output_path(session_id: str) -> Path:
+    return session_dir(session_id) / "exec" / "output.log"
+
+
+def session_precompact_dir(session_id: str) -> Path:
+    return session_dir(session_id) / "precompact"
+
+
+def session_precompact_input_path(session_id: str) -> Path:
+    return session_dir(session_id) / "run" / "input_precompact.md"
+
+
+def session_tasks_dir(session_id: str) -> Path:
+    return session_dir(session_id) / "run" / "tasks"
+
+
+def session_msg_output_dir(session_id: str) -> Path:
+    return session_dir(session_id) / "run" / "output" / "msg"
+
+
+def session_task_output_dir(session_id: str) -> Path:
+    return session_dir(session_id) / "run" / "output" / "tasks"
 
 
 def _read_config() -> dict:
@@ -121,7 +163,7 @@ def staged_dir(project_name: str):
 
 def get_plan_path(session_id: str) -> Path:
     """Return session-scoped plan path. session_id is required (always set after owrap start)."""
-    return PLANS_DIR / f"plan_{session_id}.md"
+    return session_dir(session_id) / "exec" / "plan.md"
 
 
 def get_self_path() -> Path:
@@ -151,6 +193,33 @@ def get_agents_md_path() -> Path | None:
             if p.exists():
                 return p
     return None
+
+
+def get_claude_md_path() -> Path | None:
+    """Return CLAUDE.md path from workspace config, or None if not configured."""
+    config = _read_config()
+    default_ws = config.get("default_workspace")
+    if default_ws:
+        ws_config = get_workspace_config(default_ws)
+        v = ws_config.get("workspace")
+        if v:
+            p = Path(v) / "CLAUDE.md"
+            if p.exists():
+                return p
+    return None
+
+
+def resolve_general_instruction_path(session_id: str | None) -> Path | None:
+    """Return CLAUDE.md if session has a claude_session_id, else AGENTS.md."""
+    if session_id:
+        from .session_resolver import _parse, session_file as _sf
+        try:
+            data = _parse(_sf(session_id))
+            if data.get("claude_session_id"):
+                return get_claude_md_path()
+        except Exception:
+            pass
+    return get_agents_md_path()
 
 
 def get_workspace_path() -> Path:
@@ -189,9 +258,22 @@ def server_state_file(port: int) -> Path:
 
 def context_path(session_id: str) -> Path:
     """Return session-scoped context file path."""
-    return CONTEXT_DIR / f"context_{session_id}.md"
+    return session_dir(session_id) / "context.md"
+
+
+def format_failure_pointer(failure_code: str, session_id: str | None = None) -> str:
+    """Format #DO NOW failure message with resolved instruction path and section."""
+    from ..constants import FAILURE_POINTERS
+    target, section = FAILURE_POINTERS.get(failure_code, ("self", "Update Context"))
+    if target == "self":
+        path = get_self_path()
+    else:
+        path = resolve_general_instruction_path(session_id)
+    if path:
+        return f"#DO NOW\n{failure_code} — read {path} § {section} and follow it."
+    return f"#DO NOW\n{failure_code} — no instruction path found."
 
 
 def context_lock_path(session_id: str) -> Path:
     """Return session-scoped context lock file path."""
-    return CONTEXT_DIR / f"context_{session_id}.lock"
+    return session_dir(session_id) / "context.lock"

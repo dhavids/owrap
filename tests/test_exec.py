@@ -57,7 +57,7 @@ def test_exec_runner_creates_log_file(tmp_path, mock_manager):
     log_file = log_dir / f"exec_output_{mock_manager.session_id}.log"
 
     with patch("owrap.commands.exec.Terminal") as mock_terminal_cls, \
-         patch("owrap.commands.exec.EXEC_OUTPUT_DIR", log_dir), \
+         patch("owrap.commands.exec.session_exec_output_path", return_value=log_file), \
          patch("owrap.commands.exec._pool_active", return_value=False):
         mock_terminal = MagicMock()
         mock_terminal.run.return_value = {"returncode": 0, "stdout": "line\n"}
@@ -82,7 +82,7 @@ def test_exec_runner_locked_log_file_fallback(tmp_path, mock_manager):
     log_file.touch()
 
     with patch("owrap.commands.exec.Terminal") as mock_terminal_cls, \
-          patch("owrap.commands.exec.EXEC_OUTPUT_DIR", log_dir), \
+          patch("owrap.commands.exec.session_exec_output_path", return_value=log_file), \
           patch("owrap.commands.exec._pool_active", return_value=False), \
           patch.object(type(log_file), "unlink", side_effect=OSError("file locked")):
         mock_terminal = MagicMock()

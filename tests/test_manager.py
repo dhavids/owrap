@@ -9,6 +9,8 @@ import pytest
 def _make_manager():
     from owrap.manager import Manager
     manager = Manager.__new__(Manager)
+    manager.session_id = ""
+    manager.research = ""
     manager._t_invocation = time.time()
     manager._t_cmd_start = None
     manager._t_cmd_end = None
@@ -69,13 +71,13 @@ def test_cleanup_removes_done_task_files(tmp_path):
     manager.TASKS_DIR = tasks_dir
     manager.OUTPUT_DIR = output_dir
 
-    manager._write_state({"pid": 12345, "url": "http://localhost:4096", "port": 4096, "tasks": {"2": {"status": "done", "invocation_time": time.time()}}})
+    manager._write_state({"pid": 12345, "url": "http://localhost:4096", "port": 4096, "tasks": {"task2.md": {"status": "done", "invocation_time": time.time()}}})
 
     manager.cleanup_done_tasks()
 
     assert not (tasks_dir / "task2.md").exists()
     state = manager._read_state()
-    assert "2" not in state["tasks"]
+    assert "task2.md" not in state["tasks"]
 
 
 def test_cleanup_removes_suffixed_logs(tmp_path):
@@ -92,13 +94,13 @@ def test_cleanup_removes_suffixed_logs(tmp_path):
     manager.TASKS_DIR = tasks_dir
     manager.OUTPUT_DIR = output_dir
 
-    manager._write_state({"pid": 12345, "url": "http://localhost:4096", "port": 4096, "tasks": {"2": {"status": "done", "invocation_time": time.time()}}})
+    manager._write_state({"pid": 12345, "url": "http://localhost:4096", "port": 4096, "tasks": {"task2.md": {"status": "done", "invocation_time": time.time()}}})
 
     manager.cleanup_done_tasks()
 
     assert not (tasks_dir / "task2.md").exists()
     state = manager._read_state()
-    assert "2" not in state["tasks"]
+    assert "task2.md" not in state["tasks"]
 
 
 def test_cleanup_keeps_active_task_when_server_alive(tmp_path):
@@ -114,14 +116,14 @@ def test_cleanup_keeps_active_task_when_server_alive(tmp_path):
     manager.TASKS_DIR = tasks_dir
     manager.OUTPUT_DIR = output_dir
 
-    manager._write_state({"pid": 12345, "url": "http://localhost:4096", "port": 4096, "tasks": {"1": {"status": "active", "invocation_time": time.time()}}})
+    manager._write_state({"pid": 12345, "url": "http://localhost:4096", "port": 4096, "tasks": {"task1.md": {"status": "active", "invocation_time": time.time()}}})
 
     with patch("os.kill", return_value=None):
         manager.cleanup_done_tasks()
 
     assert (tasks_dir / "task1.md").exists()
     state = manager._read_state()
-    assert "1" in state["tasks"]
+    assert "task1.md" in state["tasks"]
 
 
 def test_cleanup_removes_active_task_when_server_dead(tmp_path):
@@ -138,14 +140,14 @@ def test_cleanup_removes_active_task_when_server_dead(tmp_path):
     manager.TASKS_DIR = tasks_dir
     manager.OUTPUT_DIR = output_dir
 
-    manager._write_state({"pid": 99999, "url": "http://localhost:4096", "port": 4096, "tasks": {"1": {"status": "active", "invocation_time": time.time()}}})
+    manager._write_state({"pid": 99999, "url": "http://localhost:4096", "port": 4096, "tasks": {"task1.md": {"status": "active", "invocation_time": time.time()}}})
 
     with patch("os.kill", side_effect=OSError):
         manager.cleanup_done_tasks()
 
     assert not (tasks_dir / "task1.md").exists()
     state = manager._read_state()
-    assert "1" not in state["tasks"]
+    assert "task1.md" not in state["tasks"]
 
 
 def test_cleanup_compat_with_old_string_format(tmp_path):
@@ -162,10 +164,26 @@ def test_cleanup_compat_with_old_string_format(tmp_path):
     manager.TASKS_DIR = tasks_dir
     manager.OUTPUT_DIR = output_dir
 
-    manager._write_state({"pid": 12345, "url": "http://localhost:4096", "port": 4096, "tasks": {"3": "done"}})
+    manager._write_state({"pid": 12345, "url": "http://localhost:4096", "port": 4096, "tasks": {"task3.md": "done"}})
 
     manager.cleanup_done_tasks()
 
     assert not (tasks_dir / "task3.md").exists()
     state = manager._read_state()
-    assert "3" not in state["tasks"]
+    assert "task3.md" not in state["tasks"]
+
+
+def test_legacy_dirs_not_created_with_session(monkeypatch, isolate_owrap_dirs):
+    monkeypatch.setenv("OWRAP_SESSION", "testsid")
+    from owrap.manager import Manager
+    m = Manager()
+    assert not isolate_owrap_dirs["TASKS_DIR"].exists()
+    assert not isolate_owrap_dirs["RUN_OUTPUT_DIR"].exists()
+
+
+def test_legacy_dirs_created_without_session(monkeypatch, isolate_owrap_dirs):
+    monkeypatch.delenv("OWRAP_SESSION", raising=False)
+    from owrap.manager import Manager
+    m = Manager()
+    assert isolate_owrap_dirs["TASKS_DIR"].exists()
+    assert isolate_owrap_dirs["RUN_OUTPUT_DIR"].exists()

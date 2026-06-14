@@ -1,7 +1,6 @@
 import argparse
 import json
 import os
-import re
 import shlex
 import sys
 import time
@@ -13,12 +12,13 @@ from ..manager import Manager
 from ..base import BaseRunner
 from ..constants import ANTI_SUMMARY_SUFFIX, MSG_KILL_S, TASK_KILL_S
 from ..utils.pool import _pool_active, pick_server, update_last_used
-from ..utils.paths import TASKS_DIR, RUN_OUTPUT_DIR, MSG_LOGS_DIR, TASK_LOGS_DIR, context_path, _read_config, get_agents_md_path, get_workspace_config
+from ..utils.paths import TASKS_DIR, RUNTIME_DIR, context_path, _read_config, get_agents_md_path, get_workspace_config, format_failure_pointer, FALLBACK_TASK, session_msg_output_dir, session_task_output_dir, session_tasks_dir
+from ..utils.snippet import extract_snippet
 
 
 class RunRunner(BaseRunner):
     TASKS_DIR = TASKS_DIR
-    OUTPUT_DIR = RUN_OUTPUT_DIR
+    FALLBACK_TASK = FALLBACK_TASK
 
     def __init__(self, manager, logger=None, allow_all=False, no_context=False, model=None):
         super().__init__(manager, logger, allow_all)
@@ -26,14 +26,7 @@ class RunRunner(BaseRunner):
         self.model = model
 
     def _get_task_title(self, task_file: Path) -> str:
-        try:
-            content = task_file.read_text()
-            match = re.search(r'^## Do\s*\n+(.+)$', content, re.MULTILINE)
-            if match:
-                return match.group(1).strip()
-        except Exception:
-            pass
-        return f"task{task_file.stem.replace('task', '')}"
+        return extract_snippet(task_file, default=f"task{task_file.stem.replace('task', '')}")
 
     def _write_run_log(self, title: str, tag: str = ""):
         import fcntl
@@ -49,7 +42,7 @@ class RunRunner(BaseRunner):
             f.write(entry + existing)
             f.truncate()
 
-    def run(self, msg=None, msg_id=None, input_path=None, log_time=True, timeout=None):
+    def run(self, msg=None, msg_id=None, input_path=None, log_time=False, timeout=None):
         self._cleanup_recently_done()
         if self.logger:
             if msg is not None:
@@ -58,10 +51,14 @@ class RunRunner(BaseRunner):
                 self.logger.info("run task session=%s", self.manager.session_id or "none")
 
         if _pool_active():
-            if msg is not None:
-                url = pick_server("msg")
-            else:
-                url = pick_server("task")
+            try:
+                if msg is not None:
+                    url = pick_server("msg")
+                else:
+                    url = pick_server("task")
+            except Exception:
+                print(format_failure_pointer("NO_SERVER", self.manager.session_id))
+                sys.exit(1)
         else:
             url = self.manager.ensure_running()
 
@@ -78,6 +75,7 @@ class RunRunner(BaseRunner):
             if self.logger:
                 self.logger.error("run msg rejected: len=%d >1024 session=%s", len(msg), self.manager.session_id or "none")
             print("Error: --msg must be <= 1024 characters", file=sys.stderr)
+            print(format_failure_pointer("MSG_TOO_LONG", self.manager.session_id))
             sys.exit(1)
 
         if msg_id:
@@ -113,7 +111,7 @@ class RunRunner(BaseRunner):
         cmd.extend(["--", shlex.quote(msg)])
 
         if not url:
-            fallback_file = self.TASKS_DIR / "task0.md"
+            fallback_file = self.FALLBACK_TASK
             fallback_file.write_text(f"## Do\n\n{msg}\n")
             cmd = ["opencode", "run"]
             if self.allow_all:
@@ -129,8 +127,8 @@ class RunRunner(BaseRunner):
         MSG_TIMEOUT = timeout if timeout is not None else 180
         rc = 1
         timed_out = False
-        msg_log = MSG_LOGS_DIR / f"msg_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-        msg_log.parent.mkdir(parents=True, exist_ok=True)
+        session_msg_output_dir(self.manager.session_id).mkdir(parents=True, exist_ok=True)
+        msg_log = session_msg_output_dir(self.manager.session_id) / f"msg_{_msg_sentinel_id}.log"
         watchdog = None
         try:
             self.manager.t_cmd_start()
@@ -153,6 +151,7 @@ class RunRunner(BaseRunner):
                 print(flush=True)
                 print(f"[orun --msg] timed out after {MSG_TIMEOUT}s ({chars} chars captured)", flush=True)
                 print(f"  rerun with -t <seconds> to extend (default: 180s)", flush=True)
+                print(format_failure_pointer("TIMED_OUT", self.manager.session_id))
                 rc = 2
             else:
                 rc = result.get("returncode", 1)
@@ -166,12 +165,14 @@ class RunRunner(BaseRunner):
             self._complete_sentinel(sentinel, rc, timed_out=timed_out)
             if self.logger:
                 self.logger.info("run msg done msg=%.80r rc=%d%s", msg, rc, " (timeout)" if timed_out else "")
-            self._write_run_log(original_msg[:80], tag=f"[m:{msg_id}]" if msg_id else "")
-            try:
-                self.manager.append_context_recent(original_msg[:80], rc, ctx=ctx_injected, kind="msg")
-                self.manager.update_frequent_files()
-            except Exception:
-                pass
+            _skip_recent_msg = "owrap sync" in original_msg
+            if not _skip_recent_msg:
+                self._write_run_log(original_msg[:80], tag=f"[m:{msg_id}]" if msg_id else "")
+                try:
+                    self.manager.append_context_recent(original_msg[:80], rc, ctx=ctx_injected, kind="msg")
+                    self.manager.update_frequent_files()
+                except Exception:
+                    pass
             self.manager.log_time(log_time)
             if url:
                 try:
@@ -183,7 +184,6 @@ class RunRunner(BaseRunner):
                     release_server(url)
                 except Exception:
                     pass
-                Manager._trim_logs(MSG_LOGS_DIR, "msg_*.log")
         sys.exit(rc)
 
     def _run_task(self, url, input_path, log_time):
@@ -192,14 +192,18 @@ class RunRunner(BaseRunner):
 
         if not input_path.exists() or input_path.stat().st_size == 0:
             print("Error: input.md is empty or missing", file=sys.stderr)
+            print(format_failure_pointer("INPUT_EMPTY", self.manager.session_id))
             sys.exit(1)
 
         content = input_path.read_text()
+        _first_line = content.split("\n", 1)[0].strip()
+        _skip_recent = _first_line in ("# Update Context", "# Update Protocol") or _first_line.startswith("## Update Context (pre-compaction)") or _first_line.startswith("## Update Protocol (pre-compaction)")
 
         if url:
-            task_id = self.manager.next_task_id()
-            self.manager.register_task(task_id, "task")
-            task_file = self.TASKS_DIR / f"task{task_id}.md"
+            task_name = self.manager.next_task_name()
+            self.manager.register_task(task_name, "task")
+            tasks_dir = session_tasks_dir(self.manager.session_id) if self.manager.session_id else self.TASKS_DIR
+            task_file = tasks_dir / task_name
             _ctx_cfg = _read_config()
             cp = context_path(self.manager.session_id)
             ctx_injected = False
@@ -211,11 +215,12 @@ class RunRunner(BaseRunner):
                     content = f"## Context\nFirst read {cp} before starting this task.\n\n" + content
                 ctx_injected = True
             content += " " + ANTI_SUMMARY_SUFFIX
+            tasks_dir.mkdir(parents=True, exist_ok=True)
             task_file.write_text(content)
             input_path.write_text("")
 
-            self.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-            log_path = TASK_LOGS_DIR / f"task{task_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+            session_task_output_dir(self.manager.session_id).mkdir(parents=True, exist_ok=True)
+            log_path = session_task_output_dir(self.manager.session_id) / f"{task_name}.log"
 
             cmd = ["opencode", "run"]
             if self.allow_all:
@@ -224,19 +229,19 @@ class RunRunner(BaseRunner):
             cmd.extend(["--", shlex.quote(f"--task {task_file} {ANTI_SUMMARY_SUFFIX}")])
 
             title = self._get_task_title(task_file)
-            sentinel = self._write_sentinel(task_id, title, kind="task", call_type="task")
+            sentinel = self._write_sentinel(task_name, title, kind="task", call_type="task")
             self._install_sigterm_handler()
             if self.logger:
-                self.logger.info("run task_id=%d title=%.60r session=%s", task_id, title, self.manager.session_id or "none")
+                self.logger.info("run task_name=%s title=%.60r session=%s", task_name, title, self.manager.session_id or "none")
                 self.logger.debug("run task cmd=%s", " ".join(cmd))
-            print(f"[t:{task_id}]", flush=True)
+            print(f"[t:{task_name}]", flush=True)
 
             rc = 1
             timed_out = False
             watchdog = None
             try:
                 with open(log_path, "w") as log:
-                    log.write(f"[{datetime.now().isoformat()}] TASK {task_id} START\n")
+                    log.write(f"[{datetime.now().isoformat()}] TASK {task_name} START\n")
                     log.flush()
                     self.manager.t_cmd_start()
                     terminal = Terminal(verbose=False)
@@ -252,36 +257,47 @@ class RunRunner(BaseRunner):
                     self.manager.t_cmd_end()
                     if result.get("timed_out"):
                         timed_out = True
+                        print(format_failure_pointer("TIMED_OUT", self.manager.session_id))
                     rc = result.get("returncode", 1)
             except Exception as exc:
                 self.manager.t_cmd_end()
                 if self.logger:
-                    self.logger.error("run task_id=%d error: %s", task_id, exc)
+                    self.logger.error("run task_name=%s error: %s", task_name, exc)
             finally:
                 if watchdog:
                     watchdog.stop()
                 self._complete_sentinel(sentinel, rc, timed_out=timed_out)
-                self.manager.complete_task(task_id)
+                self.manager.complete_task(task_name)
                 if self.logger:
-                    self.logger.info("run task_id=%d done rc=%d log=%s%s", task_id, rc, log_path, " (timeout)" if timed_out else "")
+                    self.logger.info("run task_name=%s done rc=%d log=%s%s", task_name, rc, log_path, " (timeout)" if timed_out else "")
                 t = ""
                 if self.manager._t_cmd_end is not None:
                     t = f"opencode={self.manager._t_cmd_end - self.manager._t_cmd_start:.1f}s  total={self.manager._t_cmd_end - self.manager._t_invocation:.1f}s"
                 status = "SUCCESS" if rc == 0 else "FAILED"
-                print(f"=== [task{task_id}] completed ===")
+                print(f"=== [task{task_name}] completed ===")
                 print(f"status: {status}")
                 print(f"exit: {rc}")
                 print(f"log: {log_path}")
                 if t:
                     print(f"timing: {t}")
-                _ctx_remind = context_path(self.manager.session_id)
-                if _ctx_remind and _ctx_remind.exists():
-                    print(f"\n→ Planner: update {_ctx_remind} — Focus (what changed), Key Locations (new paths), Decisions (architectural choices).")
+                area = os.environ.get("OWRAP_AREA", "")
+                if not area and self.manager.session_id:
+                    try:
+                        from ..utils.session_resolver import _parse, session_file
+                        d = _parse(session_file(self.manager.session_id))
+                        area = d.get("area", "")
+                    except Exception:
+                        pass
+                from ..utils.donow import check_donow
+                donow_msg = check_donow(self.manager, self.manager.session_id, area, self.manager.research, kind="task", input_path=input_path)
+                if donow_msg:
+                    print(f"\n{donow_msg}")
                 self.manager.log_time(log_time)
-                self._write_run_log(title, tag=f"[t:{task_id}]")
+                self._write_run_log(title, tag=f"[t:{task_name}]")
                 try:
-                    self.manager.append_context_recent(title, rc, ctx=ctx_injected)
-                    self.manager.update_frequent_files()
+                    if not _skip_recent:
+                        self.manager.append_context_recent(title, rc, ctx=ctx_injected)
+                        self.manager.update_frequent_files()
                 except Exception:
                     pass
                 if url:
@@ -294,9 +310,8 @@ class RunRunner(BaseRunner):
                         release_server(url)
                     except Exception:
                         pass
-                    Manager._trim_logs(TASK_LOGS_DIR, "task*.log")
         else:
-            fallback_file = self.TASKS_DIR / "task0.md"
+            fallback_file = self.FALLBACK_TASK
             _ctx_cfg_fb = _read_config()
             cp = context_path(self.manager.session_id)
             ctx_injected_fb = False
@@ -324,8 +339,9 @@ class RunRunner(BaseRunner):
             self.manager.log_time(log_time)
             self._write_run_log(title, tag=f"[t:0]")
             try:
-                self.manager.append_context_recent(title, rc, ctx=ctx_injected_fb)
-                self.manager.update_frequent_files()
+                if not _skip_recent:
+                    self.manager.append_context_recent(title, rc, ctx=ctx_injected_fb)
+                    self.manager.update_frequent_files()
             except Exception:
                 pass
 
@@ -337,14 +353,14 @@ def main():
     parser.add_argument("--msg", type=str, default=None, help="Single-line message for task mode")
     parser.add_argument("--id", "-i", type=str, default=None, help="Msg ID for parallel tracking")
     parser.add_argument("--input", type=str, default=None, help="Input file path (default: owrap/docs/run/input_<session_id>.md)")
-    parser.add_argument("--no-log-time", action="store_true", help="Suppress the timing block")
+    parser.add_argument("--log-time", action="store_true", help="Show the [timing] block (debugging/tests only)")
     parser.add_argument("--no-context", action="store_true", help="Suppress inline context header")
     parser.add_argument("--model", "-m", type=str, default=None, help="Model override")
     args = parser.parse_args()
     manager = Manager()
     RunRunner(manager, no_context=args.no_context, model=args.model).run(msg=args.msg, msg_id=args.id,
                            input_path=Path(args.input) if args.input else None,
-                           log_time=not args.no_log_time)
+                            log_time=args.log_time)
 
 
 if __name__ == "__main__":
