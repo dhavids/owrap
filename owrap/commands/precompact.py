@@ -53,6 +53,19 @@ class PrecompactWorkerRunner:
         counters = self._read_counters(owrap_sid)
         transcript_offset = counters.get("transcript_offset", 0)
 
+        from ..utils.donow import _count_marked_steps
+        from ..utils.paths import get_plan_path
+        orun_count = counters.get("orun_count", 0)
+        plan_count = counters.get("plan_count", 0)
+        marked_steps = _count_marked_steps(get_plan_path(owrap_sid)) - counters.get("marked_steps_baseline", 0)
+
+        do_context = orun_count != 0 or research == "owrap"
+        do_protocol = plan_count != 0 and marked_steps != 0
+
+        if not do_context and not do_protocol:
+            print(f"precompact-worker: skipping (orun={orun_count}, plan={plan_count}, steps={marked_steps}, research={research!r})", flush=True)
+            sys.exit(0)
+
         if not transcript_path or not Path(transcript_path).exists():
             print("precompact-worker: transcript path missing", file=sys.stderr)
             sys.exit(0)
@@ -77,14 +90,15 @@ class PrecompactWorkerRunner:
         transcript_tmp = pcdir / "precompact_transcript.txt"
         transcript_tmp.write_text(excerpt)
 
-        task_content = PRE_COMPACT_CTX_TEMPLATE.format(
-            session_id=owrap_sid,
-            transcript_path=str(transcript_tmp),
-            context_path=context_path_str,
-        )
+        task_content = ""
+        if do_context:
+            task_content = PRE_COMPACT_CTX_TEMPLATE.format(
+                session_id=owrap_sid,
+                transcript_path=str(transcript_tmp),
+                context_path=context_path_str,
+            )
 
-        updr_due = self._check_updr_due(owrap_sid, area, research)
-        if updr_due and research and area:
+        if do_protocol and research and area:
             updr_block = PRE_COMPACT_UPDR_TEMPLATE.format(
                 research=research,
                 area=area,
@@ -94,7 +108,7 @@ class PrecompactWorkerRunner:
                 memory_path=memory_path_str,
                 projects_path=projects_path_str,
             )
-            task_content += "\n\n" + updr_block
+            task_content = task_content + "\n\n" + updr_block if task_content else updr_block
 
         task_file = session_precompact_input_path(owrap_sid)
         task_file.parent.mkdir(parents=True, exist_ok=True)
@@ -110,6 +124,11 @@ class PrecompactWorkerRunner:
         print(f"precompact-worker: orun rc={result.returncode}", flush=True)
 
         counters["transcript_offset"] = total_lines
+        counters["orun_count"] = 0
+        counters["plan_count"] = 0
+        from ..utils.donow import _count_marked_steps
+        from ..utils.paths import get_plan_path
+        counters["marked_steps_baseline"] = _count_marked_steps(get_plan_path(owrap_sid))
         self._write_counters(owrap_sid, counters)
 
     def _extract_assistant_text(self, lines: list, offset: int) -> list:
@@ -151,14 +170,6 @@ class PrecompactWorkerRunner:
         with open(p, "w") as f:
             json.dump(data, f)
 
-    def _check_updr_due(self, session_id: str, area: str, research: str) -> bool:
-        if not area:
-            return False
-        from ..utils.donow import check_donow
-        result = check_donow(None, session_id, area, research, kind="precompact")
-        if result and "Update protocol due" in result:
-            return True
-        return False
 
 
 class PrecompactRunner:

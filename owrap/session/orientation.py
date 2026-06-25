@@ -1,4 +1,4 @@
-def print_orientation(session_id, research, url=None, plan_path=None, todo_path=None, input_path=None, context_path=None, area=None, memory_path=None, project_path=None):
+def print_orientation(session_id, research, url=None, plan_path=None, todo_path=None, input_path=None, context_path=None, area=None, memory_path=None, project_path=None, attach=False):
     import shutil as _shutil
     import io as _io
     import re as _re
@@ -44,11 +44,11 @@ def print_orientation(session_id, research, url=None, plan_path=None, todo_path=
             _gi_path = _rgip(session_id)
         except Exception:
             pass
-    if _gi_path or context_path:
+    if _gi_path or (context_path and attach):
         print("RELOAD")
         if _gi_path:
             print(f"  {_gi_path} — read this file now before continuing.")
-        if context_path:
+        if context_path and attach:
             print(f"  {context_path} — also re-read this file for current session context.")
     print()
     _fallback_note = ""

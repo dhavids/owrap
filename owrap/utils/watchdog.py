@@ -10,7 +10,7 @@ from .paths import _read_config
 
 class Watchdog:
     def __init__(self, log_path, kill_callback, notify_callback, kill_after_s,
-                 stall_s=None, poll_s=None):
+                 stall_s=None, poll_s=None, no_output_s=None, unresponsive_callback=None):
         _cfg = _read_config()
         self._log_path = Path(log_path)
         self._kill_callback = kill_callback
@@ -25,6 +25,15 @@ class Watchdog:
         self._last_mtime = 0
         self._last_size = 0
         self._last_change_time = time.time()
+        self._no_output_s = no_output_s
+        self._unresponsive_callback = unresponsive_callback
+        self._no_output_fired = False
+        self._has_output = False
+        self._start_time = time.time()
+        try:
+            self._initial_size = os.path.getsize(log_path)
+        except OSError:
+            self._initial_size = 0
 
     def start(self):
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -67,6 +76,19 @@ class Watchdog:
                     self._notify_callback("stalled")
                 elif self._state == "stalled" and self._stall_since and now - self._stall_since >= self._kill_after_s:
                     self._kill_callback()
+                    break
+
+            if self._no_output_s and not self._no_output_fired:
+                if not self._has_output:
+                    try:
+                        if os.path.getsize(self._log_path) > self._initial_size:
+                            self._has_output = True
+                    except OSError:
+                        pass
+                if not self._has_output and (now - self._start_time) >= self._no_output_s:
+                    self._no_output_fired = True
+                    if self._unresponsive_callback:
+                        self._unresponsive_callback()
                     break
 
 

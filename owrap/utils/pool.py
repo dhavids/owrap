@@ -109,7 +109,7 @@ def get_pool() -> list[dict]:
         live = []
         for entry in pool:
             pid = entry.get("pid")
-            if pid and _is_alive(pid):
+            if pid and _is_alive(pid) and _is_responsive(entry.get("url", "")):
                 live.append(entry)
         if len(live) != len(pool):
             _write_pool(live)
@@ -123,7 +123,7 @@ def ensure_min_servers():
         config = _read_config()
         min_servers = int(config.get("min_servers", MIN_SERVERS))
         max_servers = int(config.get("max_servers", 5))
-        live = [entry for entry in pool if entry.get("pid") and _is_alive(entry["pid"])]
+        live = [entry for entry in pool if entry.get("pid") and _is_alive(entry["pid"]) and _is_responsive(entry.get("url", ""))]
         while len(live) < min_servers and len(live) < max_servers:
             try:
                 port = _next_port(live)
@@ -134,6 +134,14 @@ def ensure_min_servers():
         _write_pool(live)
 
 
+
+def _wait_responsive(url: str, timeout: float = 5.0):
+    """Block until the server at url is accepting connections (or timeout)."""
+    deadline = time.time() + timeout
+    while not _is_responsive(url) and time.time() < deadline:
+        time.sleep(0.1)
+
+
 def pick_server(call_type: str) -> str:
     if not _pool_active():
         raise RuntimeError("pool is not active")
@@ -141,12 +149,24 @@ def pick_server(call_type: str) -> str:
     ensure_min_servers()
     with _pool_lock():
         pool = _read_pool()
-        live = [entry for entry in pool if entry.get("pid") and _is_alive(entry["pid"])]
+        live = [entry for entry in pool if entry.get("pid") and _is_alive(entry["pid"]) and _is_responsive(entry.get("url", ""))]
         config = _read_config()
         max_servers = int(config.get("max_servers", 5))
+        max_req = int(config.get("max_requests_per_server", 0))
+        if max_req > 0:
+            exhausted = [e for e in live if e.get("request_count", 0) >= max_req and _active_load(e.get("url", "")) == 0]
+            for e in exhausted:
+                pid = e.get("pid")
+                if pid:
+                    try:
+                        os.kill(pid, 15)
+                    except OSError:
+                        pass
+            live = [e for e in live if e not in exhausted]
         if not live:
-            port = _next_port(live)
+            port = _next_port([])
             entry = _start_server(port)
+            _wait_responsive(entry["url"])
             _write_pool([entry])
             return entry["url"]
         # compute load per server (active + reserved)
@@ -154,25 +174,22 @@ def pick_server(call_type: str) -> str:
         loads = {entry["url"]: _active_load(entry["url"]) + entry.get("reserved", 0) for entry in live}
         zero_load = [entry for entry in live if loads[entry["url"]] == 0]
         if zero_load:
-            # Prefer "warm" servers (used in last 30s) over cold ones
             warm = [e for e in zero_load if now - e.get("last_used", 0) < 30]
             if warm:
                 best = min(warm, key=lambda e: now - e.get("last_used", 0))
             else:
-                # All zero-load servers are cold; prefer the one used most recently
                 best = min(zero_load, key=lambda e: now - e.get("last_used", 0))
         elif len(live) < max_servers:
             port = _next_port(live)
             entry = _start_server(port)
+            _wait_responsive(entry["url"])
             _write_pool(live + [entry])
             return entry["url"]
         else:
-            now = time.time()
             estimates = {
                 entry["url"]: _estimate_remaining(entry["url"], now)
                 for entry in live
             }
-            # apply msg/read penalty for active exec tasks
             if call_type in ("msg", "read"):
                 for entry in live:
                     tasks = _active_tasks_by_type(entry["url"])
@@ -181,6 +198,7 @@ def pick_server(call_type: str) -> str:
             best = min(live, key=lambda e: estimates[e["url"]])
         best["last_used"] = time.time()
         best["reserved"] = best.get("reserved", 0) + 1
+        best["request_count"] = best.get("request_count", 0) + 1
         _write_pool(live)
         return best["url"]
 
@@ -216,8 +234,13 @@ def shutdown_idle(idle_s: float | None = None, min_n: int | None = None):
         min_n = int(config.get("min_servers", MIN_SERVERS))
     with _pool_lock():
         pool = _read_pool()
-        live = [entry for entry in pool if entry.get("pid") and _is_alive(entry["pid"])]
+        live = [entry for entry in pool if entry.get("pid") and _is_alive(entry["pid"]) and _is_responsive(entry.get("url", ""))]
         now = time.time()
+        # Heal stale reservations: reserved > 0 but no active tasks means a crash leaked the counter
+        for entry in live:
+            if entry.get("reserved", 0) > 0 and _active_load(entry["url"]) == 0:
+                entry["reserved"] = 0
+        _write_pool(live)
         to_keep = []
         killed = 0
         for entry in live:
@@ -225,11 +248,11 @@ def shutdown_idle(idle_s: float | None = None, min_n: int | None = None):
                 to_keep.append(entry)
                 continue
             elapsed = now - entry.get("last_used", 0)
-            if elapsed > idle_s and (len(live) - killed) > min_n:
+            should_kill = elapsed > idle_s and (len(live) - killed) > min_n
+            if should_kill:
                 try:
                     pid = entry["pid"]
                     os.kill(pid, 15)
-                    # also remove server state file
                     port = entry.get("port")
                     if port:
                         state_file = SERVERS_DIR / f"{port}.json"

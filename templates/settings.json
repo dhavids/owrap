@@ -1,13 +1,26 @@
 {
   "permissions": {
-    "allow": {{ALLOW_RULES}},
-    "deny": {{DENY_RULES}},
+    "defaultMode": "dontAsk",
     "additionalDirectories": [
       "{{OWRAP_HOME}}",
-      "{{WORKSPACE}}"
+      "{{WORKSPACE}}",
+      "/tmp"{{IF:NO_OREAD}},
+      "/"{{ENDIF}}
     ]
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "{{PERMIT_MATCHER}}",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/bin/owrap p",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "PreCompact": [
       {
         "matcher": "auto",

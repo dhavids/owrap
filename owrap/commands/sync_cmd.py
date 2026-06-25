@@ -12,7 +12,7 @@ class SyncRunner:
     """Re-stage templates and dispatch sync_task.md via orun to write planner files."""
 
     def run(self):
-        workspace_name = self._active_workspace()
+        workspace_name, sid = self._active_workspace()
         if not workspace_name:
             print("Error: no active session. Run `owrap start <name>` first.")
             sys.exit(1)
@@ -31,14 +31,13 @@ class SyncRunner:
             (staged / "settings.json", f"{workspace}/.claude/settings.local.json"),
         ]
 
-        task_path = self._write_sync_task(targets, workspace_name)
+        task_path = self._write_sync_task(targets, sid)
         print(f"sync_task written: {task_path}")
         print(f"staged: {staged}")
         print(f"workspace: {workspace}")
         print(f"research_root: {research_root}")
         print()
-        print("Next: planner must dispatch this task via orun. Run:")
-        print(f"  ~/bin/orun --input {task_path}")
+        print(f"Next: ~/bin/orun --input {task_path}")
         sys.exit(0)
 
     def _active_workspace(self):
@@ -52,7 +51,7 @@ class SyncRunner:
                 if sf.exists():
                     for line in sf.read_text().splitlines():
                         if line.startswith('workspace='):
-                            return line.split('=', 1)[1].strip()
+                            return line.split('=', 1)[1].strip(), sid
         sid = os.environ.get('SESSION_ID', '').strip()
         if not sid:
             cs = Path.home() / '.owrap' / 'runtime' / 'current_session'
@@ -63,13 +62,13 @@ class SyncRunner:
             if sf.exists():
                 for line in sf.read_text().splitlines():
                     if line.startswith('workspace='):
-                        return line.split('=', 1)[1].strip()
-        return None
+                        return line.split('=', 1)[1].strip(), sid
+        return (None, None)
 
-    def _write_sync_task(self, targets, workspace_name):
-        task_dir = RUNTIME_HOME / "docs" / "run" / "tasks"
+    def _write_sync_task(self, targets, sid):
+        task_dir = Path.home() / '.owrap' / 'docs' / 'sessions' / sid / 'run'
         task_dir.mkdir(parents=True, exist_ok=True)
-        task_path = task_dir / f"sync_task_{workspace_name}.md"
+        task_path = task_dir / 'input_sync.md'
         lines = [
             "# Sync Task — re-apply staged templates to project files",
             "",

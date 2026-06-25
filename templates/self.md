@@ -108,6 +108,8 @@ Update /home/humble/.owrap/docs/sessions/<sid>/context.md — apply the followin
 
 The executor applies exactly what you wrote — it makes no decisions. Provide the full content for ## Focus; for others, append only new entries not already present. Honour the per-section caps stated above by removing oldest entries if the cap would be exceeded.
 
+This must be a **standalone** task with the header **# Update Context**. It must not be lumped or combined with any other tasks.
+
 ## Update Protocol
 
 You are the planner — you have been running this session and know what changed. Do this now:
@@ -142,6 +144,8 @@ Update {{RESEARCH_ROOT}}/projects/<research>.md — area ## <area>:
 ```
 
 The executor applies exactly what you wrote — it makes no decisions.
+
+This must be a **standalone** task with the header **# Update Protocol**. It must not be lumped or combined with any other tasks.
 
 ### When to run
 
@@ -229,7 +233,10 @@ If `{{BIN_DIR}}/orun` or `{{BIN_DIR}}/oexec` is unavailable (binary missing, ser
 | `orun --msg "..."` | Foreground inline task, ≤1024 chars |
 | `orun --msg -` | Read task from stdin (multiline) |
 | `orun -i <id> --msg "..."` | Parallel task with id `<id>`; `run_in_background=True` |
+| `orun --msg "..." --add-context` | Tell the task to read `context.md` for session context before responding |
 | `orun --input <path>` | File task from `<path>`; `run_in_background=True` |
+
+**Parallel file task dispatch:** write task A → `orun` → `owait input` → write task B → `orun` → `owait input` (both now running) → `owait run` per completion; max 5 simultaneous.
 
 ### oexec (plan execution, OpenCode)
 | Flag | What it does |
@@ -241,6 +248,7 @@ If `{{BIN_DIR}}/orun` or `{{BIN_DIR}}/oexec` is unavailable (binary missing, ser
 | Flag | What it does |
 |---|---|
 | `owait input` | Wait between background dispatches; harness notifies on completion |
+| `owait run` | Wait for next task completion; harness notifies |
 
 ### Duration defaults
 | Setting | Default (s) |

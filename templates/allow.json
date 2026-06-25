@@ -12,10 +12,23 @@
         "Bash(~/bin/owait*)",
         "Bash(~/bin/nbread *)",
         "Bash(wait)",
-        "Bash(cd *)"
+        "Bash(cd *)",
+        "Bash(diff *)"
       ],
       "condition": null,
-      "display": {"section": "commands", "text": "`owrap*`, `orun*`, `oexec*`, `owait*`, `nbread *` (and `~/bin/` variants), `wait`, `cd *`"}
+      "display": {"section": "commands", "text": "`owrap*`, `orun*`, `oexec*`, `owait*`, `nbread *` (and `~/bin/` variants), `wait`, `cd *`, `diff *`"}
+    },
+    {
+      "rules": [
+        "Bash(git log *)",
+        "Bash(git log)",
+        "Bash(git diff *)",
+        "Bash(git diff)",
+        "Bash(git status)",
+        "Bash(git show *)"
+      ],
+      "condition": null,
+      "display": {"section": "commands", "text": "`git log *`, `git diff *`, `git status`, `git show *` — read-only git"}
     },
     {
       "rules": [
@@ -77,9 +90,13 @@
     },
     {
       "rules": [
+        "Write({{RESEARCH_ROOT}}/projects/**)",
         "Edit({{RESEARCH_ROOT}}/projects/**)",
+        "Write({{RESEARCH_ROOT_TILDE}}/projects/**)",
         "Edit({{RESEARCH_ROOT_TILDE}}/projects/**)",
+        "Write({{RESEARCH_ROOT}}/memory/**)",
         "Edit({{RESEARCH_ROOT}}/memory/**)",
+        "Write({{RESEARCH_ROOT_TILDE}}/memory/**)",
         "Edit({{RESEARCH_ROOT_TILDE}}/memory/**)"
       ],
       "condition": null,
@@ -87,9 +104,13 @@
     },
     {
       "rules": [
+        "Write(~/.owrap/docs/sessions/*/exec/plan.md)",
         "Edit(~/.owrap/docs/sessions/*/exec/plan.md)",
+        "Write(~/.owrap/docs/sessions/*/run/input*.md)",
         "Edit(~/.owrap/docs/sessions/*/run/input*.md)",
+        "Write(~/.owrap/docs/sessions/*/run/tasks/task*.md)",
         "Edit(~/.owrap/docs/sessions/*/run/tasks/task*.md)",
+        "Write(~/.owrap/docs/sessions/*/context.md)",
         "Edit(~/.owrap/docs/sessions/*/context.md)"
       ],
       "condition": null,

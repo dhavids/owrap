@@ -2,7 +2,7 @@ import json
 import re
 import shutil
 from pathlib import Path
-from .utils.paths import TEMPLATES_DIR, staged_dir, get_workspace_config
+from .utils.paths import CONFIGS_DIR, TEMPLATES_DIR, staged_dir, get_workspace_config
 
 
 PLACEHOLDER_RE = re.compile(r"\{\{([A-Z_]+)\}\}")
@@ -24,6 +24,9 @@ def resolve_placeholders(config: dict, workspace_name: str) -> dict:
     bin_dir = config.get("bin_dir") or str(Path.home() / "bin")
     owrap_docs = str(Path.home() / ".owrap" / "docs")
     owrap_home = str(Path.home() / ".owrap")
+    oread = bool(config.get("oread", True))
+    is_claude = bool(os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip())
+    refresh_reread = "`CLAUDE.md`" if is_claude else "`AGENTS.md`"
     return {
         "WORKSPACE": workspace,
         "RESEARCH_ROOT": research_root,
@@ -34,6 +37,8 @@ def resolve_placeholders(config: dict, workspace_name: str) -> dict:
         "OWRAP_HOME": owrap_home,
         "WORKSPACE_TILDE": _tilde_relative(workspace),
         "RESEARCH_ROOT_TILDE": _tilde_relative(research_root),
+        "PERMIT_MATCHER": "Bash|Write|Edit|Read" if oread else "Bash|Write|Edit",
+        "REFRESH_REREAD": refresh_reread,
     }
 
 
@@ -145,9 +150,7 @@ def stage_all(workspace_name: str) -> Path:
     flags = resolve_flags(config)
 
     allow_groups = load_permission_groups("allow.json")
-    deny_groups = load_permission_groups("deny.json")
     placeholders["ALLOW_RULES"] = render_rule_array(allow_groups, flags, placeholders)
-    placeholders["DENY_RULES"] = render_rule_array(deny_groups, flags, placeholders)
     placeholders["ALLOWED_COMMANDS"] = render_allowed_section(allow_groups, flags, placeholders, "commands")
     placeholders["ALLOWED_FILES"] = render_allowed_section(allow_groups, flags, placeholders, "files")
 
@@ -162,14 +165,30 @@ def stage_all(workspace_name: str) -> Path:
         text = process_conditionals(text, flags)
         (out_dir / tpl.name).write_text(substitute(text, placeholders))
 
-    # Merge planner.md → workspace/CLAUDE.md and executor.md → workspace/AGENTS.md
+    # Generate permit.json — consumed by `owrap p`
+    permit_rules = []
+    for group in allow_groups:
+        if _group_active(group, flags):
+            for rule in group.get("rules", []):
+                permit_rules.append(substitute(rule, placeholders))
+    bin_dir = placeholders.get("BIN_DIR", str(Path.home() / "bin"))
+    orun_cmd = _tilde_relative(str(Path(bin_dir).expanduser() / "orun"))
+    permit_path = CONFIGS_DIR / f"{workspace_name}_permit.json"
+    permit_path.write_text(json.dumps(
+        {"orun_cmd": orun_cmd, "rules": permit_rules}, indent=2
+    ))
+
+    # Merge planner.md and executor.md into workspace files (executor-aware)
     ws = config.get("workspace")
     if ws:
         ws_path = Path(ws)
+        import os as _os
+        is_claude = bool(_os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip())
         planner_staged = out_dir / "planner.md"
         executor_staged = out_dir / "executor.md"
         if planner_staged.exists():
-            merge_into_workspace_file(ws_path / "CLAUDE.md", planner_staged.read_text(), "planner")
+            planner_dest = ws_path / ("CLAUDE.md" if is_claude else "AGENTS.md")
+            merge_into_workspace_file(planner_dest, planner_staged.read_text(), "planner")
         if executor_staged.exists():
             merge_into_workspace_file(ws_path / "AGENTS.md", executor_staged.read_text(), "executor")
 

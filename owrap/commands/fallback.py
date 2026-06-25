@@ -8,8 +8,8 @@ from datetime import datetime
 from pathlib import Path
 
 from ..utils.terminal import Terminal
-from ..constants import ANTI_SUMMARY_SUFFIX
-from ..utils.snippet import extract_snippet
+from ..constants import ANTI_SUMMARY_SUFFIX, NO_OUTPUT_TASK_S
+from ..utils.snippet import extract_snippet, divider
 from ..utils.paths import (
     FALLBACK_EXEC_OUTPUT, FALLBACK_EXEC_LOG, FALLBACK_EXEC_STATUS,
     FALLBACK_TASK_OUTPUT, FALLBACK_TASK_LOG, FALLBACK_TASK_STATUS,
@@ -75,6 +75,8 @@ class FallbackRunner:
         self._write_status(status_file, status)
 
         last_growth = time.monotonic()
+        poll_start = time.monotonic()
+        first_output = False
         with open(output_log, "w") as log:
             log.write(f"[{datetime.now().isoformat()}] FALLBACK {mode.upper()} START ({target}, pid={runner_pid})\n")
             log.flush()
@@ -86,9 +88,17 @@ class FallbackRunner:
                     log.write(chunks_text)
                     log.flush()
                     last_growth = now
+                    first_output = True
                     if status["status"] == "stalled":
                         status["status"] = "running"
                         self._write_status(status_file, status)
+                elif not first_output and now - poll_start >= NO_OUTPUT_TASK_S:
+                    print(f"[fallback] executor not responsive (no output in {NO_OUTPUT_TASK_S}s) "
+                          f"— stop work immediately if you cannot edit files directly", flush=True)
+                    terminal.terminate_process()
+                    status["status"] = "crashed"
+                    self._write_status(status_file, status)
+                    break
                 elif now - last_growth > self.STALL_THRESHOLD_S and status["status"] == "running":
                     status["status"] = "stalled"
                     self._write_status(status_file, status)
@@ -111,7 +121,7 @@ class FallbackRunner:
 
         self._write_log(run_log, target, rc)
 
-        print(f"=== [f:{mode}] completed ===")
+        print(divider(f"[f:{mode}] completed"))
         print(f"status: {'SUCCESS' if rc == 0 else 'FAILED'}")
         print(f"exit: {rc}")
         print(f"output: {output_log}")

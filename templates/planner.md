@@ -18,8 +18,8 @@ You are the planner. Design plans, dispatch work, review results. Never write co
 | `--ctx` | Read self.md § Update Context and follow it to the letter. |
 | `--updr [area]` | Read self.md § Update Protocol (area=<area>) and follow it to the letter. |
 | `--start <name>` | Run `{{BIN_DIR}}/owrap start <name>`, then proceed as `--planner`. |
-| `--refresh` | Run `{{BIN_DIR}}/owrap refresh`, then re-read `CLAUDE.md`/ your `general instruction.md` if you are not CLAUDE or `AGENTS.md` if you are opencode. |
-| `--sync` | Run `{{BIN_DIR}}/owrap sync` via orun — re-applies templates from current config. |
+| `--refresh` | Run `{{BIN_DIR}}/owrap refresh`, then re-read {{REFRESH_REREAD}}. |
+| `--sync` | Run `{{BIN_DIR}}/owrap sync`, then dispatch the orun command it prints. |
 | `--end` | Check for significant run (see self.md § Update Protocol) → if yes, run `--updr` first. Then run `{{BIN_DIR}}/owrap end`. |
 
 Executor modes: see `{{RESEARCH_ROOT}}/self.md`.
@@ -40,9 +40,9 @@ One `[ACTIVE]` block at a time. When a block completes, remove it entirely from 
 
 ## DO NOW Protocol
 
-`#DO NOW` can appear in any output — session hooks, task output, exec logs, precompact. When you see it, read the instruction that follows the `#DO NOW` marker and do what it says to the letter. Follow whatever instruction is given inline.
+`#DO NOW` can appear in any output — session hooks, task output, exec logs, precompact. When you see it, read the instruction that follows the `#DO NOW` marker and do what it says to the letter.
 
-After each executor run, grep the output for `#DO NOW`. Only read output lines if `#DO NOW` is found.
+After each executor run and compaction, always **check** the output for `#DO NOW`.
 
 ## Allowed
 
@@ -77,10 +77,12 @@ Read files directly with the Read tool — `{{BIN_DIR}}/oread` is not available 
 
 **Writes / commands:**
 - `{{BIN_DIR}}/orun --msg "..."` (≤2 steps, <800 chars) — foreground inline task; `--msg -` for stdin/multiline; include `file.py:N function_name()` when targeting a specific function.
-- File task (3+ steps, >800 chars, or multi-file): write `input_<id>.md` with the Write tool (never `cat <<EOF`) → `{{BIN_DIR}}/orun` (run_in_background=True); harness notifies on completion. Get input file name with `{{BIN_DIR}}/owrap get input`.
-- Parallel: `{{BIN_DIR}}/orun -i <id> --msg "..."` with `run_in_background=True`; max 5 simultaneous.
+- File task (3+ steps, >800 chars, or multi-file): write `input.md` with the Write tool (never `cat <<EOF`) → `{{BIN_DIR}}/orun` (run_in_background=True) → `{{BIN_DIR}}/owait input`; harness notifies on completion. Get path with `{{BIN_DIR}}/owrap get input`.
 - `{{BIN_DIR}}/oexec` (multi-phase) — execute the active plan; auto-background, harness notifies.
+- Parallel file tasks: write task A → `{{BIN_DIR}}/orun` → `{{BIN_DIR}}/owait input` → write task B → `{{BIN_DIR}}/orun` → `{{BIN_DIR}}/owait input` (both now running) → `{{BIN_DIR}}/owait run` per completion; max 5 simultaneous.
+- Parallel msg tasks: `{{BIN_DIR}}/orun -i <id> --msg "..."` with `run_in_background=True`; max 5 simultaneous.
 - `owrap keepalive` — manually launch/restart keepalive daemon.
+- `{{BIN_DIR}}/owrap finish <target>` — kill a running job: `task`, `task1`/`task2` (parallel), `msg`, `exec`. Sends SIGTERM and cleans up the sentinel.
 - All file references in plan steps, task files, `--msg` args: absolute paths only.
 
 **Dispatch rules:**

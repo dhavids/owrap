@@ -53,8 +53,6 @@ class Manager:
         self._resolve_log_file()
         self.cleanup_done_tasks()
         self.cleanup_stale_msg_logs()
-        self._ctx_summary = None
-        self._ctx_summary_stat = None
 
     @property
     def run_log_path(self) -> Path:
@@ -343,7 +341,7 @@ class Manager:
         return False
 
     def next_task_name(self):
-        return f"task_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.md"
+        return f"task_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
 
     def register_task(self, task_id, call_type: str = "task"):
         state = self._read_state() or {}
@@ -389,7 +387,7 @@ class Manager:
                 to_remove.append(task_id)
         tasks_dir = session_tasks_dir(self.session_id) if self.session_id else self.TASKS_DIR
         for task_name in to_remove:
-            (tasks_dir / task_name).unlink(missing_ok=True)
+            (tasks_dir / f'{task_name}.md').unlink(missing_ok=True)
             del tasks[task_name]
         self._write_state(state)
 
@@ -490,60 +488,6 @@ class Manager:
         cp.write_text(content)
         self._cap_context_sections(cp)
 
-    def build_context_summary(self) -> str:
-        """Return a cached inline context header string."""
-        cp = context_path(self.session_id)
-        if not cp.exists():
-            return ""
-        try:
-            stat = cp.stat()
-            cache_key = (stat.st_mtime, stat.st_size)
-            if self._ctx_summary is not None and self._ctx_summary_stat == cache_key:
-                return self._ctx_summary
-        except OSError:
-            return ""
-        try:
-            ctx_text = cp.read_text()
-            sid = self.session_id or "none"
-            research = self.research or "none"
-            header_lines = [f"[session: {sid} | research: {research}]"]
-
-            # Focus: first non-empty line after ## Focus
-            focus_match = re.search(r"## Focus\n+(.*?)(?:\n## |\Z)", ctx_text, re.DOTALL)
-            if focus_match:
-                focus_first = focus_match.group(1).strip().splitlines()[0].strip()
-                if focus_first:
-                    header_lines.append(f"Focus: {focus_first}")
-
-            # Active: first uncompleted plan step
-            active_match = re.search(r"## Active Plan\n+(.*?)(?:\n## |\Z)", ctx_text, re.DOTALL)
-            if active_match:
-                for line in active_match.group(1).strip().splitlines():
-                    line = line.strip()
-                    if line.startswith("-") or re.match(r"\d+\. \[ \]", line):
-                        header_lines.append(f"Active: {line}")
-                        break
-
-            # Key files: top-2 from ## Frequent Files
-            freq_match = re.search(r"## Frequent Files\n+(.*?)(?:\n## |\Z)", ctx_text, re.DOTALL)
-            if freq_match:
-                freq_lines = [l.strip() for l in freq_match.group(1).strip().splitlines() if l.strip().startswith("-")]
-                if freq_lines:
-                    header_lines.append(f"Key files: {', '.join(freq_lines[:2])}")
-
-            # Decisions: 2 most recent from ## Decisions
-            dec_match = re.search(r"## Decisions\n+(.*?)(?:\n## |\Z)", ctx_text, re.DOTALL)
-            if dec_match:
-                dec_lines = [l.strip() for l in dec_match.group(1).strip().splitlines() if l.strip().startswith("-")]
-                if dec_lines:
-                    header_lines.append(f"Decisions: {', '.join(dec_lines[:2])}")
-
-            self._ctx_summary = "\n".join(header_lines) + "\n"
-            self._ctx_summary_stat = cache_key
-            return self._ctx_summary
-        except Exception:
-            return ""
-
     def update_server_last_used(self, url: str):
         from .utils.pool import update_last_used
         update_last_used(url)
@@ -553,7 +497,6 @@ class Manager:
         return config.get("keepalive_model") or config.get("fast_model") or "opencode/deepseek-v4-flash-free"
 
     def append_context_recent(self, title: str, rc: int, ctx: bool = True, kind: str = "msg"):
-        self._ctx_summary = None
         cp = self.context_path
         lock = context_lock_path(self.session_id)
         if not cp.exists():
@@ -611,7 +554,6 @@ class Manager:
             pass
 
     def update_frequent_files(self):
-        self._ctx_summary = None
         cp = self.context_path
         lock = context_lock_path(self.session_id)
         read_log = self.read_log_path
@@ -658,7 +600,6 @@ class Manager:
 
     def refresh_context_plan(self, plan_path=None):
         """Update ## Active Plan section from the first 3 uncompleted steps in the active plan."""
-        self._ctx_summary = None
         cp = self.context_path
         if not cp.exists():
             return

@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 from .paths import context_path, _read_config, get_plan_path
-from ..constants import NO_CONTEXT_MSG, NO_AREA_SECTION_MSG, CTX_DUE_MSG, UPDR_DUE_MSG
+from ..constants import NO_CONTEXT_MSG, NO_AREA_SECTION_MSG, CTX_DUE_MSG, UPDR_DUE_MSG, UPDR_DUE_PRECOMPACT_MSG
 
 COUNTERS_DIR = Path.home() / ".owrap" / "sessions"
 
@@ -136,32 +136,40 @@ def check_donow(manager, session_id: str, area: str, research: str, kind: str, i
                 if first_line in ("# Context Update", "# Update Protocol"):
                     skip_orun = True
                     counters["orun_count"] = 0
+                    counters["updr_orun_count"] = 0
         except OSError:
             pass
 
     # Increment counters
     counters.setdefault("orun_count", 0)
+    counters.setdefault("updr_orun_count", 0)
     counters.setdefault("plan_count", 0)
     counters.setdefault("marked_steps_baseline", 0)
+    counters.setdefault("precompact_count", 0)
+    counters.setdefault("last_updr_precompact", 0)
 
     if kind == "task" and not skip_orun:
         counters["orun_count"] += 1
+        counters["updr_orun_count"] += 1
     elif kind == "exec":
         counters["plan_count"] += 1
     elif kind == "precompact":
-        pass
+        counters["precompact_count"] += 1
 
     marked_steps = _count_marked_steps(plan_path) - counters.get("marked_steps_baseline", 0)
 
     ctx_update_every_orun = int(config.get("ctx_update_every_orun", 3))
     updr_every_plans = int(config.get("updr_every_plans", 2))
     updr_every_steps = int(config.get("updr_every_steps", 15))
+    updr_every_precompact = int(config.get("updr_every_precompact", 3))
+    updr_every_orun = int(config.get("updr_every_orun", 15))
 
     orun_count = counters["orun_count"]
+    updr_orun_count = counters["updr_orun_count"]
     plan_count = counters["plan_count"]
 
     ctx_due = orun_count >= ctx_update_every_orun or plan_count >= updr_every_plans or marked_steps >= updr_every_steps
-    updr_due = plan_count >= updr_every_plans or marked_steps >= updr_every_steps
+    updr_due = plan_count >= updr_every_plans or marked_steps >= updr_every_steps or updr_orun_count >= updr_every_orun
 
     messages = []
 
@@ -187,14 +195,52 @@ def check_donow(manager, session_id: str, area: str, research: str, kind: str, i
         else:
             current_hash = ""
         counters.setdefault("area_hash", {})
+        counters["last_updr_precompact"] = counters["precompact_count"]
         counters["area_hash"][area] = current_hash
+        counters["orun_count"] = 0
+        counters["updr_orun_count"] = 0
+        counters["plan_count"] = 0
+        if not ctx_due:
+            try:
+                counters["ctx_mtime_at_injection"] = cp.stat().st_mtime
+            except OSError:
+                pass
+            messages.append(CTX_DUE_MSG.format(
+                orun=orun_count, max_orun=ctx_update_every_orun,
+                plan=plan_count, max_plan=updr_every_plans,
+                steps=marked_steps, max_steps=updr_every_steps,
+            ))
         messages.append(UPDR_DUE_MSG.format(
             area=area, plan=plan_count, max_plan=updr_every_plans,
             steps=marked_steps, max_steps=updr_every_steps,
+            orun=updr_orun_count, max_orun=updr_every_orun,
         ))
 
-    if kind != "precompact":
-        _write_counters(session_id, counters)
+    precompact_count = counters["precompact_count"]
+    last_updr_precompact = counters.get("last_updr_precompact", 0)
+    precompact_updr_due = (
+        kind == "precompact"
+        and precompact_count > 0
+        and not updr_due
+        and (precompact_count - last_updr_precompact) >= updr_every_precompact
+    )
+    if precompact_updr_due:
+        counters["last_updr_precompact"] = precompact_count
+        counters["orun_count"] = 0
+        counters["updr_orun_count"] = 0
+        counters["plan_count"] = 0
+        try:
+            counters["ctx_mtime_at_injection"] = cp.stat().st_mtime
+        except OSError:
+            pass
+        messages.append(CTX_DUE_MSG.format(
+            orun=orun_count, max_orun=ctx_update_every_orun,
+            plan=plan_count, max_plan=updr_every_plans,
+            steps=marked_steps, max_steps=updr_every_steps,
+        ))
+        messages.append(UPDR_DUE_PRECOMPACT_MSG.format(precompact_count=precompact_count))
+
+    _write_counters(session_id, counters)
 
     if messages:
         return "\n\n".join(messages)

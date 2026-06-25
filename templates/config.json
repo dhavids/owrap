@@ -22,7 +22,10 @@
     "expected_duration_read": 4,
     "expected_duration_task": 6,
     "expected_duration_exec": 30,
-    "ctx_update_every_orun": 3,
-    "updr_every_plans": 2,
-    "updr_every_steps": 15
+    "ctx_update_every_orun": 5,
+    "updr_every_plans": 3,
+    "updr_every_steps": 20,
+    "updr_every_precompact": 3,
+    "updr_every_orun": 15,
+    "max_requests_per_server": 10
 }

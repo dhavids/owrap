@@ -94,7 +94,7 @@ def main():
     run_parser.add_argument("-t", "--timeout", type=int, default=None, help="Timeout in seconds (default: 180 for --msg)")
     run_parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     run_parser.add_argument("--log-time", action="store_true", help="Show the [timing] block (debugging/tests only)")
-    run_parser.add_argument("--no-context", action="store_true", help="Suppress inline context header")
+    run_parser.add_argument("--add-context", action="store_true", help="Tell the msg task to read context.md before responding")
     run_parser.add_argument("--model", "-m", type=str, default=None, help="Model override")
 
     exec_parser.add_argument("--debug", action="store_true", help="Enable debug logging")
@@ -126,6 +126,8 @@ def main():
     get_parser.add_argument("--session", default=None)
 
     keepalive_parser = subparsers.add_parser("keepalive", help="Run the keepalive daemon")
+
+    p_parser = subparsers.add_parser("p", help="PreToolUse permission check (reads staged permit.json)")
 
     wait_parser = subparsers.add_parser("wait", help="Wait for task/read/msg completion")
     wait_parser.add_argument("type", choices=["run", "exec", "read", "msg", "input"])
@@ -189,7 +191,7 @@ def main():
             timeout=getattr(args, 'timeout', None), verbose=args.verbose,
             prompt_style=getattr(args, 'prompt_style', None))
     elif args.command in ("run",):
-        RunRunner(manager, logger, allow_all=allow_all, no_context=args.no_context, model=args.model).run(
+        RunRunner(manager, logger, allow_all=allow_all, add_context=args.add_context, model=args.model).run(
             msg=args.msg, msg_id=getattr(args, 'id', None),
             input_path=Path(args.input) if args.input else None,
             log_time=args.log_time, timeout=getattr(args, 'timeout', None))
@@ -207,6 +209,9 @@ def main():
         KillServersRunner().run(session_id=getattr(args, "session", None))
     elif args.command == "keepalive":
         KeepaliveRunner(manager, logger, allow_all=allow_all).run()
+    elif args.command == "p":
+        from .commands.permit import PermitRunner
+        PermitRunner().run()
     elif args.command == "update-area":
         UpdateAreaRunner(manager, logger, allow_all=allow_all).run(research=args.research, area=args.area)
     elif args.command == "wait":

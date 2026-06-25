@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 from ..base import BaseRunner
-from ..utils.paths import RUNNING_DIR, RECENTLY_DONE_DIR, session_input
+from ..utils.paths import RUNNING_DIR, RECENTLY_DONE_DIR, session_input, _read_config, SERVER_LOGS_DIR
 
 
 class StatRunner(BaseRunner):
@@ -24,40 +24,6 @@ class StatRunner(BaseRunner):
 
         print("=== OWRAP SESSIONS ===\n")
 
-        from ..utils.pool import get_pool, _active_load, _estimate_remaining
-        pool = get_pool()
-
-        running_tasks, done_tasks = self._load_tasks()
-        all_srv_urls = {entry.get("url") for entry in pool}
-
-        if pool:
-            label = "server:" if len(pool) == 1 else "servers:"
-            print(f"  {label}")
-            for entry in pool:
-                pid = entry.get("pid", "?")
-                url = entry.get("url", "?")
-                port = entry.get("port", "?")
-                alive = "alive" if _is_alive(pid) else "dead"
-                load = _active_load(url)
-                remaining = _estimate_remaining(url)
-                last_used = entry.get("last_used", 0)
-                if load > 0:
-                    lu_str = "in use"
-                elif last_used:
-                    lu_age = time.time() - last_used
-                    if lu_age < 60:
-                        lu_str = f"used {lu_age:.0f}s ago"
-                    elif lu_age < 3600:
-                        lu_str = f"used {lu_age/60:.0f}m ago"
-                    else:
-                        lu_str = f"used {lu_age/3600:.0f}h ago"
-                else:
-                    lu_str = "never used"
-                print(f"    port {port}  {url}  [{alive}]  pid={pid}  load={load}  remaining={remaining:.0f}s  {lu_str}")
-            print()
-        else:
-            print("  server: not started\n")
-
         # keepalive status
         from ..utils.paths import KEEPALIVE_PID_FILE, KEEPALIVE_STATE_FILE
         keepalive_pid_file = KEEPALIVE_PID_FILE
@@ -71,15 +37,13 @@ class StatRunner(BaseRunner):
                     try:
                         import json as _json
                         ks = _json.loads(keepalive_state_file.read_text())
-                        model = ks.get("model", "")
                         idle_since = ks.get("idle_since")
                         idle_exit_s = ks.get("idle_exit_s", 300)
-                        model_str = f"  model={model}" if model else ""
                         if idle_since is not None:
                             remaining_idle = max(0, idle_exit_s - (time.time() - idle_since))
-                            ka_extra = f"{model_str}  idle  dies in {remaining_idle:.0f}s"
+                            ka_extra = f"  idle  dies in {remaining_idle:.0f}s"
                         else:
-                            ka_extra = f"{model_str}  active"
+                            ka_extra = "  active"
                     except Exception:
                         pass
                 print(f"  keepalive: pid={kpid} running{ka_extra}\n")
@@ -88,8 +52,71 @@ class StatRunner(BaseRunner):
         else:
             print("  keepalive: stopped\n")
 
-        orphan_running = [t for t in running_tasks if t.get("server_url", "") not in all_srv_urls]
-        orphan_done = [t for t in done_tasks if t.get("server_url", "") not in all_srv_urls]
+        from ..utils.pool import get_pool, _active_load, _estimate_remaining
+        pool = get_pool()
+
+        running_tasks, done_tasks = self._load_tasks()
+        all_srv_urls = {entry.get("url") for entry in pool}
+
+        if pool:
+            label = "server:" if len(pool) == 1 else f"servers ({len(pool)}):"
+            print(f"  {label}")
+            cfg = _read_config()
+            idle_shutdown_s = float(cfg.get("idle_shutdown_s", 600))
+            now = time.time()
+            for i, entry in enumerate(pool):
+                if i > 0:
+                    print()
+                pid = entry.get("pid", "?")
+                url = entry.get("url", "?")
+                alive = "alive" if _is_alive(pid) else "dead"
+                load = _active_load(url)
+                last_used = entry.get("last_used", 0)
+                if last_used:
+                    dies_in = max(0, idle_shutdown_s - (now - last_used))
+                    if load > 0:
+                        dies_str = ""
+                    elif dies_in > 0:
+                        dies_str = f"  dies in {dies_in:.0f}s"
+                    else:
+                        dies_str = "  idle (kept alive)"
+                else:
+                    dies_str = ""
+                log_file = SERVER_LOGS_DIR / f"owrap_{pid}.log"
+                log_str = f"  {log_file}" if log_file.exists() else ""
+                print(f"    {url}  load={load}{dies_str}{log_str}")
+                srv_running = [t for t in running_tasks if t.get("server_url") == url]
+                srv_done = [t for t in done_tasks if t.get("server_url") == url]
+                if srv_running or srv_done:
+                    print(f"      tasks:")
+                    _print_running(srv_running, show_session=True, indent="        ")
+                    _print_done(srv_done, show_session=True, indent="        ")
+            print()
+        else:
+            print("  server: not started\n")
+
+        dead_urls = {}
+        for t in running_tasks + done_tasks:
+            url = t.get("server_url", "")
+            if url and url not in all_srv_urls:
+                dead_urls.setdefault(url, [])
+        dead_urls_sorted = sorted(dead_urls.keys())
+
+        if dead_urls_sorted:
+            if not pool:
+                print(f"  servers ({len(dead_urls_sorted)}):")
+            for url in dead_urls_sorted:
+                ghost_running = [t for t in running_tasks if t.get("server_url") == url]
+                ghost_done = [t for t in done_tasks if t.get("server_url") == url]
+                print(f"    {url}  [dead]")
+                if ghost_running or ghost_done:
+                    print(f"      tasks:")
+                    _print_running(ghost_running, show_session=True, indent="        ")
+                    _print_done(ghost_done, show_session=True, indent="        ")
+            print()
+
+        orphan_running = [t for t in running_tasks if not t.get("server_url")]
+        orphan_done = [t for t in done_tasks if not t.get("server_url")]
         if orphan_running or orphan_done:
             print("tasks:")
             _print_running(orphan_running, show_session=True)
@@ -247,29 +274,37 @@ def _is_alive(pid) -> bool:
 
 def _print_running(tasks, show_session=True, indent="  "):
     for t in tasks:
-        age = _age_str(t.get("started", time.time()))
-        status = "running" if t.get("alive") else "stale/crashed"
+        alive = t.get("alive", False)
+        health = t.get("health", "healthy") if alive else None
+        if not alive:
+            status = "stale/crashed"
+        elif health == "stalled":
+            status = "STALLED"
+        else:
+            status = "running"
+        elapsed = time.time() - t.get("started", time.time())
+        dur_str = f"{elapsed:.0f}s"
         kind = t.get("kind", "task")
-        tid = str(t.get("task_id", "?"))[:12]
-        sess = f"  [{t.get('session_id','?')}/{t.get('research','?')}]" if show_session else ""
-        health = t.get("health", "healthy") if status == "running" else None
-        health_display = f"  {'STALLED' if health == 'stalled' else 'healthy'}" if health else ""
-        print(f"{indent}{kind:<6}  {tid:<14}  {status:<14}  started {age} ago   pid={t.get('pid')}{sess}   \"{t.get('title','')[:55]}\"{health_display}")
+        sess = f"  [{t.get('session_id','?')}]" if show_session else ""
+        out = t.get("output_path", "")
+        out_str = f"  {out}" if out else ""
+        print(f"{indent}{kind}  {sess}  {status}  {dur_str}{out_str}")
 
 
 def _print_done(tasks, show_session=True, indent="  "):
     for t in tasks:
-        age = _age_str(t.get("finished", time.time()))
+        finished_age = _age_str(t.get("finished", time.time()))
         rc = t.get("rc", "?")
         result = "ok" if rc == 0 else ("timeout" if t.get("timed_out") else ("crashed" if t.get("crashed") else f"rc={rc}"))
         kind = t.get("kind", "task")
-        tid = str(t.get("task_id", "?"))[:12]
-        sess = f"  [{t.get('session_id','?')}/{t.get('research','?')}]" if show_session else ""
+        sess = f"  [{t.get('session_id','?')}]" if show_session else ""
         status = f"done({result})"
-        started = t.get('started')
-        finished = t.get('finished')
-        dur_str = f'{finished - started:.1f}s' if started and finished else '?s'
-        print(f"{indent}{kind:<6}  {tid:<14}  {status:<16}  {age} ago{sess}   {dur_str}   \"{t.get('title','')[:55]}\"")
+        started = t.get("started")
+        finished = t.get("finished")
+        dur_str = f"{finished - started:.1f}s" if started and finished else "?s"
+        out = t.get("output_path", "")
+        out_str = f"  {out}" if out else ""
+        print(f"{indent}{kind}  {sess}  {status}  {finished_age} ago  {dur_str}{out_str}")
 
 
 def _parse_session(path: Path) -> dict:

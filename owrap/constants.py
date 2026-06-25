@@ -1,9 +1,15 @@
 ANTI_SUMMARY_SUFFIX = "STOP immediately when done. DO NOT summarize, list, or explain your work."
 
-EXPECTED_DURATION_S = {"msg": 4, "read": 4, "task": 6, "exec": 30}
+LOG_WRAP_WIDTH = 120
+LOG_DIVIDER_WIDTH = 60
+
+EXPECTED_DURATION_S = {"msg": 60, "read": 30, "task": 120, "exec": 300}
 
 STALL_NOTIFY_S = 120
 MSG_KILL_S = 30
+NO_OUTPUT_MSG_S = 10
+NO_OUTPUT_TASK_S = 15
+NO_OUTPUT_EXEC_S = 20
 TASK_KILL_S = 60
 EXEC_KILL_S = 120
 WATCHDOG_POLL_S = 10
@@ -25,7 +31,9 @@ NO_AREA_SECTION_MSG = "#DO NOW\nArea section '## {area}' missing in memory/proje
 
 CTX_DUE_MSG = "#DO NOW\nContext update due (orun={orun}/{max_orun}, plans={plan}/{max_plan}, steps={steps}/{max_steps}). Read self.md § Update Context and follow it to the letter."
 
-UPDR_DUE_MSG = "#DO NOW\nUpdate protocol due for area '{area}' (plans={plan}/{max_plan}, steps={steps}/{max_steps}; memory/projects unchanged). Read self.md § Update Protocol and follow it to the letter."
+UPDR_DUE_MSG = "#DO NOW\nUpdate protocol due for area '{area}' (plans={plan}/{max_plan}, steps={steps}/{max_steps}, orun={orun}/{max_orun}; memory/projects unchanged). Read self.md § Update Protocol and follow it to the letter."
+
+UPDR_DUE_PRECOMPACT_MSG = "#DO NOW\nUpdate protocol overdue (no updr in last {precompact_count} precompacts). Read self.md § Update Protocol and follow it to the letter."
 
 
 PRE_COMPACT_CTX_TEMPLATE = """\

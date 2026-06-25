@@ -24,7 +24,7 @@ class BaseRunner(ABC):
         """Return the server URL from the manager, or None."""
         return self.manager.get_server_url()
 
-    def _write_sentinel(self, task_id, title, kind="task", call_type="task"):
+    def _write_sentinel(self, task_id, title, kind="task", call_type="task", url=None, output_path=None):
         from .utils.paths import RUNNING_DIR
         RUNNING_DIR.mkdir(parents=True, exist_ok=True)
         session_id = self.manager.session_id or "none"
@@ -39,7 +39,8 @@ class BaseRunner(ABC):
             "call_type": call_type,
             "title": title,
             "started": time.time(),
-            "server_url": self._get_server_url() or "",
+            "server_url": url or self._get_server_url() or "",
+            "output_path": str(output_path) if output_path else "",
         }
         path = RUNNING_DIR / name
         path.write_text(json.dumps(data))

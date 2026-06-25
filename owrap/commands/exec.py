@@ -8,10 +8,10 @@ from pathlib import Path
 from ..utils.terminal import Terminal
 from ..manager import Manager
 from ..base import BaseRunner
-from ..constants import ANTI_SUMMARY_SUFFIX, EXEC_KILL_S
+from ..constants import ANTI_SUMMARY_SUFFIX, EXEC_KILL_S, NO_OUTPUT_EXEC_S
 from ..utils.pool import _pool_active, pick_server, update_last_used
 from ..utils.paths import session_exec_output_path, get_plan_path, context_path, _read_config, get_agents_md_path, get_workspace_path, format_failure_pointer
-from ..utils.snippet import extract_snippet
+from ..utils.snippet import extract_snippet, divider
 
 
 class ExecRunner(BaseRunner):
@@ -93,22 +93,32 @@ class ExecRunner(BaseRunner):
 
         task_id = session_id or "exec"
         self.manager.register_task(task_id, "exec")
-        sentinel = self._write_sentinel(task_id, plan_name[:60], kind="exec", call_type="exec")
+        sentinel = self._write_sentinel(task_id, plan_name[:60], kind="exec", call_type="exec", url=url, output_path=self.LOG_FILE)
         self._install_sigterm_handler()
         rc = 1
         watchdog = None
         try:
             with open(self.LOG_FILE, "w") as log:
-                log.write(f"[{datetime.now().isoformat()}] EXEC SESSION START\n")
+                log.write(f"[{datetime.now().isoformat()}] EXEC SESSION START\n\n")
+                log.write(f"{divider('INPUT')}\n\nPlan file: {plan_str}\n\n")
+                log.flush()
+                log.write(f"{divider('EXECUTOR OUTPUT')}\n")
                 log.flush()
                 self.manager.t_cmd_start()
                 terminal = Terminal(verbose=False)
                 from ..utils.watchdog import Watchdog, write_sentinel_health
+                def _exec_unresp():
+                    setattr(self, '_stall_killed', True)
+                    terminal.terminate_process()
+                    print(f"[watchdog] executor not responsive (no output in {NO_OUTPUT_EXEC_S}s) "
+                          f"— use owrap f as fallback", flush=True)
                 watchdog = Watchdog(
                     log_path=self.LOG_FILE,
                     kill_callback=lambda: (setattr(self, '_stall_killed', True), terminal.terminate_process()),
                     notify_callback=lambda state: (write_sentinel_health(sentinel, state), print(f"[watchdog] exec {state}", flush=True)),
                     kill_after_s=float(_read_config().get("exec_kill_s", EXEC_KILL_S)),
+                    no_output_s=float(_read_config().get("no_output_exec_s", NO_OUTPUT_EXEC_S)),
+                    unresponsive_callback=_exec_unresp,
                 )
                 watchdog.start()
                 result = terminal.run(" ".join(cmd), capture_output=True, print_output=True, tee_file=log, cwd=str(get_workspace_path()))
@@ -128,7 +138,7 @@ class ExecRunner(BaseRunner):
         status = "SUCCESS" if rc == 0 else "FAILED"
         if self.logger:
             self.logger.info("exec done rc=%d status=%s log=%s", rc, status, self.LOG_FILE)
-        print(f"=== [exec] completed ===")
+        print(divider("[exec] completed"))
         print(f"status: {status}")
         print(f"exit: {rc}")
         print(f"log: {self.LOG_FILE}")
@@ -146,6 +156,16 @@ class ExecRunner(BaseRunner):
         donow_msg = check_donow(self.manager, session_id, area, self.manager.research, kind="exec")
         if donow_msg:
             print(f"\n{donow_msg}")
+        try:
+            with open(self.LOG_FILE, "a") as log2:
+                log2.write(f"\n{divider('[exec] completed')}\n")
+                log2.write(f"status: {status}\n")
+                log2.write(f"exit: {rc}\n")
+                log2.write(f"log: {self.LOG_FILE}\n")
+                if t:
+                    log2.write(f"timing: {t}\n")
+        except Exception:
+            pass
         self.manager.log_time(log_time)
         self._write_exec_log(plan_name)
         try:

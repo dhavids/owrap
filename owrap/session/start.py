@@ -277,7 +277,7 @@ class AttachRunner(BaseRunner):
 
         self.manager.session_id = sid
         print(f"ATTACHED session={sid}  research={research or '-'}  prev_session_for_this_window={prev or '-'}")
-        print_orientation(sid, research, url, plan_path, todo_path, input_path, context_path=cp)
+        print_orientation(sid, research, url, plan_path, todo_path, input_path, context_path=cp, attach=True)
         print(f"\n__OWRAP_EXPORT__ SESSION_ID={sid}")
         sys.exit(0)
 

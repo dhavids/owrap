@@ -80,7 +80,7 @@ def mock_manager(tmp_path):
     manager.t_cmd_start = MagicMock()
     manager.t_cmd_end = MagicMock()
     manager.log_time = MagicMock()
-    manager.next_task_name = MagicMock(return_value="task_20260613_120000_000001.md")
+    manager.next_task_name = MagicMock(return_value="task_20260613_120000_000001")
     manager.register_task = MagicMock()
     manager.complete_task = MagicMock()
     manager.build_context_summary = MagicMock(return_value="")

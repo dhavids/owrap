@@ -1,5 +1,8 @@
 import re
+import textwrap
 from pathlib import Path
+
+from ..constants import LOG_DIVIDER_WIDTH
 
 
 def extract_snippet(path: Path, default: str = "") -> str:
@@ -27,3 +30,14 @@ def extract_snippet(path: Path, default: str = "") -> str:
         return first_line.lstrip("#").strip()
 
     return default
+
+
+def wrap_log_text(text: str, width: int = 120) -> str:
+    return "\n".join(
+        textwrap.fill(line, width=width) if line else ""
+        for line in text.split("\n")
+    )
+
+
+def divider(label: str, width: int = LOG_DIVIDER_WIDTH) -> str:
+    return f" {label} ".center(width, "=")
