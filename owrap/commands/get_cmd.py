@@ -85,21 +85,30 @@ class GetRunner:
         research = sdata.get("research", "")
         if what in ("plan", "input") and research == "owrap":
             fpath = FALLBACK_PLAN if what == "plan" else FALLBACK_TASK
-            header = f"# {what}: {fpath}  (research=owrap: dispatch via `owrap f {fpath}`)"
+            print(f"# {what}: {fpath}  (research=owrap: dispatch via `owrap f {fpath}`)")
+            if not fpath.exists():
+                print(f"No {'plan' if what == 'plan' else 'input'} file for session {sid}")
+            else:
+                content = fpath.read_text().strip()
+                print("Plan is empty" if what == "plan" and not content else content)
+            if what == "input":
+                session_fpath = fmap["input"]
+                print(f"\n# input (session): {session_fpath}")
+                session_content = session_fpath.read_text().strip() if session_fpath.exists() else ""
+                print("(empty)" if not session_content else session_content)
         else:
             fpath = fmap[what]
             header = f"# {what}: {fpath}"
-        print(header)
-        if not fpath.exists():
-            label = {"plan": "plan file", "input": "input file", "context": "context file"}[what]
-            print(f"No {label} for session {sid}")
-            sys.exit(1)
-
-        content = fpath.read_text().strip()
-        if what == "plan" and not content:
-            print("Plan is empty")
-        else:
-            print(content)
+            print(header)
+            if not fpath.exists():
+                label = {"plan": "plan file", "input": "input file", "context": "context file"}[what]
+                print(f"No {label} for session {sid}")
+                sys.exit(1)
+            content = fpath.read_text().strip()
+            if what == "plan" and not content:
+                print("Plan is empty")
+            else:
+                print(content)
 
     def _resolve_session_id(self, session_id):
         if session_id:

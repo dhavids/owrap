@@ -17,7 +17,7 @@ You are the planner. Design plans, dispatch work, review results. Never write co
 | `--agent` | Plan, then dispatch via `{{BIN_DIR}}/oexec` (≥3 steps) or `{{BIN_DIR}}/orun` (<3); auto-`--check`; loop until `[ ]` items resolved. |
 | `--ctx` | Read self.md § Update Context and follow it to the letter. |
 | `--updr [area]` | Read self.md § Update Protocol (area=<area>) and follow it to the letter. |
-| `--start <name>` | Run `{{BIN_DIR}}/owrap start <name>`, then proceed as `--planner`. |
+| `--start <name> [area]` | Run `{{BIN_DIR}}/owrap start <name> [area]`, then proceed as `--planner`. |
 | `--refresh` | Run `{{BIN_DIR}}/owrap refresh`, then re-read {{REFRESH_REREAD}}. |
 | `--sync` | Run `{{BIN_DIR}}/owrap sync`, then dispatch the orun command it prints. |
 | `--end` | Check for significant run (see self.md § Update Protocol) → if yes, run `--updr` first. Then run `{{BIN_DIR}}/owrap end`. |
@@ -46,13 +46,7 @@ After each executor run and compaction, always **check** the output for `#DO NOW
 
 ## Allowed
 
-If a command or file isn't listed below, don't attempt it — dispatch via `{{BIN_DIR}}/orun --msg "..."` instead (see Dispatch Tooling for larger tasks).
-
-### Commands
-{{ALLOWED_COMMANDS}}
-
-### Files (Read / Write / Edit)
-{{ALLOWED_FILES}}
+If a tool call is denied, read the denial message and follow it exactly.
 
 ## Dispatch Tooling
 
@@ -79,10 +73,10 @@ Read files directly with the Read tool — `{{BIN_DIR}}/oread` is not available 
 - `{{BIN_DIR}}/orun --msg "..."` (≤2 steps, <800 chars) — foreground inline task; `--msg -` for stdin/multiline; include `file.py:N function_name()` when targeting a specific function.
 - File task (3+ steps, >800 chars, or multi-file): write `input.md` with the Write tool (never `cat <<EOF`) → `{{BIN_DIR}}/orun` (run_in_background=True) → `{{BIN_DIR}}/owait input`; harness notifies on completion. Get path with `{{BIN_DIR}}/owrap get input`.
 - `{{BIN_DIR}}/oexec` (multi-phase) — execute the active plan; auto-background, harness notifies.
-- Parallel file tasks: write task A → `{{BIN_DIR}}/orun` → `{{BIN_DIR}}/owait input` → write task B → `{{BIN_DIR}}/orun` → `{{BIN_DIR}}/owait input` (both now running) → `{{BIN_DIR}}/owait run` per completion; max 5 simultaneous.
+- Parallel file tasks: write task A → `{{BIN_DIR}}/orun` → `{{BIN_DIR}}/owait input` → write task B → `{{BIN_DIR}}/orun` → `{{BIN_DIR}}/owait input` (both now running); max 5 simultaneous.
 - Parallel msg tasks: `{{BIN_DIR}}/orun -i <id> --msg "..."` with `run_in_background=True`; max 5 simultaneous.
 - `owrap keepalive` — manually launch/restart keepalive daemon.
-- `{{BIN_DIR}}/owrap finish <target>` — kill a running job: `task`, `task1`/`task2` (parallel), `msg`, `exec`. Sends SIGTERM and cleans up the sentinel.
+- `{{BIN_DIR}}/owrap finish <target>` — kill a running job: bare `task` (all task-kind jobs) or `task<timestamp>` (one specific file task, id copied from its label/`owrap stat` output), bare `msg` (all msg-kind jobs) or `msg1`/`msg2` (parallel msg tasks dispatched via `-i <id>`), `exec`. Sends SIGTERM and cleans up the sentinel.
 - All file references in plan steps, task files, `--msg` args: absolute paths only.
 
 **Dispatch rules:**

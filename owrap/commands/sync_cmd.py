@@ -4,7 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from ..staging import stage_all
+from ..staging import stage_all, resolve_flags
 from ..utils.paths import get_workspace_config, RUNTIME_HOME
 
 
@@ -25,11 +25,17 @@ class SyncRunner:
         workspace = config["workspace"]
         research_root = config.get("research_root") or f"{workspace}/docs/research"
 
+        flags = resolve_flags(config)
+        self._sync_global_read_permission(bool(flags.get("OREAD")))
+
         # stage_all() already merged planner.md → CLAUDE.md and executor.md → AGENTS.md
         targets = [
             (staged / "self.md",       f"{research_root}/self.md"),
             (staged / "settings.json", f"{workspace}/.claude/settings.local.json"),
         ]
+        settings_json_path = Path(workspace) / ".claude" / "settings.json"
+        if settings_json_path.exists():
+            targets.append((staged / "settings.json", str(settings_json_path)))
 
         task_path = self._write_sync_task(targets, sid)
         print(f"sync_task written: {task_path}")
@@ -90,3 +96,41 @@ class SyncRunner:
         ]
         task_path.write_text("\n".join(lines) + "\n")
         return task_path
+
+    def _sync_global_read_permission(self, oread: bool):
+        """Keep ~/.claude/settings.json (global, user-level) Read(//**) rule in sync with oread.
+
+        Claude Code's project-level settings.local.json/settings.json permission
+        rules do not apply to paths outside the workspace root, regardless of
+        additionalDirectories or rule syntax. Only a global user-level rule
+        works for out-of-workspace reads. When oread=false, direct Read is
+        intended, so we ensure this rule is present. When oread=true, direct
+        Read should go through the oread tool instead, so we remove it if
+        present. Never clobbers other content already in the global file.
+        """
+        global_settings_path = Path.home() / ".claude" / "settings.json"
+        try:
+            if global_settings_path.exists() and global_settings_path.stat().st_size > 0:
+                data = json.loads(global_settings_path.read_text())
+            else:
+                data = {}
+        except Exception:
+            return
+        if not isinstance(data, dict):
+            return
+        permissions = data.setdefault("permissions", {})
+        allow = permissions.setdefault("allow", [])
+        changed = False
+        if oread:
+            if "Read(//**)" in allow:
+                allow.remove("Read(//**)")
+                changed = True
+        else:
+            if "Read(//**)" not in allow:
+                allow.append("Read(//**)")
+                changed = True
+        if changed:
+            global_settings_path.parent.mkdir(parents=True, exist_ok=True)
+            global_settings_path.write_text(json.dumps(data, indent=2) + "\n")
+            action = "Removed" if oread else "Merged"
+            print(f"{action} Read(//**) in global {global_settings_path}")

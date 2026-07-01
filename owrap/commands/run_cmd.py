@@ -16,6 +16,19 @@ from ..utils.pool import _pool_active, pick_server, update_last_used
 from ..utils.paths import TASKS_DIR, RUNTIME_DIR, context_path, _read_config, get_agents_md_path, get_workspace_config, format_failure_pointer, FALLBACK_TASK, session_msg_output_dir, session_task_output_dir, session_tasks_dir, session_precompact_dir
 from ..utils.snippet import extract_snippet, wrap_log_text, divider
 
+_PLACEHOLDER_TAG_RE = re.compile(r'<([A-Za-z][\w-]*)>')
+
+
+def _sanitize_placeholder_tags(text: str) -> str:
+    """Rewrite bare placeholder tags like <Topic> to [Topic].
+
+    A bare single-word angle-bracket tag with no closing counterpart causes
+    the executor to hang producing zero output (confirmed via bisection).
+    Only this narrow shape is rewritten — comparisons, generics, git conflict
+    markers, and real HTML/XML snippets don't match and are left untouched.
+    """
+    return _PLACEHOLDER_TAG_RE.sub(r'[\1]', text)
+
 
 class RunRunner(BaseRunner):
     TASKS_DIR = TASKS_DIR
@@ -78,8 +91,7 @@ class RunRunner(BaseRunner):
             print(f"Error: --msg must be <= 1024 characters (got {len(msg)})")
             print(format_failure_pointer("MSG_TOO_LONG", self.manager.session_id))
             sys.exit(1)
-
-
+        msg = _sanitize_placeholder_tags(msg)
 
         if msg_id:
             print(f"[m:{msg_id}]", flush=True)
@@ -147,6 +159,7 @@ class RunRunner(BaseRunner):
                 tee.write(f"[{datetime.now().isoformat()}] MSG START\n\n{divider('INPUT')}\n\n{_file_note}{wrap_log_text(original_msg, LOG_WRAP_WIDTH)}\n\n")
                 tee.flush()
                 tee.write(f"{divider('EXECUTOR OUTPUT')}\n")
+                tee.write(f"[server: {url or 'direct'}]\n\n")
                 tee.flush()
                 terminal = Terminal(verbose=False)
                 from ..utils.watchdog import Watchdog, write_sentinel_health
@@ -185,6 +198,16 @@ class RunRunner(BaseRunner):
         finally:
             if watchdog:
                 watchdog.stop()
+            try:
+                _reason = (
+                    "timeout" if timed_out
+                    else "watchdog (no output)" if getattr(self, '_stall_killed', False)
+                    else ("ok" if rc == 0 else f"crashed (rc={rc})")
+                )
+                with open(msg_log, "a") as _lf:
+                    _lf.write(f"\n{divider('RESULT')}\n[{datetime.now().isoformat()}] rc={rc} {_reason}\n")
+            except Exception:
+                pass
             self._complete_sentinel(sentinel, rc, timed_out=timed_out)
             if self.logger:
                 self.logger.info("run msg done msg=%.80r rc=%d%s", msg, rc, " (timeout)" if timed_out else "")
@@ -218,9 +241,15 @@ class RunRunner(BaseRunner):
             print(format_failure_pointer("INPUT_EMPTY", self.manager.session_id))
             sys.exit(1)
 
-        content = input_path.read_text()
+        content = _sanitize_placeholder_tags(input_path.read_text())
         _first_line = content.split("\n", 1)[0].strip()
-        _skip_recent = _first_line in ("# Update Context", "# Update Protocol") or _first_line.startswith("## Update Context (pre-compaction)") or _first_line.startswith("## Update Protocol (pre-compaction)")
+        _skip_recent = (
+            _first_line in ("# Update Context", "# Update Protocol")
+            or _first_line.startswith("## Update Context (pre-compaction)")
+            or _first_line.startswith("## Update Protocol (pre-compaction)")
+            or _first_line in ("# Sync Task — re-apply staged templates to project files",)
+            or (input_path is not None and "sync" in input_path.name)
+        )
 
         if url:
             task_name = self.manager.next_task_name()
@@ -244,6 +273,11 @@ class RunRunner(BaseRunner):
 
             _is_precompact = input_path is not None and input_path.name == "input_precompact.md"
             _is_context = _first_line in ("# Context Update", "# Update Context")
+            _is_updr = _first_line in ("# Update Protocol",)
+            _is_sync = (
+                _first_line in ("# Sync Task — re-apply staged templates to project files",)
+                or (input_path is not None and "sync" in input_path.name)
+            )
             if _is_precompact and self.manager.session_id:
                 _pcdir = session_precompact_dir(self.manager.session_id)
                 _pcdir.mkdir(parents=True, exist_ok=True)
@@ -259,7 +293,7 @@ class RunRunner(BaseRunner):
             cmd.extend(["--", shlex.quote(f"--task {task_file} {ANTI_SUMMARY_SUFFIX}")])
 
             title = self._get_task_title(task_file)
-            _task_kind = "precompact" if _is_precompact else ("context" if _is_context else "task")
+            _task_kind = "precompact" if _is_precompact else ("context" if _is_context else ("updr" if _is_updr else ("sync" if _is_sync else "task")))
             sentinel = self._write_sentinel(task_name, title, kind=_task_kind, call_type="task", url=url, output_path=log_path)
             self._install_sigterm_handler()
             if self.logger:
@@ -309,6 +343,7 @@ class RunRunner(BaseRunner):
                     watchdog.stop()
                 self._complete_sentinel(sentinel, rc, timed_out=timed_out)
                 self.manager.complete_task(task_name)
+                task_file.unlink(missing_ok=True)
                 if self.logger:
                     self.logger.info("run task_name=%s done rc=%d log=%s%s", task_name, rc, log_path, " (timeout)" if timed_out else "")
                 t = ""

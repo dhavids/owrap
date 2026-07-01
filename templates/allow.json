@@ -53,10 +53,11 @@
         "Bash(find *)",
         "Bash(ls *)",
         "Bash(cat *)",
+        "Bash(wc *)",
         "Read"
       ],
       "condition": "NO_OREAD",
-      "display": {"section": "commands", "text": "`Read` (any path), `Grep`, `grep *`, `find *`, `ls *`, `cat *`"}
+      "display": {"section": "commands", "text": "`Read` (any path), `Grep`, `grep *`, `find *`, `ls *`, `cat *`, `wc *`"}
     },
     {
       "rules": [

@@ -84,14 +84,19 @@ def load_permission_groups(filename: str) -> list:
     return json.loads(path.read_text()).get("groups", [])
 
 
-def render_rule_array(groups: list, flags: dict, placeholders: dict, indent: int = 6) -> str:
+def render_rule_array(groups: list, flags: dict, placeholders: dict, indent: int = 6, exclude_tools: set = None) -> str:
     """Render the flat list of permission rules (filtered by flags, placeholders resolved) as a JSON array literal."""
     rules = []
     for group in groups:
         if not _group_active(group, flags):
             continue
         for rule in group.get("rules", []):
+            tool = rule.split("(", 1)[0] if "(" in rule else rule
+            if exclude_tools and tool in exclude_tools:
+                continue
             rules.append(substitute(rule, placeholders))
+    bare_tools = {r for r in rules if "(" not in r}
+    rules = [r for r in rules if "(" not in r or r.split("(", 1)[0] not in bare_tools]
     if not rules:
         return "[]"
     pad = " " * indent
@@ -150,7 +155,8 @@ def stage_all(workspace_name: str) -> Path:
     flags = resolve_flags(config)
 
     allow_groups = load_permission_groups("allow.json")
-    placeholders["ALLOW_RULES"] = render_rule_array(allow_groups, flags, placeholders)
+    matcher_tools = {"Bash", "Write", "Edit"} | ({"Read"} if flags.get("OREAD") else set())
+    placeholders["ALLOW_RULES"] = render_rule_array(allow_groups, flags, placeholders, exclude_tools=matcher_tools)
     placeholders["ALLOWED_COMMANDS"] = render_allowed_section(allow_groups, flags, placeholders, "commands")
     placeholders["ALLOWED_FILES"] = render_allowed_section(allow_groups, flags, placeholders, "files")
 

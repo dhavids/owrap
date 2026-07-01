@@ -33,7 +33,7 @@ Every session calls `owrap start` at boot. Resolves session ID via `$SESSION_ID`
 One file per research goal. No YAML frontmatter — all metadata lives in section content.
 
 - `# <research name>` (H1 title).
-- `## Overview` — general description of the research/project; `### Structure` (repo layout, CLI/command reference, component tables); `### Environment` (config keys, dependencies, installation, limits).
+- `## Overview` — general description of the research/project; `### Structure` (repo layout, CLI/command reference, component tables); `### Environment` (config keys, dependencies, installation, limits); optional `### <Topic>` subsections for cross-area reference material (methodology, log formats, etc.) that applies to the research as a whole.
 - One `## <area>` section per area (matches `$OWRAP_AREA` and `memory/<research>.md`'s `## <area>` sections) — `### Status` (current phase/state, last run, active blockers, free text), `### Decisions` (dated table, 1 line each, append-only), and optionally `### Notes` (free-text; user-populated, never overwritten by executor `--updr` dispatches).
 - No `## Phases`/`## TODO`/`## DONE` — dated `### Decisions` entries plus `docs/changes/<research>.md` are the historical record going forward.
 

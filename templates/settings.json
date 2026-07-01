@@ -1,12 +1,7 @@
 {
   "permissions": {
     "defaultMode": "dontAsk",
-    "additionalDirectories": [
-      "{{OWRAP_HOME}}",
-      "{{WORKSPACE}}",
-      "/tmp"{{IF:NO_OREAD}},
-      "/"{{ENDIF}}
-    ]
+    "allow": {{ALLOW_RULES}}
   },
   "hooks": {
     "PreToolUse": [
@@ -23,17 +18,7 @@
     ],
     "PreCompact": [
       {
-        "matcher": "auto",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/bin/owrap precompact",
-            "timeout": 15
-          }
-        ]
-      },
-      {
-        "matcher": "manual",
+        "matcher": "auto|manual",
         "hooks": [
           {
             "type": "command",
@@ -48,7 +33,7 @@
         "matcher": "compact",
         "hooks": [{
           "type": "command",
-          "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"#DO NOW\\nContext was just compacted. Run ~/bin/owrap refresh immediately as the first action.\"}}'",
+          "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"#DO NOW\\nSession was just compacted. Run ~/bin/owrap refresh immediately as the first action.\"}}'",
           "timeout": 5
         }]
       }

@@ -72,6 +72,10 @@ class PermitRunner:
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
-                "permissionDecisionReason": f"{label} not in allow list — dispatch via {orun_cmd} --msg",
+                "permissionDecisionReason": (
+                    f"Blocked: {label}. Use {orun_cmd} --msg "
+                    f"\"<instruction>\" for short tasks, or write a task file "
+                    f"and run {orun_cmd} for longer ones."
+                )
             }
         }))

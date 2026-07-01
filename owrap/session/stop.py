@@ -144,6 +144,7 @@ class EndRunner:
         sessions_dir = Path.home() / ".owrap" / "sessions"
 
         session_id = ""
+        matched_sid = ""
 
         if target:
             for s in list_sessions():
@@ -156,6 +157,9 @@ class EndRunner:
                 sys.exit(0)
 
         if session_file is None and self.manager.session_id:
+            if target:
+                print(f"OWRAP END: no session matching '{target}'.")
+                sys.exit(0)
             candidate = Path.home() / '.owrap' / 'sessions' / f'{self.manager.session_id}.session'
             if candidate.exists():
                 session_file = str(candidate)
@@ -164,13 +168,18 @@ class EndRunner:
             sp = Path(session_file)
             if sp.exists():
                 data = _parse_session(sp)
-                session_id = data.get("session_id", "")
+                session_id = data.get("session_id", "") or matched_sid
+                if not session_id:
+                    print(f"OWRAP END: could not determine session_id from '{session_file}' — aborting.")
+                    sys.exit(1)
+                if target and not session_id.startswith(target) and target not in (session_id, data.get("research", "")):
+                    print(f"OWRAP END: resolved session '{session_id}' does not match target '{target}' — aborting.")
+                    sys.exit(1)
                 shutil.rmtree(session_dir(session_id), ignore_errors=True)
                 sp.unlink(missing_ok=True)
 
         session_runtime = RUNTIME_DIR / session_id
         if session_runtime.exists():
-            import shutil
             shutil.rmtree(session_runtime, ignore_errors=True)
 
         if self.logger:

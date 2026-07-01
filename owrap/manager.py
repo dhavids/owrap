@@ -341,7 +341,7 @@ class Manager:
         return False
 
     def next_task_name(self):
-        return f"task_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+        return f"{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
 
     def register_task(self, task_id, call_type: str = "task"):
         state = self._read_state() or {}

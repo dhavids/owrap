@@ -153,6 +153,7 @@ def pick_server(call_type: str) -> str:
         config = _read_config()
         max_servers = int(config.get("max_servers", 5))
         max_req = int(config.get("max_requests_per_server", 0))
+        exhausted = []
         if max_req > 0:
             exhausted = [e for e in live if e.get("request_count", 0) >= max_req and _active_load(e.get("url", "")) == 0]
             for e in exhausted:
@@ -164,7 +165,7 @@ def pick_server(call_type: str) -> str:
                         pass
             live = [e for e in live if e not in exhausted]
         if not live:
-            port = _next_port([])
+            port = _next_port(exhausted)
             entry = _start_server(port)
             _wait_responsive(entry["url"])
             _write_pool([entry])
