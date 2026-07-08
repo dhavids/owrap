@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 from ..base import BaseRunner
-from ..utils.paths import RUNNING_DIR, RECENTLY_DONE_DIR, session_input, _read_config, SERVER_LOGS_DIR
+from ..utils.paths import RUNNING_DIR, RECENTLY_DONE_DIR, session_input, _read_config, SERVER_LOGS_DIR, SESSION_DIR
 
 
 class StatRunner(BaseRunner):
@@ -18,8 +18,8 @@ class StatRunner(BaseRunner):
             self._show_tasks(filter_arg)
             return 0
 
-        sessions_dir = Path.home() / ".owrap" / "sessions"
-        global_session = Path.home() / ".owrap" / "session"
+        sessions_dir = SESSION_DIR / "sessions"
+        global_session = SESSION_DIR / "session"
         current_id = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
 
         print("=== OWRAP SESSIONS ===\n")

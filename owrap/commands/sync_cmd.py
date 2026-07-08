@@ -60,7 +60,7 @@ class SyncRunner:
                             return line.split('=', 1)[1].strip(), sid
         sid = os.environ.get('SESSION_ID', '').strip()
         if not sid:
-            cs = Path.home() / '.owrap' / 'runtime' / 'current_session'
+            cs = RUNTIME_HOME / 'runtime' / 'current_session'
             if cs.exists():
                 sid = cs.read_text().strip()
         if sid:
@@ -72,7 +72,7 @@ class SyncRunner:
         return (None, None)
 
     def _write_sync_task(self, targets, sid):
-        task_dir = Path.home() / '.owrap' / 'docs' / 'sessions' / sid / 'run'
+        task_dir = RUNTIME_HOME / 'docs' / 'sessions' / sid / 'run'
         task_dir.mkdir(parents=True, exist_ok=True)
         task_path = task_dir / 'input_sync.md'
         lines = [

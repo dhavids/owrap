@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 
 from ..base import BaseRunner
-from ..utils.paths import _read_config, DOCS_DIR, RUNTIME_DIR, get_plan_path, session_input, context_path, context_lock_path, SERVER_LOGS_DIR, SERVERS_DIR, RUNNING_DIR, RECENTLY_DONE_DIR, session_dir
+from ..utils.paths import _read_config, DOCS_DIR, RUNTIME_DIR, get_plan_path, session_input, context_path, context_lock_path, SERVER_LOGS_DIR, SERVERS_DIR, RUNNING_DIR, RECENTLY_DONE_DIR, SESSION_DIR, session_dir
 from ..utils.session_resolver import resolve, remove_session, BY_CCSID_DIR, list_sessions, _parse
 from ..manager import Manager
 
@@ -18,8 +18,8 @@ class StopRunner:
         self.allow_all = allow_all
 
     def run(self, session_file=None, no_exit=False, force=False, target=None):
-        sessions_dir = Path.home() / ".owrap" / "sessions"
-        global_session = Path.home() / ".owrap" / "session"
+        sessions_dir = SESSION_DIR / "sessions"
+        global_session = SESSION_DIR / "session"
         config = _read_config()
 
         if force:
@@ -141,7 +141,7 @@ class EndRunner:
         self.allow_all = allow_all
 
     def run(self, session_file=None, target=None):
-        sessions_dir = Path.home() / ".owrap" / "sessions"
+        sessions_dir = SESSION_DIR / "sessions"
 
         session_id = ""
         matched_sid = ""
@@ -160,7 +160,7 @@ class EndRunner:
             if target:
                 print(f"OWRAP END: no session matching '{target}'.")
                 sys.exit(0)
-            candidate = Path.home() / '.owrap' / 'sessions' / f'{self.manager.session_id}.session'
+            candidate = SESSION_DIR / 'sessions' / f'{self.manager.session_id}.session'
             if candidate.exists():
                 session_file = str(candidate)
 
@@ -265,8 +265,8 @@ class CleanupRunner(BaseRunner):
 
     def run(self, args):
         partial = getattr(args, "session_id", None)
-        sessions_dir = Path.home() / ".owrap" / "sessions"
-        global_session = Path.home() / ".owrap" / "session"
+        sessions_dir = SESSION_DIR / "sessions"
+        global_session = SESSION_DIR / "session"
 
         state = self.manager._read_state()
         server_alive = False

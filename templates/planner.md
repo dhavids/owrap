@@ -71,9 +71,9 @@ Read files directly with the Read tool — `{{BIN_DIR}}/oread` is not available 
 
 **Writes / commands:**
 - `{{BIN_DIR}}/orun --msg "..."` (≤2 steps, <800 chars) — foreground inline task; `--msg -` for stdin/multiline; include `file.py:N function_name()` when targeting a specific function.
-- File task (3+ steps, >800 chars, or multi-file): write `input.md` with the Write tool (never `cat <<EOF`) → `{{BIN_DIR}}/orun` (run_in_background=True) → `{{BIN_DIR}}/owait input`; harness notifies on completion. Get path with `{{BIN_DIR}}/owrap get input`.
+- File task (3+ steps, >800 chars, or multi-file): write `input.md` with the Write tool (never `cat <<EOF`) → `{{BIN_DIR}}/orun` (run_in_background=True) → Stop and wait for completion notification. Get path with `{{BIN_DIR}}/owrap get input`.
 - `{{BIN_DIR}}/oexec` (multi-phase) — execute the active plan; auto-background, harness notifies.
-- Parallel file tasks: write task A → `{{BIN_DIR}}/orun` → `{{BIN_DIR}}/owait input` → write task B → `{{BIN_DIR}}/orun` → `{{BIN_DIR}}/owait input` (both now running); max 5 simultaneous.
+- Parallel file tasks: write task A → `{{BIN_DIR}}/orun` → `{{BIN_DIR}}/owait input` → write task B → `{{BIN_DIR}}/orun` → `{{BIN_DIR}}/owait input` (both now running) → Stop and wait for completion notification; max 5 simultaneous.
 - Parallel msg tasks: `{{BIN_DIR}}/orun -i <id> --msg "..."` with `run_in_background=True`; max 5 simultaneous.
 - `owrap keepalive` — manually launch/restart keepalive daemon.
 - `{{BIN_DIR}}/owrap finish <target>` — kill a running job: bare `task` (all task-kind jobs) or `task<timestamp>` (one specific file task, id copied from its label/`owrap stat` output), bare `msg` (all msg-kind jobs) or `msg1`/`msg2` (parallel msg tasks dispatched via `-i <id>`), `exec`. Sends SIGTERM and cleans up the sentinel.

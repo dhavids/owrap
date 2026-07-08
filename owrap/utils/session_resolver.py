@@ -3,7 +3,9 @@ import secrets
 import time
 from pathlib import Path
 
-SESSIONS_DIR = Path.home() / ".owrap" / "sessions"
+from .paths import SESSION_DIR
+
+SESSIONS_DIR = SESSION_DIR / "sessions"
 BY_CCSID_DIR = SESSIONS_DIR / "by_ccsid"
 
 

@@ -423,7 +423,7 @@ class Manager:
             pass
 
     def _housekeeping(self):
-        sessions_dir = Path.home() / ".owrap" / "sessions"
+        sessions_dir = SESSION_DIR / "sessions"
         if not sessions_dir.exists():
             return
         active_ids = set()

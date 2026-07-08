@@ -16,7 +16,7 @@ from .stop import StopRunner
 
 
 def _prune_logs(max_logs: int):
-    owrap_dir = Path.home() / ".owrap"
+    owrap_dir = SESSION_DIR
     try:
         running_pids = set()
         if SERVERS_DIR.exists():
@@ -125,7 +125,7 @@ class StartRunner(BaseRunner):
                     )
 
         _old_docs = Path(__file__).resolve().parents[2] / "docs"
-        _new_docs = Path.home() / ".owrap" / "docs"
+        _new_docs = SESSION_DIR / "docs"
         if _old_docs.exists() and any(_old_docs.iterdir()):
             import shutil
             _new_docs.mkdir(parents=True, exist_ok=True)
@@ -181,7 +181,7 @@ class StartRunner(BaseRunner):
 class RefreshRunner(BaseRunner):
     def run(self, shell_pid=None, session_file=None, research=None, session_id=None, area=None):
         if session_id is not None:
-            session_path = Path.home() / ".owrap" / "sessions" / f"{session_id}.session"
+            session_path = SESSION_DIR / "sessions" / f"{session_id}.session"
             if not session_path.exists():
                 print(f"ERROR: session '{session_id}' not found. Use 'owrap stat' to list sessions.")
                 sys.exit(2)

@@ -105,24 +105,24 @@
     },
     {
       "rules": [
-        "Write(~/.owrap/docs/sessions/*/exec/plan.md)",
-        "Edit(~/.owrap/docs/sessions/*/exec/plan.md)",
-        "Write(~/.owrap/docs/sessions/*/run/input*.md)",
-        "Edit(~/.owrap/docs/sessions/*/run/input*.md)",
-        "Write(~/.owrap/docs/sessions/*/run/tasks/task*.md)",
-        "Edit(~/.owrap/docs/sessions/*/run/tasks/task*.md)",
-        "Write(~/.owrap/docs/sessions/*/context.md)",
-        "Edit(~/.owrap/docs/sessions/*/context.md)"
+        "Write({{OWRAP_DOCS}}/sessions/*/exec/plan.md)",
+        "Edit({{OWRAP_DOCS}}/sessions/*/exec/plan.md)",
+        "Write({{OWRAP_DOCS}}/sessions/*/run/input*.md)",
+        "Edit({{OWRAP_DOCS}}/sessions/*/run/input*.md)",
+        "Write({{OWRAP_DOCS}}/sessions/*/run/tasks/task*.md)",
+        "Edit({{OWRAP_DOCS}}/sessions/*/run/tasks/task*.md)",
+        "Write({{OWRAP_DOCS}}/sessions/*/context.md)",
+        "Edit({{OWRAP_DOCS}}/sessions/*/context.md)"
       ],
       "condition": null,
       "display": {"section": "files", "text": "`docs/sessions/<session_id>/exec/plan.md`, `docs/sessions/<session_id>/run/input*.md`, `docs/sessions/<session_id>/run/tasks/task*.md`, `docs/sessions/<session_id>/context.md` — edit"}
     },
     {
       "rules": [
-        "Edit(~/.owrap/docs/f/exec/plan.md)",
-        "Write(~/.owrap/docs/f/exec/plan.md)",
-        "Edit(~/.owrap/docs/f/task/task.md)",
-        "Write(~/.owrap/docs/f/task/task.md)"
+        "Edit({{OWRAP_DOCS}}/f/exec/plan.md)",
+        "Write({{OWRAP_DOCS}}/f/exec/plan.md)",
+        "Edit({{OWRAP_DOCS}}/f/task/task.md)",
+        "Write({{OWRAP_DOCS}}/f/task/task.md)"
       ],
       "condition": null,
       "display": {"section": "files", "text": "`{{OWRAP_DOCS}}/f/exec/plan.md`, `{{OWRAP_DOCS}}/f/task/task.md` — write + edit"}

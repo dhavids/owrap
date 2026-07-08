@@ -116,6 +116,11 @@ def main():
     update_area_parser.add_argument("research", help="Research name")
     update_area_parser.add_argument("area", help="Area within research (e.g. self-translator)")
 
+    update_home_parser = subparsers.add_parser("update-home", help="Point OWRAP_HOME at a new path (default: lightweight repoint; --migrate: backs up, stops live processes, moves, re-syncs)")
+    update_home_parser.add_argument("path", help="New absolute path for OWRAP_HOME")
+    update_home_parser.add_argument("--dry-run", action="store_true", default=False, help="Show what would happen without making any changes")
+    update_home_parser.add_argument("--migrate", action="store_true", default=False, help="Relocate existing content: backup, stop server pool + keepalive, atomically move, re-sync current workspace")
+
     precompact_parser = subparsers.add_parser("precompact", help="PreCompact hook handler")
 
     precompact_worker_parser = subparsers.add_parser("precompact-worker", help="PreCompact worker")
@@ -214,6 +219,9 @@ def main():
         PermitRunner().run()
     elif args.command == "update-area":
         UpdateAreaRunner(manager, logger, allow_all=allow_all).run(research=args.research, area=args.area)
+    elif args.command == "update-home":
+        from .commands.update_home import UpdateHomeRunner
+        UpdateHomeRunner(manager, logger, allow_all=allow_all).run(new_path=args.path, dry_run=args.dry_run, migrate=args.migrate)
     elif args.command == "wait":
         WaitRunner(manager, logger, allow_all=allow_all).run(
             wait_type=args.type,

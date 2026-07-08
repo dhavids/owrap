@@ -1,15 +1,22 @@
 #!/bin/bash
-mkdir -p "$HOME/.owrap/sessions/by_ccsid"
+if [ -z "$OWRAP_HOME" ]; then
+  if [ -f "$HOME/.owrap_home" ]; then
+    OWRAP_HOME="$(cat "$HOME/.owrap_home")"
+  else
+    OWRAP_HOME="$HOME/.owrap"
+  fi
+fi
+mkdir -p "$OWRAP_HOME/sessions/by_ccsid"
 
 _resolve_owrap_session() {
   local SID="${SESSION_ID:-}"
   local CCSID="${CLAUDE_CODE_SESSION_ID:-}"
-  local PTR="$HOME/.owrap/sessions/by_ccsid/${CCSID}"
+  local PTR="$OWRAP_HOME/sessions/by_ccsid/${CCSID}"
   if [ -z "$SID" ] && [ -n "$CCSID" ] && [ -f "$PTR" ]; then
     SID=$(cat "$PTR")
   fi
   export SESSION_ID="$SID"
-  local SF="$HOME/.owrap/sessions/${SID}.session"
+  local SF="$OWRAP_HOME/sessions/${SID}.session"
   if [ -f "$SF" ]; then
     export OWRAP_SESSION=$(grep "^session_id=" "$SF" | cut -d= -f2)
     export OWRAP_RESEARCH=$(grep "^research=" "$SF" | cut -d= -f2)

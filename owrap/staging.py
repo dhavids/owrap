@@ -2,7 +2,7 @@ import json
 import re
 import shutil
 from pathlib import Path
-from .utils.paths import CONFIGS_DIR, TEMPLATES_DIR, staged_dir, get_workspace_config
+from .utils.paths import CONFIGS_DIR, TEMPLATES_DIR, staged_dir, get_workspace_config, OWRAP_HOME
 
 
 PLACEHOLDER_RE = re.compile(r"\{\{([A-Z_]+)\}\}")
@@ -22,8 +22,8 @@ def resolve_placeholders(config: dict, workspace_name: str) -> dict:
     research_root = config.get("research_root") or (f"{workspace}/docs/research" if workspace else "")
     changes_dir = f"{workspace}/docs/changes" if workspace else ""
     bin_dir = config.get("bin_dir") or str(Path.home() / "bin")
-    owrap_docs = str(Path.home() / ".owrap" / "docs")
-    owrap_home = str(Path.home() / ".owrap")
+    owrap_docs = str(OWRAP_HOME / "docs")
+    owrap_home = str(OWRAP_HOME)
     oread = bool(config.get("oread", True))
     is_claude = bool(os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip())
     refresh_reread = "`CLAUDE.md`" if is_claude else "`AGENTS.md`"

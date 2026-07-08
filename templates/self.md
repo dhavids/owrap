@@ -6,6 +6,10 @@ File-based research manager for multi-codebase MARL research. **Global reference
 
 Every session calls `owrap start` at boot. Resolves session ID via `$SESSION_ID` env or `by_ccsid/$CLAUDE_CODE_SESSION_ID` pointer (mints new if neither). Writes `~/.owrap/sessions/${SESSION_ID}.session` (durable, survives Claude restarts) and `~/.owrap/sessions/by_ccsid/${CLAUDE_CODE_SESSION_ID}` pointer (1-1 window-to-session binding). Also stores `area` (sub-focus within research, e.g. `self-translator`). Exported as `$OWRAP_AREA` env var. Runtime paths are session-scoped under `~/.owrap/docs/sessions/<sid>/`.
 
+## OWRAP_HOME
+
+All `~/.owrap/...` paths throughout this document are relative to `OWRAP_HOME`, which resolves in this order: `$OWRAP_HOME` env var (if set) > contents of the fixed pointer file `~/.owrap_home` (if it exists) > default `~/.owrap`. Both the Python package (`owrap/utils/paths.py`) and every bash shim (`owrap`, `orun`, `oexec`, `owait`, `oread`) resolve it the same way. To point at a new path, use `owrap update-home <new_path>` (see Command Reference): by default this only updates the pointer file (useful when the target already has valid content, e.g. a synced mount from another machine, or is a fresh path you'll populate via normal use — run `owrap sync` afterward). Pass `--migrate` to actually relocate existing content on the same machine — it backs up first, stops the server pool and keepalive daemon, atomically moves the directory, updates the pointer file, and re-syncs the current workspace automatically.
+
 ## File Structure
 
 | File | Role | Path |
@@ -202,6 +206,8 @@ If `{{BIN_DIR}}/orun` or `{{BIN_DIR}}/oexec` is unavailable (binary missing, ser
 | `owrap stop` | Force-remove session binding |
 | `owrap setup <path>` | Write per-project config + stage templates |
 | `owrap update-area <research> <area>` | Set active area within research |
+| `owrap update-home <path> [--dry-run]` | Point `OWRAP_HOME` at `<path>` — lightweight: validates target, updates `~/.owrap_home` pointer file only. Run `owrap sync` afterward. |
+| `owrap update-home <path> --migrate [--dry-run]` | Relocate `OWRAP_HOME`: backs up to `~/.owrap_backups/`, stops server pool + keepalive, atomically moves the directory, updates the pointer file, re-syncs current workspace |
 | `owrap stat <sid>` | Show session stats (tasks, durations, pool state) |
 | `owrap keepalive` | Launch/restart keepalive daemon |
 | `owrap f <path>` | Fallback: run `--execf`/`--taskf` directly (no server) on `<path>`; mode inferred from filename ("task" in name → `--taskf`, else `--execf`); tees to `f/<mode>/output.log`, logs to `f/<mode>/log.md`; errors if path missing or path doesn't exist |

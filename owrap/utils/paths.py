@@ -3,7 +3,32 @@ import os
 from pathlib import Path
 
 OWRAP_ROOT = Path(__file__).resolve().parents[2]
-RUNTIME_HOME = Path.home() / ".owrap"
+
+OWRAP_HOME_POINTER_FILE = Path.home() / ".owrap_home"
+
+
+def _resolve_owrap_home() -> Path:
+    """Resolve the OWRAP_HOME directory: $OWRAP_HOME env var > ~/.owrap_home pointer file > ~/.owrap default.
+
+    The pointer file lives at a fixed location outside the relocatable directory itself
+    (so it can always be found regardless of where OWRAP_HOME currently points), and is
+    what `owrap update-home` rewrites when relocating.
+    """
+    env_val = os.environ.get("OWRAP_HOME", "").strip()
+    if env_val:
+        return Path(env_val).expanduser()
+    if OWRAP_HOME_POINTER_FILE.exists():
+        try:
+            pointer_val = OWRAP_HOME_POINTER_FILE.read_text().strip()
+            if pointer_val:
+                return Path(pointer_val).expanduser()
+        except OSError:
+            pass
+    return Path.home() / ".owrap"
+
+
+OWRAP_HOME = _resolve_owrap_home()
+RUNTIME_HOME = OWRAP_HOME
 RUNTIME_DIR = RUNTIME_HOME / "runtime"
 RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 DOCS_DIR = RUNTIME_HOME / "docs"
@@ -14,7 +39,7 @@ CONFIGS_DIR = RUNTIME_HOME / "configs"
 BASE_CONFIG_FILE = CONFIGS_DIR / "base.json"
 
 # Session-scoped paths
-SESSION_DIR = Path.home() / ".owrap"
+SESSION_DIR = OWRAP_HOME
 RUNNING_DIR = SESSION_DIR / "running"
 RECENTLY_DONE_DIR = SESSION_DIR / "recently_done"
 SERVERS_DIR = SESSION_DIR / "servers"

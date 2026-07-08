@@ -3,10 +3,10 @@ import json
 import re
 from pathlib import Path
 
-from .paths import context_path, _read_config, get_plan_path
+from .paths import context_path, _read_config, get_plan_path, SESSION_DIR
 from ..constants import NO_CONTEXT_MSG, NO_AREA_SECTION_MSG
 
-COUNTERS_DIR = Path.home() / ".owrap" / "sessions"
+COUNTERS_DIR = SESSION_DIR / "sessions"
 
 
 def _counters_path(session_id: str) -> Path:
