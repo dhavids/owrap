@@ -150,6 +150,7 @@ This must be a **standalone** task with the header **# Update Protocol**. It mus
 ### When to run
 
 Run `--updr` when:
+- **Precompact**: automatically, unconditionally, on every precompact event (handled by the PreCompact hook worker — no manual action needed).
 - **Session end** (`--end`): if the run was significant — produced new findings, completed a phase, made an architectural decision, or resolved a blocker. Replicating known results without new insight is not significant.
 - **Explicit call**: `--updr [area]` at any time.
 
@@ -169,7 +170,7 @@ If `context.md` does not exist: run `{{BIN_DIR}}/owrap refresh` (calls `create_c
 
 ## DO NOW Mechanism
 
-Counters live in `~/.owrap/sessions/<sid>.counters.json` (owrap-managed — never read or edit directly). Resets are mtime-based for context, hash-based for updr. `marked_steps` counts only `[x]` in the current `[ACTIVE]` block.
+Counters live in `~/.owrap/sessions/<sid>.counters.json` (owrap-managed — never read or edit directly), used only for the recovery checks below and for precompact's internal transcript-offset tracking.
 
 ### Trigger Table
 
@@ -177,8 +178,6 @@ Counters live in `~/.owrap/sessions/<sid>.counters.json` (owrap-managed — neve
 |---|---|---|
 | Context file missing for session | `#DO NOW\nContext file missing for session {sid}. Read self.md § Context Recovery and follow it to the letter.` | Run `{{BIN_DIR}}/owrap refresh` |
 | Area section `## <area>` missing in memory or projects | `#DO NOW\nArea section '## {area}' missing in memory/projects. Read self.md § Update Protocol and follow it to the letter (creates the section).` | Dispatch `--updr` task |
-| Context update due | `#DO NOW\nContext update due (orun={orun}/{max_orun}, plans={plan}/{max_plan}, steps={steps}/{max_steps}). Read self.md § Update Context and follow it to the letter.` | Dispatch `--ctx` task |
-| Update protocol due | `#DO NOW\nUpdate protocol due for area '{area}' (plans={plan}/{max_plan}, steps={steps}/{max_steps}; memory/projects unchanged). Read self.md § Update Protocol and follow it to the letter.` | Dispatch `--updr` task |
 
 ## Fallbacks
 

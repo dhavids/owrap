@@ -53,18 +53,8 @@ class PrecompactWorkerRunner:
         counters = self._read_counters(owrap_sid)
         transcript_offset = counters.get("transcript_offset", 0)
 
-        from ..utils.donow import _count_marked_steps
-        from ..utils.paths import get_plan_path
-        orun_count = counters.get("orun_count", 0)
-        plan_count = counters.get("plan_count", 0)
-        marked_steps = _count_marked_steps(get_plan_path(owrap_sid)) - counters.get("marked_steps_baseline", 0)
-
-        do_context = orun_count != 0 or research == "owrap"
-        do_protocol = plan_count != 0 and marked_steps != 0
-
-        if not do_context and not do_protocol:
-            print(f"precompact-worker: skipping (orun={orun_count}, plan={plan_count}, steps={marked_steps}, research={research!r})", flush=True)
-            sys.exit(0)
+        do_context = True
+        do_protocol = True
 
         if not transcript_path or not Path(transcript_path).exists():
             print("precompact-worker: transcript path missing", file=sys.stderr)

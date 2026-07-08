@@ -409,7 +409,7 @@ class Manager:
             self._trim_logs(msg_dir, "msg_*.log", max_keep=_read_config().get("max_msg_output_logs", 10))
             task_dir = session_task_output_dir(self.session_id)
             task_dir.mkdir(parents=True, exist_ok=True)
-            self._trim_logs(task_dir, "task_*.log", max_keep=_read_config().get("max_task_output_logs", 5))
+            self._trim_logs(task_dir, "*.log", max_keep=_read_config().get("max_task_output_logs", 5))
             return removed
         return 0
 
