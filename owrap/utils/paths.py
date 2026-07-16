@@ -43,6 +43,7 @@ SESSION_DIR = OWRAP_HOME
 RUNNING_DIR = SESSION_DIR / "running"
 RECENTLY_DONE_DIR = SESSION_DIR / "recently_done"
 SERVERS_DIR = SESSION_DIR / "servers"
+TRASH_DIR = OWRAP_HOME / ".trash"
 
 # Runtime output paths (all under DOCS_DIR)
 RUN_DIR = DOCS_DIR / "run"

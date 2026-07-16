@@ -17,6 +17,7 @@ from .utils.paths import TASKS_DIR, RUN_OUTPUT_DIR, STATE_FILE, SESSION_DIR, SER
 from .utils.paths import RUN_LOG, EXEC_LOG, READ_LOG, INPUT_FILE, _read_config, get_plan_path
 from .utils.paths import session_log, session_input, context_path, context_lock_path
 from .utils.paths import session_tasks_dir, session_msg_output_dir, session_task_output_dir
+from .utils.trash import sweep_trash
 
 
 _health_cache: dict[str, tuple[bool, float]] = {}
@@ -424,22 +425,24 @@ class Manager:
 
     def _housekeeping(self):
         sessions_dir = SESSION_DIR / "sessions"
-        if not sessions_dir.exists():
-            return
-        active_ids = set()
-        for sf in sessions_dir.glob("*.session"):
-            try:
-                for line in sf.read_text().splitlines():
-                    if line.startswith("session_id="):
-                        active_ids.add(line.split("=", 1)[1].strip())
-            except Exception:
-                pass
-        if not active_ids:
-            return
-        if SESSIONS_DIR.exists():
-            for d in SESSIONS_DIR.iterdir():
-                if d.is_dir() and d.name not in active_ids:
-                    shutil.rmtree(d, ignore_errors=True)
+        if sessions_dir.exists():
+            active_ids = set()
+            for sf in sessions_dir.glob("*.session"):
+                try:
+                    for line in sf.read_text().splitlines():
+                        if line.startswith("session_id="):
+                            active_ids.add(line.split("=", 1)[1].strip())
+                except Exception:
+                    pass
+            if active_ids and SESSIONS_DIR.exists():
+                for d in SESSIONS_DIR.iterdir():
+                    if d.is_dir() and d.name not in active_ids:
+                        shutil.rmtree(d, ignore_errors=True)
+
+        try:
+            sweep_trash()
+        except Exception:
+            pass
 
     @property
     def context_path(self) -> Path:

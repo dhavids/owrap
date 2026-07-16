@@ -13,9 +13,12 @@ NO_OUTPUT_EXEC_S = 20
 TASK_KILL_S = 60
 EXEC_KILL_S = 120
 WATCHDOG_POLL_S = 10
+MSG_MAX_CHARS = 1536
+TRASH_RETENTION_DAYS = 30
+UNRESPONSIVE_KILL_THRESHOLD = 2
 
 FAILURE_POINTERS = {
-    "MSG_TOO_LONG": ("instruction", "DO NOW Protocol — dispatch sizing table"),
+    "MSG_TOO_LONG": ("instruction", "Dispatch Tooling — File task"),
     "INPUT_EMPTY": ("instruction", "Dispatch Tooling — File task"),
     "TIMED_OUT": ("self", "Command Reference — timeout/retry"),
     "TASK_FAILED": ("self", "Update Context"),
@@ -28,12 +31,6 @@ OREAD_DISABLED_MSG = "#DO NOW\noread is disabled for this workspace (oread=false
 NO_CONTEXT_MSG = "#DO NOW\nContext file missing for session {sid}. Read self.md § Context Recovery and follow it to the letter."
 
 NO_AREA_SECTION_MSG = "#DO NOW\nArea section '## {area}' missing in memory/projects. Read self.md § Update Protocol and follow it to the letter (creates the section)."
-
-CTX_DUE_MSG = "#DO NOW\nContext update due (orun={orun}/{max_orun}, plans={plan}/{max_plan}, steps={steps}/{max_steps}). Read self.md § Update Context and follow it to the letter."
-
-UPDR_DUE_MSG = "#DO NOW\nUpdate protocol due for area '{area}' (plans={plan}/{max_plan}, steps={steps}/{max_steps}, orun={orun}/{max_orun}; memory/projects unchanged). Read self.md § Update Protocol and follow it to the letter."
-
-UPDR_DUE_PRECOMPACT_MSG = "#DO NOW\nUpdate protocol overdue (no updr in last {precompact_count} precompacts). Read self.md § Update Protocol and follow it to the letter."
 
 
 PRE_COMPACT_CTX_TEMPLATE = """\

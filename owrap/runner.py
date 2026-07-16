@@ -2,7 +2,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .session import StartRunner, StopRunner, RefreshRunner, RestartRunner, CleanupRunner, EndRunner, AttachRunner, UpdateAreaRunner
+from .session import StartRunner, StopRunner, RefreshRunner, RestartRunner, CleanupRunner, EndRunner, AttachRunner, UpdateAreaRunner, RestoreRunner
 from .commands import ExecRunner, FinishRunner, ReadRunner, RunRunner, SetupRunner, WaitRunner
 from .commands.sync_cmd import SyncRunner
 from .commands.keepalive import KeepaliveRunner
@@ -72,7 +72,11 @@ def main():
     stat_parser.add_argument("filter", nargs="?", default=None, help="Filter by session_id or research name")
 
     cleanup_parser = subparsers.add_parser("cleanup", help="Remove stale session files and dead server state")
-    cleanup_parser.add_argument("session_id", nargs="?", default=None, help="Partial session ID or filename prefix to target")
+    cleanup_parser.add_argument("session_id", nargs="?", default=None, help="Partial session ID or filename prefix to target; pass 'trash' to sweep .trash of entries past retention")
+
+    restore_parser = subparsers.add_parser("restore", help="Restore a session moved to .trash by owrap end/stop")
+    restore_parser.add_argument("what", choices=["trash"], help="Currently only 'trash' is supported")
+    restore_parser.add_argument("session_id", help="Session ID to restore")
 
     read_parser.add_argument("-f", "--file", nargs="+", required=False, default=None, dest="files", help="File or directory path (repeatable for -g grep)")
     read_parser.add_argument("-g", "--grep", type=str, default=None, help="Grep pattern (fast, no opencode)")
@@ -103,8 +107,6 @@ def main():
     finish_parser = subparsers.add_parser("finish", help="Kill a running orun/oexec job by target (exec, task1, task2, ...)")
     finish_parser.add_argument("target", help="Job to kill: 'exec', 'task', 'task1', 'task2', 'msg1', ...")
     finish_parser.add_argument("--session", type=str, default=None, help="Session ID override")
-
-    subparsers.add_parser("trim", help="Kill all live servers with no active sessions")
 
     killservers_parser = subparsers.add_parser("killservers", help="Kill all servers and running tasks without clearing session/context state")
     killservers_parser.add_argument("--session", type=str, default=None, help="Limit to a specific session ID")
@@ -207,8 +209,6 @@ def main():
             target=args.target,
             session_id=getattr(args, "session", None),
         )
-    elif args.command == "trim":
-        Manager.trim_idle_servers()
     elif args.command == "killservers":
         from .session.stop import KillServersRunner
         KillServersRunner().run(session_id=getattr(args, "session", None))
@@ -233,7 +233,14 @@ def main():
         from .session.stat import StatRunner
         sys.exit(StatRunner(manager, logger, allow_all).run(args))
     elif args.command == "cleanup":
+        if getattr(args, "session_id", None) == "trash":
+            from .utils.trash import sweep_trash
+            removed = sweep_trash()
+            print(f"Trash sweep: {removed} session(s) permanently removed (past retention)." if removed else "Trash sweep: nothing past retention.")
+            sys.exit(0)
         sys.exit(CleanupRunner(manager, logger, allow_all).run(args))
+    elif args.command == "restore":
+        sys.exit(RestoreRunner(manager, logger, allow_all).run(args))
     elif args.command == "f":
         from .commands.fallback import FallbackRunner
         FallbackRunner().run(args.path)

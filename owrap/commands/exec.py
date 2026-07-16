@@ -110,8 +110,17 @@ class ExecRunner(BaseRunner):
                 def _exec_unresp():
                     setattr(self, '_stall_killed', True)
                     terminal.terminate_process()
-                    print(f"[watchdog] executor not responsive (no output in {NO_OUTPUT_EXEC_S}s) "
-                          f"— use owrap f as fallback", flush=True)
+                    if url:
+                        from ..utils.pool import record_unresponsive
+                        if record_unresponsive(url):
+                            print(f"[watchdog] executor not responsive (no output in {NO_OUTPUT_EXEC_S}s) "
+                                  f"— server {url} unresponsive too many times, killed — will respawn on next dispatch", flush=True)
+                        else:
+                            print(f"[watchdog] executor not responsive (no output in {NO_OUTPUT_EXEC_S}s) "
+                                  f"— use owrap f as fallback", flush=True)
+                    else:
+                        print(f"[watchdog] executor not responsive (no output in {NO_OUTPUT_EXEC_S}s) "
+                              f"— use owrap f as fallback", flush=True)
                 watchdog = Watchdog(
                     log_path=self.LOG_FILE,
                     kill_callback=lambda: (setattr(self, '_stall_killed', True), terminal.terminate_process()),
@@ -179,6 +188,12 @@ class ExecRunner(BaseRunner):
                 update_last_used(url)
             except Exception:
                 pass
+            if not getattr(self, '_stall_killed', False):
+                try:
+                    from ..utils.pool import record_responsive
+                    record_responsive(url)
+                except Exception:
+                    pass
             try:
                 from ..utils.pool import release_server
                 release_server(url)

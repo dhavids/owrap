@@ -114,11 +114,6 @@ class PrecompactWorkerRunner:
         print(f"precompact-worker: orun rc={result.returncode}", flush=True)
 
         counters["transcript_offset"] = total_lines
-        counters["orun_count"] = 0
-        counters["plan_count"] = 0
-        from ..utils.donow import _count_marked_steps
-        from ..utils.paths import get_plan_path
-        counters["marked_steps_baseline"] = _count_marked_steps(get_plan_path(owrap_sid))
         self._write_counters(owrap_sid, counters)
 
     def _extract_assistant_text(self, lines: list, offset: int) -> list:

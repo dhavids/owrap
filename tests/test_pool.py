@@ -35,6 +35,7 @@ def test_shutdown_idle_respects_min_n(tmp_path):
     with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
          patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock), \
          patch("owrap.utils.pool._is_alive", return_value=True), \
+         patch("owrap.utils.pool._is_responsive", return_value=True), \
          patch("os.kill"):
         shutdown_idle(idle_s=0, min_n=2)
 
@@ -56,6 +57,7 @@ def test_shutdown_idle_killed_counter(tmp_path):
     with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
          patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock), \
          patch("owrap.utils.pool._is_alive", return_value=True), \
+         patch("owrap.utils.pool._is_responsive", return_value=True), \
          patch("os.kill"):
         shutdown_idle(idle_s=0, min_n=1)
 
@@ -109,6 +111,8 @@ def test_shutdown_idle_preserves_reserved_entries(tmp_path):
     with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
          patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock), \
          patch("owrap.utils.pool._is_alive", return_value=True), \
+         patch("owrap.utils.pool._is_responsive", return_value=True), \
+         patch("owrap.utils.pool._active_load", return_value=1), \
          patch("os.kill"):
         shutdown_idle(idle_s=0, min_n=0)
 
@@ -116,3 +120,87 @@ def test_shutdown_idle_preserves_reserved_entries(tmp_path):
     assert len(remaining) == 1
     assert remaining[0]["url"] == "http://localhost:4096"
     assert remaining[0]["reserved"] == 1
+
+
+def test_record_unresponsive_kills_at_threshold(tmp_path):
+    from owrap.utils.pool import record_unresponsive
+    from unittest.mock import patch
+
+    pool = [{"pid": os.getpid(), "url": "http://localhost:4096", "port": 4096, "last_used": 0}]
+    fake_pool = tmp_path / "pool.json"
+    fake_pool.write_text(json.dumps(pool))
+    fake_lock = tmp_path / "pool.lock"
+
+    with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
+         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock), \
+         patch("os.kill") as mock_kill:
+        first = record_unresponsive("http://localhost:4096", threshold=2)
+        assert first is False
+        remaining = json.loads(fake_pool.read_text())
+        assert len(remaining) == 1
+        assert remaining[0]["unresponsive_count"] == 1
+        mock_kill.assert_not_called()
+
+        second = record_unresponsive("http://localhost:4096", threshold=2)
+        assert second is True
+        mock_kill.assert_called_once_with(os.getpid(), 15)
+
+    remaining = json.loads(fake_pool.read_text())
+    assert remaining == []
+
+
+def test_record_unresponsive_custom_threshold_one(tmp_path):
+    from owrap.utils.pool import record_unresponsive
+    from unittest.mock import patch
+
+    pool = [{"pid": os.getpid(), "url": "http://localhost:4096", "port": 4096, "last_used": 0}]
+    fake_pool = tmp_path / "pool.json"
+    fake_pool.write_text(json.dumps(pool))
+    fake_lock = tmp_path / "pool.lock"
+
+    with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
+         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock), \
+         patch("os.kill") as mock_kill:
+        result = record_unresponsive("http://localhost:4096", threshold=1)
+        assert result is True
+        mock_kill.assert_called_once()
+
+    remaining = json.loads(fake_pool.read_text())
+    assert remaining == []
+
+
+def test_record_responsive_resets_counter(tmp_path):
+    from owrap.utils.pool import record_responsive
+    from unittest.mock import patch
+
+    pool = [{"pid": os.getpid(), "url": "http://localhost:4096", "port": 4096, "last_used": 0, "unresponsive_count": 1}]
+    fake_pool = tmp_path / "pool.json"
+    fake_pool.write_text(json.dumps(pool))
+    fake_lock = tmp_path / "pool.lock"
+
+    with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
+         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock):
+        record_responsive("http://localhost:4096")
+
+    remaining = json.loads(fake_pool.read_text())
+    assert remaining[0]["unresponsive_count"] == 0
+
+
+def test_record_unresponsive_unknown_url_noop(tmp_path):
+    from owrap.utils.pool import record_unresponsive
+    from unittest.mock import patch
+
+    pool = [{"pid": os.getpid(), "url": "http://localhost:4096", "port": 4096, "last_used": 0}]
+    fake_pool = tmp_path / "pool.json"
+    fake_pool.write_text(json.dumps(pool))
+    fake_lock = tmp_path / "pool.lock"
+
+    with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
+         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock), \
+         patch("os.kill") as mock_kill:
+        result = record_unresponsive("http://localhost:9999", threshold=1)
+        assert result is False
+        mock_kill.assert_not_called()
+
+    remaining = json.loads(fake_pool.read_text())
+    assert remaining == pool

@@ -8,7 +8,7 @@ from pathlib import Path
 from ..base import BaseRunner
 from ..utils.paths import _read_config, DOCS_DIR, RUNTIME_DIR, get_plan_path, session_input, context_path, context_lock_path, SERVER_LOGS_DIR, SERVERS_DIR, RUNNING_DIR, RECENTLY_DONE_DIR, SESSION_DIR, session_dir
 from ..utils.session_resolver import resolve, remove_session, BY_CCSID_DIR, list_sessions, _parse
-from ..manager import Manager
+from ..utils.trash import move_to_trash, restore_from_trash
 
 
 class StopRunner:
@@ -23,27 +23,27 @@ class StopRunner:
         config = _read_config()
 
         if force:
-            Manager.stop_all(logger=self.logger)
+            KillServersRunner().run()
             count = 0
             for s in list_sessions():
                 sid = s["session_id"]
+                move_to_trash(sid)
                 remove_session(sid)
-                shutil.rmtree(session_dir(sid), ignore_errors=True)
                 count += 1
             if global_session.exists():
                 data = _parse(global_session)
                 gsid = data.get("session_id", "")
                 global_session.unlink(missing_ok=True)
                 if gsid:
-                    shutil.rmtree(session_dir(gsid), ignore_errors=True)
+                    move_to_trash(gsid)
                 count += 1
             if BY_CCSID_DIR.exists():
                 for ptr in BY_CCSID_DIR.iterdir():
                     if ptr.is_file():
                         ptr.unlink(missing_ok=True)
             if self.logger:
-                self.logger.info("stop --force: all servers killed sessions cleared count=%d", count)
-            print(f"OWRAP STOPPED  all servers killed  sessions cleared ({count} removed)")
+                self.logger.info("stop --force: all servers killed sessions moved to trash count=%d", count)
+            print(f"OWRAP STOPPED  all servers killed  {count} session(s) moved to .trash (restore any with `owrap restore trash [session_id]`)")
             if not no_exit:
                 sys.exit(0)
             return
@@ -68,9 +68,9 @@ class StopRunner:
             print("OWRAP STOP: no current session to stop. Use `owrap stop --force` to clear everything.")
             sys.exit(0)
 
-        # Remove session file + by_ccsid pointer
+        # Move session file + docs/runtime/context to .trash; clear by_ccsid pointer
+        move_to_trash(sid)
         remove_session(sid)
-        shutil.rmtree(session_dir(sid), ignore_errors=True)
 
         # Find other sessions
         other_sessions = []
@@ -175,17 +175,30 @@ class EndRunner:
                 if target and not session_id.startswith(target) and target not in (session_id, data.get("research", "")):
                     print(f"OWRAP END: resolved session '{session_id}' does not match target '{target}' — aborting.")
                     sys.exit(1)
-                shutil.rmtree(session_dir(session_id), ignore_errors=True)
-                sp.unlink(missing_ok=True)
 
-        session_runtime = RUNTIME_DIR / session_id
-        if session_runtime.exists():
-            shutil.rmtree(session_runtime, ignore_errors=True)
+        if session_id:
+            move_to_trash(session_id)
+            remove_session(session_id)
 
         if self.logger:
             self.logger.info("end session=%s", session_id)
-        print(f"OWRAP SESSION ENDED  session: {session_id}")
+        if session_id:
+            print(f"OWRAP SESSION ENDED  session: {session_id}  (moved to .trash — restore with `owrap restore trash {session_id}`)")
+        else:
+            print("OWRAP SESSION ENDED  session: (none resolved)")
         sys.exit(0)
+
+
+class RestoreRunner(BaseRunner):
+    def run(self, args):
+        session_id = args.session_id
+        try:
+            restore_from_trash(session_id)
+        except FileNotFoundError as e:
+            print(f"Error: {e}")
+            return 1
+        print(f"OWRAP RESTORED  session: {session_id}  (run `owrap attach {session_id}` to bind this window to it)")
+        return 0
 
 
 class KillServersRunner:

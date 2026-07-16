@@ -11,7 +11,7 @@ from pathlib import Path
 from ..utils.terminal import Terminal
 from ..manager import Manager
 from ..base import BaseRunner
-from ..constants import ANTI_SUMMARY_SUFFIX, MSG_KILL_S, TASK_KILL_S, LOG_WRAP_WIDTH, NO_OUTPUT_MSG_S, NO_OUTPUT_TASK_S
+from ..constants import ANTI_SUMMARY_SUFFIX, MSG_KILL_S, TASK_KILL_S, LOG_WRAP_WIDTH, NO_OUTPUT_MSG_S, NO_OUTPUT_TASK_S, MSG_MAX_CHARS
 from ..utils.pool import _pool_active, pick_server, update_last_used
 from ..utils.paths import TASKS_DIR, RUNTIME_DIR, context_path, _read_config, get_agents_md_path, get_workspace_config, format_failure_pointer, FALLBACK_TASK, session_msg_output_dir, session_task_output_dir, session_tasks_dir, session_precompact_dir
 from ..utils.snippet import extract_snippet, wrap_log_text, divider
@@ -85,10 +85,10 @@ class RunRunner(BaseRunner):
         if msg == "-":
             import sys as _sys
             msg = _sys.stdin.read()
-        if len(msg) > 1024:
+        if len(msg) > MSG_MAX_CHARS:
             if self.logger:
-                self.logger.error("run msg rejected: len=%d >1024 session=%s", len(msg), self.manager.session_id or "none")
-            print(f"Error: --msg must be <= 1024 characters (got {len(msg)})")
+                self.logger.error("run msg rejected: len=%d >%d session=%s", len(msg), MSG_MAX_CHARS, self.manager.session_id or "none")
+            print(f"Error: --msg must be <= {MSG_MAX_CHARS} characters (got {len(msg)})")
             print(format_failure_pointer("MSG_TOO_LONG", self.manager.session_id))
             sys.exit(1)
         msg = _sanitize_placeholder_tags(msg)
@@ -166,8 +166,17 @@ class RunRunner(BaseRunner):
                 def _msg_unresp():
                     setattr(self, '_stall_killed', True)
                     terminal.terminate_process()
-                    print(f"[watchdog] executor not responsive (no output in {NO_OUTPUT_MSG_S}s) "
-                          f"— use owrap f as fallback", flush=True)
+                    if url:
+                        from ..utils.pool import record_unresponsive
+                        if record_unresponsive(url):
+                            print(f"[watchdog] executor not responsive (no output in {NO_OUTPUT_MSG_S}s) "
+                                  f"— server {url} unresponsive too many times, killed — will respawn on next dispatch", flush=True)
+                        else:
+                            print(f"[watchdog] executor not responsive (no output in {NO_OUTPUT_MSG_S}s) "
+                                  f"— use owrap f as fallback", flush=True)
+                    else:
+                        print(f"[watchdog] executor not responsive (no output in {NO_OUTPUT_MSG_S}s) "
+                              f"— use owrap f as fallback", flush=True)
                 watchdog = Watchdog(
                     log_path=msg_log,
                     kill_callback=lambda: (setattr(self, '_stall_killed', True), terminal.terminate_process()),
@@ -225,6 +234,12 @@ class RunRunner(BaseRunner):
                     update_last_used(url)
                 except Exception:
                     pass
+                if not getattr(self, '_stall_killed', False):
+                    try:
+                        from ..utils.pool import record_responsive
+                        record_responsive(url)
+                    except Exception:
+                        pass
                 try:
                     from ..utils.pool import release_server
                     release_server(url)
@@ -317,8 +332,17 @@ class RunRunner(BaseRunner):
                     def _task_unresp():
                         setattr(self, '_stall_killed', True)
                         terminal.terminate_process()
-                        print(f"[watchdog] executor not responsive (no output in {NO_OUTPUT_TASK_S}s) "
-                              f"— use owrap f as fallback", flush=True)
+                        if url:
+                            from ..utils.pool import record_unresponsive
+                            if record_unresponsive(url):
+                                print(f"[watchdog] executor not responsive (no output in {NO_OUTPUT_TASK_S}s) "
+                                      f"— server {url} unresponsive too many times, killed — will respawn on next dispatch", flush=True)
+                            else:
+                                print(f"[watchdog] executor not responsive (no output in {NO_OUTPUT_TASK_S}s) "
+                                      f"— use owrap f as fallback", flush=True)
+                        else:
+                            print(f"[watchdog] executor not responsive (no output in {NO_OUTPUT_TASK_S}s) "
+                                  f"— use owrap f as fallback", flush=True)
                     watchdog = Watchdog(
                         log_path=log_path,
                         kill_callback=lambda: (setattr(self, '_stall_killed', True), terminal.terminate_process()),
@@ -392,6 +416,12 @@ class RunRunner(BaseRunner):
                         update_last_used(url)
                     except Exception:
                         pass
+                    if not getattr(self, '_stall_killed', False):
+                        try:
+                            from ..utils.pool import record_responsive
+                            record_responsive(url)
+                        except Exception:
+                            pass
                     try:
                         from ..utils.pool import release_server
                         release_server(url)

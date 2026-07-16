@@ -86,3 +86,39 @@ def test_write_sentinel_health(tmp_path):
 
     data = json.loads(sentinel.read_text())
     assert data["health"] == "stalled"
+
+
+def test_watchdog_fires_unresponsive_callback_on_no_output(tmp_path):
+    from owrap.utils.watchdog import Watchdog
+
+    log_file = tmp_path / "test.log"
+    log_file.write_text("")  # never grows — simulates attaching to a dead/unresponsive server
+
+    unresp_mock = MagicMock()
+
+    wd = Watchdog(log_file, MagicMock(), MagicMock(),
+                  kill_after_s=10, stall_s=5, poll_s=0.01,
+                  no_output_s=0.05, unresponsive_callback=unresp_mock)
+    wd.start()
+    time.sleep(0.3)
+    wd.stop()
+
+    unresp_mock.assert_called_once()
+
+
+def test_watchdog_unresponsive_fires_only_once(tmp_path):
+    from owrap.utils.watchdog import Watchdog
+
+    log_file = tmp_path / "test.log"
+    log_file.write_text("")
+
+    unresp_mock = MagicMock()
+
+    wd = Watchdog(log_file, MagicMock(), MagicMock(),
+                  kill_after_s=10, stall_s=5, poll_s=0.01,
+                  no_output_s=0.02, unresponsive_callback=unresp_mock)
+    wd.start()
+    time.sleep(0.3)
+    wd.stop()
+
+    unresp_mock.assert_called_once()

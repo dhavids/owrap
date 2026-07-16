@@ -153,27 +153,50 @@ def pick_server(call_type: str) -> str:
         config = _read_config()
         max_servers = int(config.get("max_servers", 5))
         max_req = int(config.get("max_requests_per_server", 0))
-        exhausted = []
+
+        # Mark any server that has hit its request quota as draining: stop routing new
+        # work to it, but let in-flight requests finish rather than killing it outright
+        # (killing only when idle avoids cutting off a live request).
         if max_req > 0:
-            exhausted = [e for e in live if e.get("request_count", 0) >= max_req and _active_load(e.get("url", "")) == 0]
-            for e in exhausted:
-                pid = e.get("pid")
-                if pid:
-                    try:
-                        os.kill(pid, 15)
-                    except OSError:
-                        pass
-            live = [e for e in live if e not in exhausted]
+            for e in live:
+                if e.get("request_count", 0) >= max_req:
+                    e["draining"] = True
+
+        # Reap draining servers once they've gone idle.
+        exhausted = [e for e in live if e.get("draining") and _active_load(e.get("url", "")) == 0]
+        for e in exhausted:
+            pid = e.get("pid")
+            if pid:
+                try:
+                    os.kill(pid, 15)
+                except OSError:
+                    pass
+        live = [e for e in live if e not in exhausted]
+
         if not live:
             port = _next_port(exhausted)
             entry = _start_server(port)
             _wait_responsive(entry["url"])
             _write_pool([entry])
             return entry["url"]
+
+        # Draining servers stay tracked in the pool (so they can still be reaped once
+        # idle) but are never selected for new work.
+        selectable = [e for e in live if not e.get("draining")]
+        if not selectable:
+            # Every live server is draining (still finishing in-flight work) — start a
+            # fresh one so new work has somewhere to go, even if this briefly exceeds
+            # max_servers; the draining entries will be reaped as they go idle.
+            port = _next_port(live)
+            entry = _start_server(port)
+            _wait_responsive(entry["url"])
+            _write_pool(live + [entry])
+            return entry["url"]
+
         # compute load per server (active + reserved)
         now = time.time()
-        loads = {entry["url"]: _active_load(entry["url"]) + entry.get("reserved", 0) for entry in live}
-        zero_load = [entry for entry in live if loads[entry["url"]] == 0]
+        loads = {entry["url"]: _active_load(entry["url"]) + entry.get("reserved", 0) for entry in selectable}
+        zero_load = [entry for entry in selectable if loads[entry["url"]] == 0]
         if zero_load:
             warm = [e for e in zero_load if now - e.get("last_used", 0) < 30]
             if warm:
@@ -189,14 +212,14 @@ def pick_server(call_type: str) -> str:
         else:
             estimates = {
                 entry["url"]: _estimate_remaining(entry["url"], now)
-                for entry in live
+                for entry in selectable
             }
             if call_type in ("msg", "read"):
-                for entry in live:
+                for entry in selectable:
                     tasks = _active_tasks_by_type(entry["url"])
                     exec_count = tasks.get("exec", 0)
                     estimates[entry["url"]] += exec_count * 30
-            best = min(live, key=lambda e: estimates[e["url"]])
+            best = min(selectable, key=lambda e: estimates[e["url"]])
         best["last_used"] = time.time()
         best["reserved"] = best.get("reserved", 0) + 1
         best["request_count"] = best.get("request_count", 0) + 1
@@ -222,6 +245,46 @@ def release_server(url: str):
         for entry in pool:
             if entry.get("url") == url:
                 entry["reserved"] = max(0, entry.get("reserved", 0) - 1)
+                break
+        _write_pool(pool)
+
+
+def record_unresponsive(url: str, threshold: int | None = None) -> bool:
+    """Increment a server's consecutive-unresponsive counter. Once it reaches `threshold`
+    (config key 'unresponsive_kill_threshold', default UNRESPONSIVE_KILL_THRESHOLD), kill that
+    server's process and evict it from the pool so the next pick_server() call routes elsewhere
+    or spins up a fresh one. Returns True if the server was killed, False otherwise."""
+    from ..constants import UNRESPONSIVE_KILL_THRESHOLD
+    if threshold is None:
+        threshold = int(_read_config().get("unresponsive_kill_threshold", UNRESPONSIVE_KILL_THRESHOLD))
+    with _pool_lock():
+        pool = _read_pool()
+        killed = False
+        for entry in pool:
+            if entry.get("url") == url:
+                entry["unresponsive_count"] = entry.get("unresponsive_count", 0) + 1
+                if entry["unresponsive_count"] >= threshold:
+                    pid = entry.get("pid")
+                    if pid:
+                        try:
+                            os.kill(pid, 15)
+                        except OSError:
+                            pass
+                    killed = True
+                break
+        if killed:
+            pool = [e for e in pool if e.get("url") != url]
+        _write_pool(pool)
+        return killed
+
+
+def record_responsive(url: str):
+    """Reset a server's unresponsive counter after a dispatch that actually produced output."""
+    with _pool_lock():
+        pool = _read_pool()
+        for entry in pool:
+            if entry.get("url") == url:
+                entry["unresponsive_count"] = 0
                 break
         _write_pool(pool)
 

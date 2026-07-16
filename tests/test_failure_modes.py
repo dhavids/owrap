@@ -11,7 +11,7 @@ from owrap.manager import Manager
 
 
 def test_msg_too_long_prints_donow(mock_manager, capsys):
-    """MSG_TOO_LONG: msg > 1024 prints #DO NOW with section reference."""
+    """MSG_TOO_LONG: msg > 1536 prints #DO NOW with section reference."""
     mock_manager.ensure_running.return_value = "http://localhost:4096"
 
     from owrap.commands.run_cmd import RunRunner
@@ -20,7 +20,7 @@ def test_msg_too_long_prints_donow(mock_manager, capsys):
     with patch("owrap.utils.paths.get_self_path", return_value=Path("/tmp/fake_self.md")), \
          patch("owrap.utils.paths.resolve_general_instruction_path", return_value=Path("/tmp/fake_instr.md")):
         with pytest.raises(SystemExit):
-            runner.run(msg="x" * 1025)
+            runner.run(msg="x" * 1537)
 
     captured = capsys.readouterr()
     assert "#DO NOW" in captured.err or "#DO NOW" in captured.out

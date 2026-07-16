@@ -31,6 +31,7 @@ All `~/.owrap/...` paths throughout this document are relative to `OWRAP_HOME`, 
 | `memory/<research>.md` | Per-project memory | `{{RESEARCH_ROOT}}/memory/<research>.md` |
 | `projects/<research>.md` | Per-research overview, phases, environment | `{{RESEARCH_ROOT}}/projects/<research>.md` |
 | `{{CHANGES_DIR}}/<codebase>.md` | Per-repo changelogs (executor writes) | `{{CHANGES_DIR}}/<codebase>.md` |
+| `.trash/[session_id]/` | Ended/stopped session moved here instead of deleted; swept after 30 days (config `trash_retention_days`) | `~/.owrap/.trash/[session_id]/` |
 
 ## Project Detail Files (`projects/<research>.md`)
 
@@ -205,7 +206,7 @@ If `{{BIN_DIR}}/orun` or `{{BIN_DIR}}/oexec` is unavailable (binary missing, ser
 | `owrap attach` | Bind current window to existing session (1-1 binding) |
 | `owrap stop` | Force-remove session binding |
 | `owrap setup <path>` | Write per-project config + stage templates |
-| `owrap update-area <research> <area>` | Set active area within research |
+| `owrap update-area <research> <area>` | Set active research AND area on the current session (both fields updated independently — pass the same area to change only research, or vice versa) |
 | `owrap update-home <path> [--dry-run]` | Point `OWRAP_HOME` at `<path>` — lightweight: validates target, updates `~/.owrap_home` pointer file only. Run `owrap sync` afterward. |
 | `owrap update-home <path> --migrate [--dry-run]` | Relocate `OWRAP_HOME`: backs up to `~/.owrap_backups/`, stops server pool + keepalive, atomically moves the directory, updates the pointer file, re-syncs current workspace |
 | `owrap stat <sid>` | Show session stats (tasks, durations, pool state) |
@@ -213,6 +214,8 @@ If `{{BIN_DIR}}/orun` or `{{BIN_DIR}}/oexec` is unavailable (binary missing, ser
 | `owrap f <path>` | Fallback: run `--execf`/`--taskf` directly (no server) on `<path>`; mode inferred from filename ("task" in name → `--taskf`, else `--execf`); tees to `f/<mode>/output.log`, logs to `f/<mode>/log.md`; errors if path missing or path doesn't exist |
 | `owrap f tstop` | Stop a running/stalled task fallback: SIGTERM the tracked `runner_pid`, mark `f/task/status.json` as `stopped`, log to `f/task/log.md` |
 | `owrap f estop` | Stop a running/stalled exec fallback: same as `tstop` but for `f/exec/status.json`/`log.md` |
+| `owrap restore trash [session_id]` | Restore a session previously moved to `.trash` by `owrap end`/`owrap stop`; run `owrap attach [session_id]` afterward to bind a window to it |
+| `owrap cleanup trash` | Permanently delete `.trash` entries older than `trash_retention_days` (default 30); also runs automatically via `_housekeeping` on `owrap start`/`refresh` |
 | `owrap precompact` | PreCompact hook — summarises transcript before compaction |
 
 ### oread (file reading, OpenCode)
@@ -235,7 +238,7 @@ If `{{BIN_DIR}}/orun` or `{{BIN_DIR}}/oexec` is unavailable (binary missing, ser
 ### orun (task dispatch, OpenCode)
 | Flag | What it does |
 |---|---|
-| `orun --msg "..."` | Foreground inline task, ≤1024 chars |
+| `orun --msg "..."` | Foreground inline task, ≤1536 chars |
 | `orun --msg -` | Read task from stdin (multiline) |
 | `orun -i <id> --msg "..."` | Parallel task with id `<id>`; `run_in_background=True` |
 | `orun --msg "..." --add-context` | Tell the task to read `context.md` for session context before responding |
