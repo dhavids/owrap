@@ -30,7 +30,6 @@ All `~/.owrap/...` paths throughout this document are relative to `OWRAP_HOME`, 
 | `AGENTS.md` | Executor working manual | `{{WORKSPACE}}/AGENTS.md` |
 | `memory/<research>.md` | Per-project memory | `{{RESEARCH_ROOT}}/memory/<research>.md` |
 | `projects/<research>.md` | Per-research overview, phases, environment | `{{RESEARCH_ROOT}}/projects/<research>.md` |
-| `{{CHANGES_DIR}}/<codebase>.md` | Per-repo changelogs (executor writes) | `{{CHANGES_DIR}}/<codebase>.md` |
 | `.trash/[session_id]/` | Ended/stopped session moved here instead of deleted; swept after 30 days (config `trash_retention_days`) | `~/.owrap/.trash/[session_id]/` |
 
 ## Project Detail Files (`projects/<research>.md`)
@@ -40,7 +39,7 @@ One file per research goal. No YAML frontmatter — all metadata lives in sectio
 - `# <research name>` (H1 title).
 - `## Overview` — general description of the research/project; `### Structure` (repo layout, CLI/command reference, component tables); `### Environment` (config keys, dependencies, installation, limits); optional `### <Topic>` subsections for cross-area reference material (methodology, log formats, etc.) that applies to the research as a whole.
 - One `## <area>` section per area (matches `$OWRAP_AREA` and `memory/<research>.md`'s `## <area>` sections) — `### Status` (current phase/state, last run, active blockers, free text), `### Decisions` (dated table, 1 line each, append-only), and optionally `### Notes` (free-text; user-populated, never overwritten by executor `--updr` dispatches).
-- No `## Phases`/`## TODO`/`## DONE` — dated `### Decisions` entries plus `docs/changes/<research>.md` are the historical record going forward.
+- No `## Phases`/`## TODO`/`## DONE` — dated `### Decisions` entries (capped, newest-first, max 100) are the curated historical record; full change history lives in each codebase's own `git log`/`git diff`.
 
 Steps live in `~/.owrap/docs/sessions/<session_id>/exec/plan.md`, not here.
 
@@ -142,7 +141,7 @@ Update {{RESEARCH_ROOT}}/projects/<research>.md — area ## <area>:
 ### Status
 <replacement paragraph — current phase/state, last run, active blockers>
 
-### Decisions — append only new entries:
+### Decisions — prepend new entries at the top (newest-first; max 150 total — if prepending would exceed 150, remove the oldest entries first):
 | YYYY-MM-DD | <decision> | <reason> |
 
 (omit any section that needs no change)
@@ -167,7 +166,7 @@ Check your active area with `{{BIN_DIR}}/owrap get area`. If not set and files h
 
 - `### Components` in memory: flat list only, no nesting.
 - Each `### <Subsystem>` block ≤10 entries; use a new subsystem heading if longer.
-- `### Decisions` entries in projects: 1 line each; include only entries new since the last `--updr`.
+- `### Decisions` entries in projects: 1 line each; include only entries new since the last `--updr`; ordered newest-first (new entries prepended at the top, not appended at the bottom); max 150 entries total, oldest removed on overflow.
 
 ## Context Recovery
 
@@ -273,6 +272,7 @@ If `{{BIN_DIR}}/orun` or `{{BIN_DIR}}/oexec` is unavailable (binary missing, ser
 | rc | Meaning |
 |---|---|
 | `0` | Success |
+| `1` | Watchdog: no output — server produced zero output within the no-output window |
 | `2` | Timeout (rerun with `-t` to extend) |
 | `143` | Crashed |
 

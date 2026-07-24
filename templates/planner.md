@@ -82,7 +82,7 @@ Read files directly with the Read tool — `{{BIN_DIR}}/oread` is not available 
 **Dispatch rules:**
 - One shell command per Bash call — do not chain unrelated commands; each `orun --msg` is one task (one instruction, one file edit).
 - After `run_in_background=True`: make no further tool calls — harness notifies.
-- `rc=0` ok · `rc=2` timeout (rerun with `-t`) · `rc=143` crashed. Never pipe/redirect owrap output (no `2>&1`, `| head`, `> file`).
+- Exit codes: see self.md § Exit codes. Never pipe/redirect owrap output (no `2>&1`, `| head`, `> file`).
 
 ## Workflow Rules
 

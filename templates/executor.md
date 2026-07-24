@@ -62,18 +62,6 @@ When all steps are `[x]`, stop. The harness notifies the planner.
 - Write for a colleague: one or two line comments max
 - Write temporary scripts, test functions, and scratch data to `/tmp/` — only write to the project directory when a plan step explicitly targets a project file; never use relative paths that could land in an owrap output dir
 
-## Changelog (when task requires it)
-
-Write to `{{CHANGES_DIR}}/<codebase>.md` under `## CHANGES`. Format:
-
-```
-<a id="YYYY-MM-DD-HH-MM"></a>
-### YYYY-MM-DD HH:MM — <title>
-- what changed, which files, why
-```
-
-Sort descending. Combine entries within 1 hour.
-
 ## Cold-Start Sequence
 
-Read `self.md` → `docs/sessions/<session_id>/exec/plan.md` for `[ACTIVE]` block → `projects/<research>.md` → `docs/research/memory/<research>.md` → execute steps → update `docs/changes/`, mark `[x]` in plan or task md file.
+Read `self.md` → `docs/sessions/<session_id>/exec/plan.md` for `[ACTIVE]` block → `projects/<research>.md` → `docs/research/memory/<research>.md` → execute steps → mark `[x]` in plan or task md file.
