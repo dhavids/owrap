@@ -204,3 +204,83 @@ def test_record_unresponsive_unknown_url_noop(tmp_path):
 
     remaining = json.loads(fake_pool.read_text())
     assert remaining == pool
+
+
+def test_pick_server_force_kills_stale_hung_entry(tmp_path):
+    from owrap.utils.pool import pick_server
+    from unittest.mock import patch
+
+    stale_pid = 424242
+    pool = [{
+        "pid": stale_pid, "url": "http://localhost:4096",
+        "port": 4096, "last_used": 0,
+    }]
+    fake_pool = tmp_path / "pool.json"
+    fake_pool.write_text(json.dumps(pool))
+    fake_lock = tmp_path / "pool.lock"
+
+    new_entry = {
+        "port": 4096, "url": "http://localhost:4096",
+        "pid": 55555, "last_used": time.time(),
+    }
+
+    with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
+         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock), \
+         patch("owrap.utils.pool._pool_active", return_value=True), \
+         patch("owrap.utils.pool._ensure_keepalive"), \
+         patch("owrap.utils.pool.ensure_min_servers"), \
+         patch("owrap.utils.pool._is_alive", side_effect=[True, True, False, False]), \
+         patch("owrap.utils.pool._is_responsive", return_value=False), \
+         patch("owrap.utils.pool._next_port", return_value=4096), \
+         patch("owrap.utils.pool._start_server", return_value=new_entry), \
+         patch("owrap.utils.pool._wait_responsive"), \
+         patch("os.kill") as mock_kill:
+        url = pick_server("msg")
+
+    assert url == "http://localhost:4096"
+    mock_kill.assert_called_once_with(stale_pid, 15)
+
+    remaining = json.loads(fake_pool.read_text())
+    assert len(remaining) == 1
+    assert remaining[0]["pid"] == 55555
+
+
+def test_pick_server_escalates_to_sigkill_if_stale_wont_die(tmp_path):
+    from owrap.utils.pool import pick_server
+    from unittest.mock import patch
+
+    stale_pid = 424243
+    pool = [{
+        "pid": stale_pid, "url": "http://localhost:4096",
+        "port": 4096, "last_used": 0,
+    }]
+    fake_pool = tmp_path / "pool.json"
+    fake_pool.write_text(json.dumps(pool))
+    fake_lock = tmp_path / "pool.lock"
+
+    new_entry = {
+        "port": 4096, "url": "http://localhost:4096",
+        "pid": 55556, "last_used": 0,
+    }
+
+    time_values = iter([100.0, 100.0, 103.0])
+    def fake_time():
+        return next(time_values, 999.0)
+
+    with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
+         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock), \
+         patch("owrap.utils.pool._pool_active", return_value=True), \
+         patch("owrap.utils.pool._ensure_keepalive"), \
+         patch("owrap.utils.pool.ensure_min_servers"), \
+         patch("owrap.utils.pool._is_alive", return_value=True), \
+         patch("owrap.utils.pool._is_responsive", return_value=False), \
+         patch("owrap.utils.pool._next_port", return_value=4096), \
+         patch("owrap.utils.pool._start_server", return_value=new_entry), \
+         patch("owrap.utils.pool._wait_responsive"), \
+         patch("owrap.utils.pool.time.time", side_effect=fake_time), \
+         patch("owrap.utils.pool.time.sleep"), \
+         patch("os.kill") as mock_kill:
+        pick_server("msg")
+
+    mock_kill.assert_any_call(stale_pid, 15)
+    mock_kill.assert_any_call(stale_pid, 9)

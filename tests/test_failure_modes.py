@@ -10,8 +10,9 @@ import pytest
 from owrap.manager import Manager
 
 
-def test_msg_too_long_prints_donow(mock_manager, capsys):
-    """MSG_TOO_LONG: msg > 1536 prints #DO NOW with section reference."""
+def test_msg_too_long_prints_explicit_options(mock_manager, capsys):
+    """MSG_TOO_LONG: msg > 1536 prints a self-contained error stating both
+    remediation options."""
     mock_manager.ensure_running.return_value = "http://localhost:4096"
 
     from owrap.commands.run_cmd import RunRunner
@@ -23,8 +24,10 @@ def test_msg_too_long_prints_donow(mock_manager, capsys):
             runner.run(msg="x" * 1537)
 
     captured = capsys.readouterr()
-    assert "#DO NOW" in captured.err or "#DO NOW" in captured.out
-    assert "MSG_TOO_LONG" in captured.err or "MSG_TOO_LONG" in captured.out
+    output = captured.err + captured.out
+    assert "shorten the message" in output
+    assert "file task" in output
+    assert "#DO NOW" not in output
 
 
 def test_input_empty_prints_donow(mock_manager, capsys, tmp_path):

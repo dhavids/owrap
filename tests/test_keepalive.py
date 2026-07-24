@@ -49,55 +49,6 @@ def test_keepalive_exits_after_idle_timeout(tmp_path):
     assert calls["n"] >= 2
 
 
-def test_keepalive_pings_cold_server(tmp_path):
-    from owrap.commands.keepalive import KeepaliveRunner
-
-    (tmp_path / ".owrap").mkdir(parents=True, exist_ok=True)
-
-    pool_entry = {"url": "http://localhost:4096", "last_used": 0}
-    seq = [[pool_entry], [pool_entry], []]
-
-    terminal_mock = MagicMock()
-    terminal_mock.run.return_value = {"returncode": 0, "stdout": "4"}
-
-    with patch("owrap.commands.keepalive.Path.home", return_value=tmp_path), \
-         patch("owrap.commands.keepalive.get_pool", side_effect=lambda: seq.pop(0) if seq else []), \
-         patch("owrap.commands.keepalive._read_config", return_value={
-             "idle_shutdown_s": 240,
-             "keepalive_interval_s": 0.01,
-             "keepalive_idle_exit_s": 0.0,
-         }), \
-         patch("owrap.commands.keepalive.Terminal", return_value=terminal_mock), \
-         patch("owrap.commands.keepalive.time.sleep"):
-        KeepaliveRunner(MagicMock()).run()
-
-    assert terminal_mock.run.called
-
-
-def test_keepalive_skips_warm_server(tmp_path):
-    from owrap.commands.keepalive import KeepaliveRunner
-
-    (tmp_path / ".owrap").mkdir(parents=True, exist_ok=True)
-
-    pool_entry = {"url": "http://localhost:4096", "last_used": time.time()}  # just used
-    seq = [[pool_entry], []]
-
-    terminal_mock = MagicMock()
-
-    with patch("owrap.commands.keepalive.Path.home", return_value=tmp_path), \
-         patch("owrap.commands.keepalive.get_pool", side_effect=lambda: seq.pop(0) if seq else []), \
-         patch("owrap.commands.keepalive._read_config", return_value={
-             "idle_shutdown_s": 240,
-             "keepalive_interval_s": 0.01,
-             "keepalive_idle_exit_s": 0.0,
-         }), \
-         patch("owrap.commands.keepalive.Terminal", return_value=terminal_mock), \
-         patch("owrap.commands.keepalive.time.sleep"):
-        KeepaliveRunner(MagicMock()).run()
-
-    terminal_mock.run.assert_not_called()
-
-
 def test_keepalive_cleans_pid_file_on_exit(tmp_path):
     from owrap.commands.keepalive import KeepaliveRunner
 

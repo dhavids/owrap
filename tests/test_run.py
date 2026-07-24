@@ -103,11 +103,11 @@ def test_run_runner_task_mode_creates_task_file(tmp_path, mock_manager):
 
         task_name = "task_20260613_120000_000001.md"
         task_file = tasks_dir / task_name
-        assert task_file.exists(), f"expected task file at {task_file}"
-        assert "task content" in task_file.read_text()
+        # _run_task deletes the task file on successful completion (run_cmd.py:394)
+        assert not task_file.exists(), f"expected task file cleaned up at {task_file}"
         assert input_file.read_text() == ""
 
-        log_path = output_dir / f"{task_name}.log"
+        log_path = output_dir / "task_20260613_120000_000001.log"
         assert log_path.exists(), f"expected log at {log_path}"
         assert "task_" not in log_path.name[len("task_"):].split(".", 1)[0], \
             f"log filename must not double task_ prefix: {log_path.name}"
