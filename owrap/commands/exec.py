@@ -38,6 +38,7 @@ class ExecRunner(BaseRunner):
     def run(self, log_time=False):
         sid = self.manager.session_id or "exec"
         self.LOG_FILE = session_exec_output_path(sid)
+        print(f"log: {self.LOG_FILE}", flush=True)
         self._cleanup_recently_done()
         session_id = self.manager.session_id
         plan_path = get_plan_path(session_id) if session_id else None
@@ -54,7 +55,7 @@ class ExecRunner(BaseRunner):
         else:
             url = self.manager.ensure_running()
 
-        cmd = ["opencode", "run"]
+        cmd = ["opencode", "run", "--thinking"]
         if self.allow_all:
             cmd.append("--dangerously-skip-permissions")
         _ctx_cfg = _read_config()

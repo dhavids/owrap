@@ -88,8 +88,11 @@ class RunRunner(BaseRunner):
         if len(msg) > MSG_MAX_CHARS:
             if self.logger:
                 self.logger.error("run msg rejected: len=%d >%d session=%s", len(msg), MSG_MAX_CHARS, self.manager.session_id or "none")
-            print(f"Error: --msg must be <= {MSG_MAX_CHARS} characters (got {len(msg)})")
-            print(format_failure_pointer("MSG_TOO_LONG", self.manager.session_id))
+            print(
+                f"Error: --msg must be <= {MSG_MAX_CHARS} characters (got {len(msg)}) — "
+                f"either shorten the message, or switch to a file task "
+                f"(write input.md, then `orun`)."
+            )
             sys.exit(1)
         msg = _sanitize_placeholder_tags(msg)
 
@@ -111,10 +114,13 @@ class RunRunner(BaseRunner):
             _msg_tmp_file = _msg_tmp_dir / f"msg_{_uuid.uuid4().hex[:12]}.md"
             _msg_tmp_file.write_text(original_msg)
             if self.add_context and _ctx_cfg.get("context_enabled", True) and self.manager.session_id and cp.exists() and cp.stat().st_size > 0:
-                exec_prompt = f"First read {cp} for context, then: Read {_msg_tmp_file} and do what it says. {ANTI_SUMMARY_SUFFIX}"
+                exec_prompt = (
+                    f"First read {cp} for context, then: "
+                    f"{_msg_tmp_file} {ANTI_SUMMARY_SUFFIX}"
+                )
                 ctx_injected = True
             else:
-                exec_prompt = f"Read {_msg_tmp_file} and do what it says. {ANTI_SUMMARY_SUFFIX}"
+                exec_prompt = f"{_msg_tmp_file} {ANTI_SUMMARY_SUFFIX}"
         else:
             _msg_tmp_file = None
             if self.add_context and _ctx_cfg.get("context_enabled", True) and self.manager.session_id and cp.exists() and cp.stat().st_size > 0:
@@ -122,7 +128,7 @@ class RunRunner(BaseRunner):
                 ctx_injected = True
             msg += " " + ANTI_SUMMARY_SUFFIX
             exec_prompt = msg
-        cmd = ["opencode", "run"]
+        cmd = ["opencode", "run", "--thinking"]
         if self.allow_all:
             cmd.append("--dangerously-skip-permissions")
         if self.model:
@@ -151,6 +157,7 @@ class RunRunner(BaseRunner):
         timed_out = False
         session_msg_output_dir(self.manager.session_id).mkdir(parents=True, exist_ok=True)
         msg_log = session_msg_output_dir(self.manager.session_id) / f"msg_{_msg_sentinel_id}.log"
+        print(f"log: {msg_log}", flush=True)
         watchdog = None
         try:
             self.manager.t_cmd_start()
@@ -186,7 +193,10 @@ class RunRunner(BaseRunner):
                     unresponsive_callback=_msg_unresp,
                 )
                 watchdog.start()
-                result = terminal.run(" ".join(cmd), print_output=True, capture_output=True, timeout=MSG_TIMEOUT, tee_file=tee)
+                result = terminal.run(
+                    " ".join(cmd), print_output=True, capture_output=True,
+                    timeout=MSG_TIMEOUT, tee_file=tee, use_pty=True,
+                )
 
             self.manager.t_cmd_end()
             if result.get("timed_out"):
@@ -228,6 +238,19 @@ class RunRunner(BaseRunner):
                     self.manager.update_frequent_files()
                 except Exception:
                     pass
+                if rc != 0:
+                    try:
+                        n_fail = self.manager.consecutive_msg_failures()
+                        if n_fail >= 2:
+                            print(
+                                f"[owrap] {n_fail} consecutive orun --msg failures "
+                                f"this session — stop retrying this msg as-is. "
+                                f"Switch to a file task (write input.md, then "
+                                f"`orun`) or `owrap f`.",
+                                flush=True,
+                            )
+                    except Exception:
+                        pass
             self.manager.log_time(log_time)
             if url:
                 try:
@@ -301,7 +324,7 @@ class RunRunner(BaseRunner):
                 session_task_output_dir(self.manager.session_id).mkdir(parents=True, exist_ok=True)
                 log_path = session_task_output_dir(self.manager.session_id) / f"{task_name}.log"
 
-            cmd = ["opencode", "run"]
+            cmd = ["opencode", "run", "--thinking"]
             if self.allow_all:
                 cmd.append("--dangerously-skip-permissions")
             cmd.extend(["--attach", url])
@@ -315,6 +338,7 @@ class RunRunner(BaseRunner):
                 self.logger.info("run task_name=%s title=%.60r session=%s", task_name, title, self.manager.session_id or "none")
                 self.logger.debug("run task cmd=%s", " ".join(cmd))
             print(f"[t:{task_name}]", flush=True)
+            print(f"log: {log_path}", flush=True)
 
             rc = 1
             timed_out = False
@@ -443,7 +467,7 @@ class RunRunner(BaseRunner):
             fallback_file.write_text(content)
             input_path.write_text("")
 
-            cmd = ["opencode", "run"]
+            cmd = ["opencode", "run", "--thinking"]
             if self.allow_all:
                 cmd.append("--dangerously-skip-permissions")
             cmd.extend(["--", "--taskf", shlex.quote(str(fallback_file))])

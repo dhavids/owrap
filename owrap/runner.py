@@ -1,4 +1,5 @@
 import argparse
+import shutil
 import sys
 from pathlib import Path
 
@@ -152,6 +153,14 @@ def main():
             sys.exit(0)
 
     args = parser.parse_args()
+
+    if args.command in ("run", "f", "exec") and shutil.which("opencode") is None:
+        print(
+            "Error: 'opencode' command not found on PATH. "
+            "Install opencode or fix your PATH before using owrap.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     manager = Manager()
     level = "DEBUG" if getattr(args, "debug", False) else "INFO"
