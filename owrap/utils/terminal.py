@@ -141,6 +141,7 @@ class Terminal:
         signals=None,
         tee_file=None,
         cwd=None,
+        use_pty=False,
     ):
         if silent:
             print_output = False
@@ -153,7 +154,10 @@ class Terminal:
             elif self.interactive_shell:
                 return self._run_interactive(command, stdin, capture_output, print_output, silent, timeout)
             else:
-                return self._run_standard(command, stdin, capture_output, print_output, silent, timeout, tee_file, cwd=cwd)
+                return self._run_standard(
+                    command, stdin, capture_output, print_output, silent, timeout,
+                    tee_file, cwd=cwd, use_pty=use_pty,
+                )
         finally:
             if register_signals and not detached:
                 self.unregister_signal_handlers()
@@ -228,22 +232,43 @@ class Terminal:
             "success": None,
         }
 
-    def _run_standard(self, command, stdin, capture_output, print_output, silent, timeout, tee_file=None, cwd=None):
+    def _run_standard(
+        self, command, stdin, capture_output, print_output, silent, timeout,
+        tee_file=None, cwd=None, use_pty=False,
+    ):
         import time
         if self.verbose and not silent:
             print(f"Running: {command}")
         use_stdin_pipe = isinstance(stdin, str) or self.send_sigint
-        proc = subprocess.Popen(
-            command,
-            shell=True,
-            text=True,
-            stdin=subprocess.PIPE if use_stdin_pipe else stdin,
-            stdout=subprocess.PIPE if (capture_output or print_output) else None,
-            stderr=subprocess.PIPE if (capture_output or print_output) else None,
-            cwd=cwd,
-        )
+        master_fd = None
+        if use_pty:
+            import pty
+            master_fd, slave_fd = pty.openpty()
+            proc = subprocess.Popen(
+                command,
+                shell=True,
+                text=True,
+                stdin=slave_fd,
+                stdout=slave_fd,
+                stderr=slave_fd,
+                cwd=cwd,
+                preexec_fn=os.setsid,
+                close_fds=True,
+            )
+            os.close(slave_fd)
+            self._pty_master_fd = master_fd
+        else:
+            proc = subprocess.Popen(
+                command,
+                shell=True,
+                text=True,
+                stdin=subprocess.PIPE if use_stdin_pipe else stdin,
+                stdout=subprocess.PIPE if (capture_output or print_output) else None,
+                stderr=subprocess.PIPE if (capture_output or print_output) else None,
+                cwd=cwd,
+            )
         self._process = proc
-        if isinstance(stdin, str):
+        if isinstance(stdin, str) and not use_pty:
             proc.stdin.write(stdin)
             proc.stdin.close()
         if print_output and capture_output and not silent:
@@ -253,14 +278,19 @@ class Terminal:
             parser = OutputParser()
             import select
             import fcntl
-            if proc.stdout:
-                flags = fcntl.fcntl(proc.stdout, fcntl.F_GETFL)
-                fcntl.fcntl(proc.stdout, fcntl.F_SETFL, flags | os.O_NONBLOCK)
-            if proc.stderr:
-                flags = fcntl.fcntl(proc.stderr, fcntl.F_GETFL)
-                fcntl.fcntl(proc.stderr, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+            if use_pty:
+                flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
+                fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+            else:
+                if proc.stdout:
+                    flags = fcntl.fcntl(proc.stdout, fcntl.F_GETFL)
+                    fcntl.fcntl(proc.stdout, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+                if proc.stderr:
+                    flags = fcntl.fcntl(proc.stderr, fcntl.F_GETFL)
+                    fcntl.fcntl(proc.stderr, fcntl.F_SETFL, flags | os.O_NONBLOCK)
             deadline = (time.time() + timeout) if timeout else None
             timed_out = False
+            pty_closed = False
             while proc.poll() is None:
                 if deadline:
                     remaining = deadline - time.time()
@@ -270,11 +300,19 @@ class Terminal:
                     wait = min(0.1, remaining)
                 else:
                     wait = 0.1
-                readable, _, _ = select.select([proc.stdout, proc.stderr], [], [], wait)
-                for stream in readable:
-                    if stream == proc.stdout:
-                        line = stream.readline()
-                        if line:
+                if use_pty:
+                    if pty_closed:
+                        time.sleep(wait)
+                        continue
+                    readable, _, _ = select.select([master_fd], [], [], wait)
+                    for stream in readable:
+                        try:
+                            data = os.read(master_fd, 4096)
+                        except OSError:
+                            data = b""
+                            pty_closed = True
+                        if data:
+                            line = data.decode(errors="ignore")
                             stdout_lines.append(line)
                             self._partial_stdout += line
                             clean = parser.feed(line)
@@ -283,16 +321,38 @@ class Terminal:
                             if tee_file:
                                 tee_file.write(clean)
                                 tee_file.flush()
-                    elif stream == proc.stderr:
-                        line = stream.readline()
-                        if line:
-                            stderr_lines.append(line)
-                            clean = parser.feed(line)
-                            if not any(line.startswith(p) for p in _MUTE_LINE_PREFIXES):
-                                print(clean, end="", flush=True)
-                            if tee_file:
-                                tee_file.write(clean)
-                                tee_file.flush()
+                        elif not data:
+                            pty_closed = True
+                else:
+                    readable, _, _ = select.select(
+                        [proc.stdout, proc.stderr], [], [], wait
+                    )
+                    for stream in readable:
+                        if stream == proc.stdout:
+                            line = stream.readline()
+                            if line:
+                                stdout_lines.append(line)
+                                self._partial_stdout += line
+                                clean = parser.feed(line)
+                                if not any(
+                                    line.startswith(p) for p in _MUTE_LINE_PREFIXES
+                                ):
+                                    print(clean, end="", flush=True)
+                                if tee_file:
+                                    tee_file.write(clean)
+                                    tee_file.flush()
+                        elif stream == proc.stderr:
+                            line = stream.readline()
+                            if line:
+                                stderr_lines.append(line)
+                                clean = parser.feed(line)
+                                if not any(
+                                    line.startswith(p) for p in _MUTE_LINE_PREFIXES
+                                ):
+                                    print(clean, end="", flush=True)
+                                if tee_file:
+                                    tee_file.write(clean)
+                                    tee_file.flush()
             if timed_out:
                 tail = parser.flush()
                 if tail:
@@ -302,6 +362,12 @@ class Terminal:
                         tee_file.flush()
                 self.terminate_process(timeout=2)
                 self._process = None
+                if use_pty:
+                    try:
+                        os.close(master_fd)
+                    except OSError:
+                        pass
+                    self._pty_master_fd = None
                 stdout = "".join(stdout_lines)
                 stderr = "".join(stderr_lines)
                 return {
@@ -312,29 +378,51 @@ class Terminal:
                     "timed_out": True,
                     "command": command,
                 }
-            try:
-                remaining_stdout = proc.stdout.read()
-            except TypeError:
-                remaining_stdout = ""
-            if remaining_stdout:
-                stdout_lines.append(remaining_stdout)
-                clean = parser.feed(remaining_stdout)
-                print(clean, end="", flush=True)
-                if tee_file:
-                    tee_file.write(clean)
-                    tee_file.flush()
-            try:
-                remaining_stderr = proc.stderr.read()
-            except TypeError:
-                remaining_stderr = ""
-            if remaining_stderr:
-                stderr_lines.append(remaining_stderr)
-                clean = parser.feed(remaining_stderr)
-                if clean:
+            if use_pty:
+                if not pty_closed:
+                    try:
+                        while True:
+                            data = os.read(master_fd, 4096)
+                            if not data:
+                                break
+                            line = data.decode(errors="ignore")
+                            stdout_lines.append(line)
+                            clean = parser.feed(line)
+                            print(clean, end="", flush=True)
+                            if tee_file:
+                                tee_file.write(clean)
+                                tee_file.flush()
+                    except OSError:
+                        pass
+                try:
+                    os.close(master_fd)
+                except OSError:
+                    pass
+                self._pty_master_fd = None
+            else:
+                try:
+                    remaining_stdout = proc.stdout.read()
+                except TypeError:
+                    remaining_stdout = ""
+                if remaining_stdout:
+                    stdout_lines.append(remaining_stdout)
+                    clean = parser.feed(remaining_stdout)
                     print(clean, end="", flush=True)
-                if tee_file:
-                    tee_file.write(clean)
-                    tee_file.flush()
+                    if tee_file:
+                        tee_file.write(clean)
+                        tee_file.flush()
+                try:
+                    remaining_stderr = proc.stderr.read()
+                except TypeError:
+                    remaining_stderr = ""
+                if remaining_stderr:
+                    stderr_lines.append(remaining_stderr)
+                    clean = parser.feed(remaining_stderr)
+                    if clean:
+                        print(clean, end="", flush=True)
+                    if tee_file:
+                        tee_file.write(clean)
+                        tee_file.flush()
             tail = parser.flush()
             if tail:
                 print(tail, end="", flush=True)
