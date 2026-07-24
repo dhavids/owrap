@@ -152,7 +152,7 @@ def pick_server(call_type: str) -> str:
         live = [entry for entry in pool if entry.get("pid") and _is_alive(entry["pid"]) and _is_responsive(entry.get("url", ""))]
         config = _read_config()
         max_servers = int(config.get("max_servers", 5))
-        max_req = int(config.get("max_requests_per_server", 0))
+        max_req = int(config.get("max_requests", 0))
 
         # Mark any server that has hit its request quota as draining: stop routing new
         # work to it, but let in-flight requests finish rather than killing it outright
@@ -174,6 +174,25 @@ def pick_server(call_type: str) -> str:
         live = [e for e in live if e not in exhausted]
 
         if not live:
+            # Entries here failed the liveness/responsiveness check above but may still be
+            # actually running (hung, not dead) — force-kill them so they don't leak as
+            # untracked orphans once the pool below is overwritten.
+            for stale in pool:
+                pid = stale.get("pid")
+                if not pid or not _is_alive(pid):
+                    continue
+                try:
+                    os.kill(pid, 15)
+                except OSError:
+                    pass
+                deadline = time.time() + 2.0
+                while _is_alive(pid) and time.time() < deadline:
+                    time.sleep(0.1)
+                if _is_alive(pid):
+                    try:
+                        os.kill(pid, 9)
+                    except OSError:
+                        pass
             port = _next_port(exhausted)
             entry = _start_server(port)
             _wait_responsive(entry["url"])
