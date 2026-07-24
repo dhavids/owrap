@@ -20,7 +20,6 @@ def resolve_placeholders(config: dict, workspace_name: str) -> dict:
     import os
     workspace = config.get("workspace", "")
     research_root = config.get("research_root") or (f"{workspace}/docs/research" if workspace else "")
-    changes_dir = f"{workspace}/docs/changes" if workspace else ""
     bin_dir = config.get("bin_dir") or str(Path.home() / "bin")
     owrap_docs = str(OWRAP_HOME / "docs")
     owrap_home = str(OWRAP_HOME)
@@ -30,7 +29,6 @@ def resolve_placeholders(config: dict, workspace_name: str) -> dict:
     return {
         "WORKSPACE": workspace,
         "RESEARCH_ROOT": research_root,
-        "CHANGES_DIR": changes_dir,
         "BIN_DIR": bin_dir,
         "PROJECT_NAME": workspace_name,
         "OWRAP_DOCS": owrap_docs,

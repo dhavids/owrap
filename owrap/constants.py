@@ -18,7 +18,6 @@ TRASH_RETENTION_DAYS = 30
 UNRESPONSIVE_KILL_THRESHOLD = 2
 
 FAILURE_POINTERS = {
-    "MSG_TOO_LONG": ("instruction", "Dispatch Tooling — File task"),
     "INPUT_EMPTY": ("instruction", "Dispatch Tooling — File task"),
     "TIMED_OUT": ("self", "Command Reference — timeout/retry"),
     "TASK_FAILED": ("self", "Update Context"),
