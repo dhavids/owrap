@@ -13,7 +13,7 @@ from ..manager import Manager
 from ..base import BaseRunner
 from ..constants import ANTI_SUMMARY_SUFFIX, MSG_KILL_S, TASK_KILL_S, LOG_WRAP_WIDTH, NO_OUTPUT_MSG_S, NO_OUTPUT_TASK_S, MSG_MAX_CHARS
 from ..utils.pool import _pool_active, pick_server, update_last_used
-from ..utils.paths import TASKS_DIR, RUNTIME_DIR, context_path, _read_config, get_agents_md_path, get_workspace_config, format_failure_pointer, FALLBACK_TASK, session_msg_output_dir, session_task_output_dir, session_tasks_dir, session_precompact_dir
+from ..utils.paths import TASKS_DIR, RUNTIME_DIR, context_path, _read_config, get_agents_md_path, get_workspace_config, get_workspace_path, format_failure_pointer, FALLBACK_TASK, session_msg_output_dir, session_task_output_dir, session_tasks_dir, session_precompact_dir
 from ..utils.snippet import extract_snippet, wrap_log_text, divider
 
 _PLACEHOLDER_TAG_RE = re.compile(r'<([A-Za-z][\w-]*)>')
@@ -105,30 +105,12 @@ class RunRunner(BaseRunner):
         cp = context_path(self.manager.session_id)
         ctx_injected = False
         original_msg = msg
-        _SHELL_UNSAFE = frozenset('"\'`$\\<>')
-        use_msg_file = any(c in msg for c in _SHELL_UNSAFE)
-        if use_msg_file:
-            import uuid as _uuid
-            _msg_tmp_dir = Path("/tmp/owrap/msg")
-            _msg_tmp_dir.mkdir(parents=True, exist_ok=True)
-            _msg_tmp_file = _msg_tmp_dir / f"msg_{_uuid.uuid4().hex[:12]}.md"
-            _msg_tmp_file.write_text(original_msg)
-            if self.add_context and _ctx_cfg.get("context_enabled", True) and self.manager.session_id and cp.exists() and cp.stat().st_size > 0:
-                exec_prompt = (
-                    f"First read {cp} for context, then: "
-                    f"{_msg_tmp_file} {ANTI_SUMMARY_SUFFIX}"
-                )
-                ctx_injected = True
-            else:
-                exec_prompt = f"{_msg_tmp_file} {ANTI_SUMMARY_SUFFIX}"
-        else:
-            _msg_tmp_file = None
-            if self.add_context and _ctx_cfg.get("context_enabled", True) and self.manager.session_id and cp.exists() and cp.stat().st_size > 0:
-                msg = f"First read {cp} for context, then: {msg}"
-                ctx_injected = True
-            msg += " " + ANTI_SUMMARY_SUFFIX
-            exec_prompt = msg
-        cmd = ["opencode", "run", "--thinking"]
+        if self.add_context and _ctx_cfg.get("context_enabled", True) and self.manager.session_id and cp.exists() and cp.stat().st_size > 0:
+            msg = f"First read {cp} for context, then: {msg}"
+            ctx_injected = True
+        msg += " " + ANTI_SUMMARY_SUFFIX
+        exec_prompt = msg
+        cmd = ["opencode", "run", "--thinking", "--dir", str(get_workspace_path())]
         if self.allow_all:
             cmd.append("--dangerously-skip-permissions")
         if self.model:
@@ -143,7 +125,7 @@ class RunRunner(BaseRunner):
                 cmd.extend(["-m", fast_model])
         if url:
             cmd.extend(["--attach", url])
-        if not url and not use_msg_file:
+        if not url:
             fallback_file = self.FALLBACK_TASK
             fallback_file.write_text(f"## Do\n\n{exec_prompt}\n")
             cmd.extend(["--", "--taskf", shlex.quote(str(fallback_file))])
@@ -162,8 +144,7 @@ class RunRunner(BaseRunner):
         try:
             self.manager.t_cmd_start()
             with open(msg_log, "w") as tee:
-                _file_note = f"[msg file: {_msg_tmp_file}]\n\n" if _msg_tmp_file else ""
-                tee.write(f"[{datetime.now().isoformat()}] MSG START\n\n{divider('INPUT')}\n\n{_file_note}{wrap_log_text(original_msg, LOG_WRAP_WIDTH)}\n\n")
+                tee.write(f"[{datetime.now().isoformat()}] MSG START\n\n{divider('INPUT')}\n\n{wrap_log_text(original_msg, LOG_WRAP_WIDTH)}\n\n")
                 tee.flush()
                 tee.write(f"{divider('EXECUTOR OUTPUT')}\n")
                 tee.write(f"[server: {url or 'direct'}]\n\n")
@@ -196,6 +177,7 @@ class RunRunner(BaseRunner):
                 result = terminal.run(
                     " ".join(cmd), print_output=True, capture_output=True,
                     timeout=MSG_TIMEOUT, tee_file=tee, use_pty=True,
+                    cwd=str(get_workspace_path()),
                 )
 
             self.manager.t_cmd_end()
@@ -324,7 +306,7 @@ class RunRunner(BaseRunner):
                 session_task_output_dir(self.manager.session_id).mkdir(parents=True, exist_ok=True)
                 log_path = session_task_output_dir(self.manager.session_id) / f"{task_name}.log"
 
-            cmd = ["opencode", "run", "--thinking"]
+            cmd = ["opencode", "run", "--thinking", "--dir", str(get_workspace_path())]
             if self.allow_all:
                 cmd.append("--dangerously-skip-permissions")
             cmd.extend(["--attach", url])
@@ -376,7 +358,7 @@ class RunRunner(BaseRunner):
                         unresponsive_callback=_task_unresp,
                     )
                     watchdog.start()
-                    result = terminal.run(" ".join(cmd), capture_output=True, print_output=True, tee_file=log)
+                    result = terminal.run(" ".join(cmd), capture_output=True, print_output=True, tee_file=log, cwd=str(get_workspace_path()))
                     self.manager.t_cmd_end()
                     if result.get("timed_out"):
                         timed_out = True

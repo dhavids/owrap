@@ -55,7 +55,7 @@ class ExecRunner(BaseRunner):
         else:
             url = self.manager.ensure_running()
 
-        cmd = ["opencode", "run", "--thinking"]
+        cmd = ["opencode", "run", "--thinking", "--dir", str(get_workspace_path())]
         if self.allow_all:
             cmd.append("--dangerously-skip-permissions")
         _ctx_cfg = _read_config()
