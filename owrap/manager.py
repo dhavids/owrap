@@ -13,10 +13,10 @@ from pathlib import Path
 
 from .utils.terminal import Terminal
 from .utils.logger import get_logger
-from .utils.paths import TASKS_DIR, RUN_OUTPUT_DIR, STATE_FILE, SESSION_DIR, SERVERS_DIR, DOCS_DIR, SESSIONS_DIR, RUNNING_DIR, SERVER_LOGS_DIR
+from .utils.paths import TASKS_DIR, STATE_FILE, SESSION_DIR, SERVERS_DIR, DOCS_DIR, SESSIONS_DIR, RUNNING_DIR, SERVER_LOGS_DIR
 from .utils.paths import RUN_LOG, EXEC_LOG, READ_LOG, INPUT_FILE, _read_config, get_plan_path
 from .utils.paths import session_log, session_input, context_path, context_lock_path
-from .utils.paths import session_tasks_dir, session_msg_output_dir, session_task_output_dir
+from .utils.paths import session_tasks_dir, session_msg_output_dir, session_task_output_dir, session_agent_full_log_dir
 from .utils.trash import sweep_trash
 
 
@@ -25,7 +25,6 @@ _health_cache: dict[str, tuple[bool, float]] = {}
 
 class Manager:
     TASKS_DIR = TASKS_DIR
-    OUTPUT_DIR = RUN_OUTPUT_DIR
     STATE_FILE = STATE_FILE
 
     def __init__(self, port=None):
@@ -39,7 +38,6 @@ class Manager:
         SESSION_DIR.mkdir(parents=True, exist_ok=True)
         if not self.session_id:
             self.TASKS_DIR.mkdir(parents=True, exist_ok=True)
-            self.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         config = _read_config()
         max_servers = int(config.get("max_servers", 1))
         min_servers = int(config.get("min_servers", 2))
@@ -411,6 +409,9 @@ class Manager:
             task_dir = session_task_output_dir(self.session_id)
             task_dir.mkdir(parents=True, exist_ok=True)
             self._trim_logs(task_dir, "*.log", max_keep=_read_config().get("max_task_output_logs", 5))
+            agent_log_dir = session_agent_full_log_dir(self.session_id)
+            agent_log_dir.mkdir(parents=True, exist_ok=True)
+            self._trim_logs(agent_log_dir, "*.log", max_keep=_read_config().get("max_agent_output_logs", 10))
             return removed
         return 0
 
@@ -752,9 +753,12 @@ class Manager:
                         continue
                     best = min(pool, key=lambda e: _active_load(e["url"]))
                     least_busy_url = best["url"]
-                    prompt = f"Compress the following session context file. Keep all section headers. Condense entries to the most important facts. Preserve the structure. Return only the compressed content:\n\n{snapshot}"
+                    prompt = f"--executor Compress the following session context file. Keep all section headers. "
+                    prompt += f"Condense entries to the most important facts. Preserve the structure. "
+                    prompt += f"Return only the compressed content:\n\n{snapshot}"
                     cmd = f"opencode run --attach {least_busy_url} -- {shlex.quote(prompt)}"
-                    result = Terminal(verbose=False).run(cmd, capture_output=True, print_output=False, timeout=60)
+                    result = Terminal(verbose=False).run(
+                        cmd, capture_output=True, print_output=False, timeout=60)
                     compressed = (result.get("stdout") or "").strip()
                     if not compressed:
                         continue

@@ -206,3 +206,39 @@ def test_get_config(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "research_root" in out
     assert "/some/path" in out
+
+
+def test_get_agent_with_content(tmp_path, monkeypatch, capsys):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir(parents=True)
+    sid = "testsid"
+    sf = sessions_dir / f"{sid}.session"
+    sf.write_text("session_id=testsid\nresearch=myresearch\narea=main\nworkspace=marl\n")
+    agents_dir = tmp_path / "docs" / "sessions" / sid / "agents"
+    agents_dir.mkdir(parents=True)
+    log_file = agents_dir / "output.log"
+    log_file.write_text("[a:test1]\ninput: test task\nlog: /path/to/log\nsummary: found nothing\n---\n\n")
+    monkeypatch.setenv("SESSION_ID", sid)
+    monkeypatch.setattr("owrap.commands.get_cmd.RUNTIME_HOME", tmp_path)
+    from owrap.commands.get_cmd import GetRunner
+    GetRunner().run("agents")
+    out = capsys.readouterr().out
+    assert "# agents:" in out
+    assert "output.log" in out
+    assert "found nothing" in out
+
+
+def test_get_agent_missing(tmp_path, monkeypatch, capsys):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir(parents=True)
+    sid = "testsid"
+    sf = sessions_dir / f"{sid}.session"
+    sf.write_text("session_id=testsid\nresearch=myresearch\narea=main\nworkspace=marl\n")
+    monkeypatch.setenv("SESSION_ID", sid)
+    monkeypatch.setattr("owrap.commands.get_cmd.RUNTIME_HOME", tmp_path)
+    from owrap.commands.get_cmd import GetRunner
+    with pytest.raises(SystemExit) as exc_info:
+        GetRunner().run("agents")
+    assert exc_info.value.code == 1
+    out = capsys.readouterr().out
+    assert "No agent output for session testsid" in out

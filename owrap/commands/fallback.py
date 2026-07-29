@@ -13,6 +13,7 @@ from ..utils.snippet import extract_snippet, divider
 from ..utils.paths import (
     FALLBACK_EXEC_OUTPUT, FALLBACK_EXEC_LOG, FALLBACK_EXEC_STATUS,
     FALLBACK_TASK_OUTPUT, FALLBACK_TASK_LOG, FALLBACK_TASK_STATUS,
+    _read_config, get_dispatch_model,
 )
 
 
@@ -54,8 +55,11 @@ class FallbackRunner:
             run_log = self.EXEC_LOG
             status_file = self.EXEC_STATUS
 
-        cmd = ["opencode", "run", "--dangerously-skip-permissions", "--",
-               shlex.quote(f"{flag} {target} {ANTI_SUMMARY_SUFFIX}")]
+        cmd = ["opencode", "run", "--dangerously-skip-permissions"]
+        fb_model = get_dispatch_model(_read_config(), default_to_fast=False)
+        if fb_model:
+            cmd.extend(["-m", fb_model])
+        cmd.extend(["--", shlex.quote(f"--executor {flag} {target} {ANTI_SUMMARY_SUFFIX}")])
 
         output_log.parent.mkdir(parents=True, exist_ok=True)
         terminal = Terminal(verbose=False)

@@ -49,20 +49,13 @@ TRASH_DIR = OWRAP_HOME / ".trash"
 RUN_DIR = DOCS_DIR / "run"
 TASKS_DIR = RUN_DIR / "tasks"
 INPUT_FILE = TASKS_DIR / "input.md"
-RUN_OUTPUT_DIR = RUN_DIR / "output"
 RUN_LOG = RUN_DIR / "log.md"
 
 SERVER_LOGS_DIR = RUNTIME_HOME / "logs"
-MSG_LOGS_DIR = RUN_OUTPUT_DIR / "msg"
-TASK_LOGS_DIR = RUN_OUTPUT_DIR / "task"
-CONTEXT_DIR = DOCS_DIR / "context"
 
 SERVER_LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
-EXEC_DIR = DOCS_DIR / "exec"
-PLANS_DIR = EXEC_DIR / "plans"
-EXEC_OUTPUT_DIR = EXEC_DIR / "output"
-EXEC_LOG = EXEC_DIR / "log.md"
+EXEC_LOG = DOCS_DIR / "exec" / "log.md"
 
 FALLBACK_DIR = DOCS_DIR / "f"
 FALLBACK_EXEC_DIR = FALLBACK_DIR / "exec"
@@ -79,9 +72,7 @@ FALLBACK_TASK_LOG = FALLBACK_TASK_DIR / "log.md"
 FALLBACK_EXEC_STATUS = FALLBACK_EXEC_DIR / "status.json"
 FALLBACK_TASK_STATUS = FALLBACK_TASK_DIR / "status.json"
 
-READ_DIR = DOCS_DIR / "read"
-READ_OUTPUT_DIR = READ_DIR / "output"
-READ_LOG = READ_DIR / "log.md"
+READ_LOG = DOCS_DIR / "read" / "log.md"
 
 STATE_FILE = str(RUNTIME_DIR / "manager.json")
 POOL_FILE = RUNTIME_DIR / "pool.json"
@@ -135,6 +126,18 @@ def session_task_output_dir(session_id: str) -> Path:
     return session_dir(session_id) / "run" / "output" / "tasks"
 
 
+def session_agents_dir(session_id: str) -> Path:
+    return session_dir(session_id) / "agents"
+
+
+def session_agent_log_path(session_id: str) -> Path:
+    return session_agents_dir(session_id) / "output.log"
+
+
+def session_agent_full_log_dir(session_id: str) -> Path:
+    return session_agents_dir(session_id) / "output"
+
+
 def _read_config() -> dict:
     """Read base config merged with the default workspace config. Base keys are overridden by workspace keys."""
     global _config_cache, _config_cache_stat
@@ -181,6 +184,24 @@ def get_project_config(project_name: str) -> dict:
 
 def project_config_path(project_name: str):
     return CONFIGS_DIR / f"{project_name}.json"
+
+
+def get_dispatch_model(config: dict, override: str | None = None, default_to_fast: bool = False) -> str | None:
+    """Resolve the model to pass to `opencode run` for an owrap dispatch.
+
+    Resolution order:
+    1. override argument (e.g. CLI --model)
+    2. config["exec_model"]
+    3. config["fast_model"] if default_to_fast is True
+    4. None (let opencode use its default)
+    """
+    if override:
+        return override
+    if config.get("exec_model"):
+        return config["exec_model"]
+    if default_to_fast and config.get("fast_model"):
+        return config["fast_model"]
+    return None
 
 
 def staged_dir(project_name: str):

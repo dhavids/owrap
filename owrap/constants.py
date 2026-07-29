@@ -3,24 +3,34 @@ ANTI_SUMMARY_SUFFIX = "STOP immediately when done. DO NOT summarize, list, or ex
 LOG_WRAP_WIDTH = 120
 LOG_DIVIDER_WIDTH = 60
 
-EXPECTED_DURATION_S = {"msg": 60, "read": 30, "task": 120, "exec": 300}
+EXPECTED_DURATION_S = {"msg": 60, "read": 30, "task": 120, "exec": 300, "agent": 120}
 
 STALL_NOTIFY_S = 120
+SCRIPT_STALL_MULTIPLIER = 2.0
 MSG_KILL_S = 30
 NO_OUTPUT_MSG_S = 10
 NO_OUTPUT_TASK_S = 15
 NO_OUTPUT_EXEC_S = 20
 TASK_KILL_S = 60
 EXEC_KILL_S = 120
+TASK_HARD_TIMEOUT_S = 600
+EXEC_HARD_TIMEOUT_S = 600
 WATCHDOG_POLL_S = 10
 MSG_MAX_CHARS = 1536
+AGENT_KILL_S = 90
+NO_OUTPUT_AGENT_S = 20
+AGENT_INLINE_MAX_CHARS = 2048
+AGENT_TIMEOUT_DEFAULT = 120
+AGENT_GRACE_MIN_S = 30
+AGENT_GRACE_MAX_S = 60
+AGENT_GRACE_LOW_ANCHOR_S = 120
+AGENT_GRACE_HIGH_ANCHOR_S = 500
 TRASH_RETENTION_DAYS = 30
 UNRESPONSIVE_KILL_THRESHOLD = 2
 
 FAILURE_POINTERS = {
     "INPUT_EMPTY": ("instruction", "Dispatch Tooling — File task"),
     "TIMED_OUT": ("self", "Command Reference — timeout/retry"),
-    "TASK_FAILED": ("self", "Update Context"),
     "NO_SERVER": ("self", "Command Reference — server pool"),
 }
 

@@ -7,6 +7,10 @@ from ..utils.paths import RUNTIME_HOME, get_plan_path, session_input, context_pa
 
 class GetRunner:
     def run(self, what, session_id=None):
+        if what == "home":
+            print(RUNTIME_HOME)
+            return
+
         sid = self._resolve_session_id(session_id)
         if not sid:
             print("No active session")
@@ -43,6 +47,18 @@ class GetRunner:
             print(json.dumps(cfg, indent=2))
             return
 
+        if what == "agents":
+            from ..utils.paths import session_agent_log_path
+            fpath = session_agent_log_path(sid)
+            header = f"# agents: {fpath}"
+            print(header)
+            if not fpath.exists():
+                print(f"No agent output for session {sid}")
+                sys.exit(1)
+            content = fpath.read_text().strip()
+            print("(empty)" if not content else content)
+            return
+
         if what in ("memory", "project"):
             research = sdata.get("research", "")
             if not research:
@@ -75,11 +91,13 @@ class GetRunner:
             print("  input    — current input file")
             print("  context  — current context file")
             print("  session  — session fields table")
+            print("  agents   — agents/output.log for this session (all subagent summaries)")
             print("  memory   — memory/<research>.md (requires research)")
             print("  project  — projects/<research>.md (requires research)")
             print("  area     — current area name")
             print("  research — current research name")
             print("  config   — full workspace config JSON")
+            print("  home     — resolved OWRAP_HOME (no session required)")
             sys.exit(1)
 
         research = sdata.get("research", "")
@@ -147,9 +165,9 @@ class GetRunner:
             print("No active session")
             return
         header = f"# session: {sf}"
-        header_len = max(len(k) for k in ["session_id", "research", "area", "workspace", "started", "last_refresh"] + list(sdata.keys()))
+        header_len = max(len(k) for k in ["session_id", "research", "area", "child", "workspace", "started", "last_refresh"] + list(sdata.keys()))
         rows = []
-        for label in ["session_id", "research", "area", "workspace", "started", "last_refresh"]:
+        for label in ["session_id", "research", "area", "child", "workspace", "started", "last_refresh"]:
             val = sdata.get(label, "—")
             rows.append(f"  {label:<{header_len}}  {val}")
         print(header)
@@ -165,7 +183,7 @@ class GetRunner:
         in_section = False
         result = []
         for line in lines:
-            if line.strip().startswith(marker):
+            if line.strip() == marker:
                 in_section = True
                 result.append(line)
                 continue

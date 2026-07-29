@@ -81,4 +81,7 @@ def _target_matches(target, kind, task_id):
     if t.startswith("msg"):
         suffix = t[3:]
         return kind == "msg" and (suffix == "" or task_id == suffix)
+    if t.startswith("agent"):
+        suffix = t[5:]
+        return kind == "agent" and (suffix == "" or task_id == suffix)
     return kind == t

@@ -4,33 +4,33 @@ File-based research manager for multi-codebase MARL research. **Global reference
 
 ## Session Model
 
-Every session calls `owrap start` at boot. Resolves session ID via `$SESSION_ID` env or `by_ccsid/$CLAUDE_CODE_SESSION_ID` pointer (mints new if neither). Writes `~/.owrap/sessions/${SESSION_ID}.session` (durable, survives Claude restarts) and `~/.owrap/sessions/by_ccsid/${CLAUDE_CODE_SESSION_ID}` pointer (1-1 window-to-session binding). Also stores `area` (sub-focus within research, e.g. `self-translator`). Exported as `$OWRAP_AREA` env var. Runtime paths are session-scoped under `~/.owrap/docs/sessions/<sid>/`.
+Every session calls `owrap start` at boot. Resolves session ID via `$SESSION_ID` env, then `by_ccsid/$CLAUDE_CODE_SESSION_ID` pointer, then `by_opencode_run_id/$OPENCODE_RUN_ID` pointer (mints new if none match). Writes `{{OWRAP_HOME}}/sessions/${SESSION_ID}.session` (durable, survives Claude restarts), `{{OWRAP_HOME}}/sessions/by_ccsid/${CLAUDE_CODE_SESSION_ID}` pointer, and `{{OWRAP_HOME}}/sessions/by_opencode_run_id/${OPENCODE_RUN_ID}` pointer (both 1-1 window-to-session bindings). Also stores `area` (sub-focus within research, e.g. `self-translator`). Exported as `$OWRAP_AREA` env var. Runtime paths are session-scoped under `{{OWRAP_HOME}}/docs/sessions/<sid>/`.
 
 ## OWRAP_HOME
 
-All `~/.owrap/...` paths throughout this document are relative to `OWRAP_HOME`, which resolves in this order: `$OWRAP_HOME` env var (if set) > contents of the fixed pointer file `~/.owrap_home` (if it exists) > default `~/.owrap`. Both the Python package (`owrap/utils/paths.py`) and every bash shim (`owrap`, `orun`, `oexec`, `owait`, `oread`) resolve it the same way. To point at a new path, use `owrap update-home <new_path>` (see Command Reference): by default this only updates the pointer file (useful when the target already has valid content, e.g. a synced mount from another machine, or is a fresh path you'll populate via normal use — run `owrap sync` afterward). Pass `--migrate` to actually relocate existing content on the same machine — it backs up first, stops the server pool and keepalive daemon, atomically moves the directory, updates the pointer file, and re-syncs the current workspace automatically.
+`{{OWRAP_HOME}}` (rendered above wherever it appears) resolves in this order: `$OWRAP_HOME` env var (if set) > contents of the fixed pointer file `~/.owrap_home` (if it exists) > default `~/.owrap`. Both the Python package (`owrap/utils/paths.py`) and every bash shim (`owrap`, `orun`, `oexec`, `owait`, `oread`) resolve it the same way. To point at a new path, use `owrap update-home <new_path>` (see Command Reference): by default this only updates the pointer file (useful when the target already has valid content, e.g. a synced mount from another machine, or is a fresh path you'll populate via normal use — run `owrap sync` afterward). Pass `--migrate` to actually relocate existing content on the same machine — it backs up first, stops the server pool and keepalive daemon, atomically moves the directory, updates the pointer file, and re-syncs the current workspace automatically.
 
 ## File Structure
 
 | File | Role | Path |
 |---|---|---|
-| `plan.md` | Active research plan (one `[ACTIVE]` block) | `~/.owrap/docs/sessions/<session_id>/exec/plan.md` |
-| `plan.md` | Fallback plan for `--execf` without path | `~/.owrap/docs/f/exec/plan.md` |
-| `task.md` | Fallback task for `--taskf` without path | `~/.owrap/docs/f/task/task.md` |
-| `output.log` | Full tee of last `owrap f` run | `~/.owrap/docs/f/{exec,task}/output.log` |
-| `log.md` | Completion log for `owrap f` | `~/.owrap/docs/f/{exec,task}/log.md` |
-| `status.json` | Live state of last `owrap f` run (running/stalled/done/crashed, pids, times, rc) | `~/.owrap/docs/f/{exec,task}/status.json` |
-| `input.md` | Serialized dispatch queue (session-scoped) | `~/.owrap/docs/sessions/<id>/run/input.md` |
-| `task_<timestamp>.md` | Timestamp-named task files for parallel hires | `~/.owrap/docs/sessions/<id>/run/tasks/task_<timestamp>.md` |
-| `output/msg/msg_*.log` | Per-session msg output logs (last 10 retained) | `~/.owrap/docs/sessions/<id>/run/output/msg/msg_*.log` |
-| `output/tasks/task_*.log` | Per-session task output logs (last 5 retained) | `~/.owrap/docs/sessions/<id>/run/output/tasks/task_*.log` |
-| `context.md` | Session context (auto-managed) | `~/.owrap/docs/sessions/<id>/context.md` |
+| `plan.md` | Active research plan (one `[ACTIVE]` block) | `{{OWRAP_HOME}}/docs/sessions/<sid>/exec/plan.md` |
+| `plan.md` | Fallback plan for `--execf` without path | `{{OWRAP_HOME}}/docs/f/exec/plan.md` |
+| `task.md` | Fallback task for `--taskf` without path | `{{OWRAP_HOME}}/docs/f/task/task.md` |
+| `output.log` | Full tee of last `owrap f` run | `{{OWRAP_HOME}}/docs/f/{exec,task}/output.log` |
+| `log.md` | Completion log for `owrap f` | `{{OWRAP_HOME}}/docs/f/{exec,task}/log.md` |
+| `status.json` | Live state of last `owrap f` run (running/stalled/done/crashed, pids, times, rc) | `{{OWRAP_HOME}}/docs/f/{exec,task}/status.json` |
+| `input.md` | Serialized dispatch queue (session-scoped) | `{{OWRAP_HOME}}/docs/sessions/<sid>/run/input.md` |
+| `task_<timestamp>.md` | Timestamp-named task files for parallel hires | `{{OWRAP_HOME}}/docs/sessions/<sid>/run/tasks/task_<timestamp>.md` |
+| `output/msg/msg_*.log` | Per-session msg output logs (last 10 retained) | `{{OWRAP_HOME}}/docs/sessions/<sid>/run/output/msg/msg_*.log` |
+| `output/tasks/task_*.log` | Per-session task output logs (last 5 retained) | `{{OWRAP_HOME}}/docs/sessions/<sid>/run/output/tasks/task_*.log` |
+| `context.md` | Session context (auto-managed) | `{{OWRAP_HOME}}/docs/sessions/<sid>/context.md` |
 | `CLAUDE.md` | Claude Code wrapper + planner working manual | `{{WORKSPACE}}/CLAUDE.md` |
 | `self.md` | This file — global reference | `{{RESEARCH_ROOT}}/self.md` |
 | `AGENTS.md` | Executor working manual | `{{WORKSPACE}}/AGENTS.md` |
 | `memory/<research>.md` | Per-project memory | `{{RESEARCH_ROOT}}/memory/<research>.md` |
 | `projects/<research>.md` | Per-research overview, phases, environment | `{{RESEARCH_ROOT}}/projects/<research>.md` |
-| `.trash/[session_id]/` | Ended/stopped session moved here instead of deleted; swept after 30 days (config `trash_retention_days`) | `~/.owrap/.trash/[session_id]/` |
+| `.trash/<sid>/` | Ended/stopped session moved here instead of deleted; swept after 30 days (config `trash_retention_days`) | `{{OWRAP_HOME}}/.trash/<sid>/` |
 
 ## Project Detail Files (`projects/<research>.md`)
 
@@ -41,7 +41,7 @@ One file per research goal. No YAML frontmatter — all metadata lives in sectio
 - One `## <area>` section per area (matches `$OWRAP_AREA` and `memory/<research>.md`'s `## <area>` sections) — `### Status` (current phase/state, last run, active blockers, free text), `### Decisions` (dated table, 1 line each, append-only), and optionally `### Notes` (free-text; user-populated, never overwritten by executor `--updr` dispatches).
 - No `## Phases`/`## TODO`/`## DONE` — dated `### Decisions` entries (capped, newest-first, max 100) are the curated historical record; full change history lives in each codebase's own `git log`/`git diff`.
 
-Steps live in `~/.owrap/docs/sessions/<session_id>/exec/plan.md`, not here.
+Steps live in `{{OWRAP_HOME}}/docs/sessions/<sid>/exec/plan.md`, not here.
 
 ## Project Memory Structure (`memory/<research>.md`)
 
@@ -64,6 +64,22 @@ Each area occupies one `## <area>` section. Within each area, the FIRST subsecti
 
 Multiple `## <area>` sections can coexist. Executor updates only the target area section.
 
+### Child Areas
+
+A child area is created via `owrap start <research> <parent> <child>` or `owrap spawn <child>` (from within an existing `<parent>` session) — the session's area becomes `<parent>-<child>`, and the session file also stores a separate `child` field (just `<child>`, not the combined string). Check `owrap get session` to see whether the current session is a child (`child` row present) and its value — never parse the `area` string for a hyphen to guess this; areas like `data-gen` already contain hyphens without being children. Hyphens in area names are NOT parsed structurally in memory.md/projects.md either — the parent/child relationship in THOSE files is tracked ONLY via the explicit `**Parent area:**` annotation line (a separate, file-level marker from the session's `child` field).
+
+When `--updr` creates a child area's `## <parent>-<child>` section for the first time (in memory.md and/or projects.md), it must include `**Parent area:** <parent>` as the very first line of the section, before `### Components` (memory.md) or `### Status` (projects.md):
+
+```markdown
+## <parent>-<child>
+**Parent area:** <parent>
+
+### Components
+...
+```
+
+Collapsing a child area back into its parent is a planner-driven operation, not an `owrap` command — see § Collapse. It requires the `**Parent area:**` annotation to exist; without it, the planner must refuse (not a recognized child area). No nested children — a child area's own section must not itself carry a `**Parent area:**` pointing to another child.
+
 ## Context File Format
 
 - `## Focus` — current phase/goal; update when direction shifts.
@@ -85,12 +101,12 @@ You are the planner — you have been running this session and know what changed
    - **## Environment** — any new env facts (flags, configs, tool constraints)?
    - **## How To** — any useful commands or techniques discovered this session? (e.g., exact grep that found something, log analysis command that worked well, a command flag that made a difference)
 
-2. Write a task file to `~/.owrap/docs/sessions/<sid>/run/input.md` in this exact form, then dispatch via `orun`:
+2. Write a task file to `{{OWRAP_HOME}}/docs/sessions/<sid>/run/input.md` in this exact form, then dispatch via `orun`:
 
 ```
 # Update Context
 
-Update /home/humble/.owrap/docs/sessions/<sid>/context.md — apply the following changes:
+Update {{OWRAP_HOME}}/docs/sessions/<sid>/context.md — apply the following changes:
 
 ## Focus
 <full replacement paragraph — current phase, what is active, what is blocked>
@@ -123,7 +139,7 @@ You are the planner — you have been running this session and know what changed
    - **memory** — new files, classes, methods, config flows relevant to this area?
    - **projects status** — has phase/state changed? Any active blockers?
    - **projects decisions** — any architectural choices to record?
-3. Write a task file to `~/.owrap/docs/sessions/<sid>/run/input.md` in this exact form, then dispatch via `{{BIN_DIR}}/orun`:
+3. Write a task file to `{{OWRAP_HOME}}/docs/sessions/<sid>/run/input.md` in this exact form, then dispatch via `{{BIN_DIR}}/orun`:
 
 ```
 # Update Protocol
@@ -147,7 +163,7 @@ Update {{RESEARCH_ROOT}}/projects/<research>.md — area ## <area>:
 (omit any section that needs no change)
 ```
 
-The executor applies exactly what you wrote — it makes no decisions.
+The executor applies exactly what you wrote — it makes no decisions. If `## <area>` is a newly-created child area, include the `**Parent area:**` annotation — see § Child Areas.
 
 This must be a **standalone** task with the header **# Update Protocol**. It must not be lumped or combined with any other tasks.
 
@@ -172,9 +188,95 @@ Check your active area with `{{BIN_DIR}}/owrap get area`. If not set and files h
 
 If `context.md` does not exist: run `{{BIN_DIR}}/owrap refresh` (calls `create_context()`). If it exists but is missing required sections, write a task to restore them per `## Context File Format` above.
 
+## Decision Pruning
+
+You are the planner. Heavy, on-demand sweep — never run automatically on `--updr`. Use when a project's `### Decisions` table is cluttered, nearing its cap (150), or you suspect stale entries.
+
+A decision is stale if: **superseded** (a later decision on the same topic reverses it), **dead reference** (cites a `file.py:N`/function/config-key that no longer exists or moved), **duplicate** (re-recorded without new information), or **obsolete** (the code area it describes was fully removed/refactored).
+
+Do this now:
+
+1. Run `{{BIN_DIR}}/owrap get memory` and `{{BIN_DIR}}/owrap get project` for the active area.
+2. Extract every cited `file.py:N`/function/config-key from `### Decisions` rows and memory.md's `### Components`/`### <Subsystem>` entries; grep the codebase to confirm each still exists. Anything that doesn't is a **candidate** — flag it, don't remove yet.
+3. For each candidate and its immediate neighbors (to catch superseded/duplicate pairs grep alone misses), read enough context to confirm it's genuinely stale, not relocated or renamed.
+4. Write a **standalone** task (header `# Decision Pruning`, never lumped with other tasks) to `{{OWRAP_HOME}}/docs/sessions/<sid>/run/input.md` and dispatch via `orun`:
+
+```
+# Decision Pruning
+
+Update {{RESEARCH_ROOT}}/memory/<research>.md — area ## <area>:
+Remove these entries (dead reference / superseded / duplicate / obsolete — confirmed):
+- <entry> — <why>
+
+Update {{RESEARCH_ROOT}}/projects/<research>.md — area ## <area>:
+Remove these Decisions rows (dead reference / superseded / duplicate / obsolete — confirmed):
+- <row> — <why>
+```
+
+The executor removes exactly what you listed — no staleness judgments of its own.
+
+### Safety
+
+`docs/research` is its own git repo — commit before running a prune so removed content stays recoverable via git history. Do not run against an uncommitted/dirty tree.
+
+### When to run
+
+On demand via `--prune [area]` — never automatically, never as part of `--updr`.
+
+## Collapse
+
+You are the planner. This merges a child area's content back into its parent, then removes the child section — used when a child area (see § Child Areas) has run its course and its findings belong under the parent instead.
+
+Do this now:
+
+1. Read the child area's `## <parent>-<child>` section in memory.md and/or projects.md (`owrap get memory`/`owrap get project`, switching area first via `owrap update-area <research> <parent>-<child>` if needed, or read the files directly). Confirm the `**Parent area:** <parent>` annotation is present. If it is missing from BOTH files, STOP — this is not a recognized child area; report the error instead of proceeding.
+2. If the annotation is present in only one of the two files, treat that file's parent as authoritative for both, and note the asymmetry in the task you write.
+3. Read both the child's and the parent's full content in memory.md and projects.md — everything that needs merging.
+4. Decide the merge — don't just concatenate:
+   - **Components** (memory.md) — add child files not already listed under the parent; skip exact duplicates.
+   - **Subsystems** (memory.md `### <Name>` blocks) — if the parent already has a subsystem with the same name, merge entries into it (dedupe); otherwise add the child's subsystem block as a new one under the parent.
+   - **Decisions** (projects.md) — add the child's rows into the parent's table; keep newest-first ordering; respect the 150-row cap (drop oldest on overflow).
+   - **Status** (projects.md) — append the child's status as a dated note under the parent's existing Status (`(Collapsed from \`<child>\` on YYYY-MM-DD:)` followed by a condensed summary — don't dump the child's full history verbatim if the parent's Status already covers the same ground).
+   - **Notes** (projects.md) — append under the parent's Notes (create the subsection if the parent doesn't have one).
+5. Write a task file to `{{OWRAP_HOME}}/docs/sessions/<sid>/run/input.md` in this exact form, then dispatch via `orun`:
+
+```
+# Collapse
+
+Update /home/humble/marl/docs/research/memory/<research>.md:
+- Merge these entries into ## <parent>'s ### Components (skip if already present):
+  - `file.py` — role
+- Merge these entries into ## <parent>'s ### <Subsystem> (create the subsystem if absent):
+  - <entry>
+- Remove the entire ## <parent>-<child> section.
+
+Update /home/humble/marl/docs/research/projects/<research>.md:
+- Add these rows to ## <parent>'s ### Decisions (newest-first; cap 150, drop oldest on overflow):
+  | YYYY-MM-DD | <decision> | <reason> |
+- Append this note to ## <parent>'s ### Status:
+  (Collapsed from `<child>` on YYYY-MM-DD:) <condensed summary>
+- Append this note to ## <parent>'s ### Notes (create if absent):
+  <note text>
+- Remove the entire ## <parent>-<child> section.
+```
+
+The executor applies exactly what you wrote — it makes no merge decisions of its own; you already decided what's redundant and what's worth keeping in step 4.
+
+This must be a **standalone** task with the header **# Collapse**. It must not be lumped with any other tasks.
+
+6. If the current session's area is `<parent>-<child>`, rebind it afterward: `owrap update-area <research> <parent>`.
+
+### Safety
+
+`docs/research` is its own git repo — commit before running a collapse so the removed child section stays recoverable via git history. Do not run against an uncommitted/dirty tree.
+
+### When to run
+
+On demand via `--collapse [child]` (see Planner Modes in `CLAUDE.md`) — never automatically.
+
 ## DO NOW Mechanism
 
-Counters live in `~/.owrap/sessions/<sid>.counters.json` (owrap-managed — never read or edit directly), used only for the recovery checks below and for precompact's internal transcript-offset tracking.
+Counters live in `{{OWRAP_HOME}}/sessions/<sid>.counters.json` (owrap-managed — never read or edit directly), used only for the recovery checks below and for precompact's internal transcript-offset tracking.
 
 ### Trigger Table
 
@@ -205,7 +307,8 @@ If `{{BIN_DIR}}/orun` or `{{BIN_DIR}}/oexec` is unavailable (binary missing, ser
 | `owrap attach` | Bind current window to existing session (1-1 binding) |
 | `owrap stop` | Force-remove session binding |
 | `owrap setup <path>` | Write per-project config + stage templates |
-| `owrap update-area <research> <area>` | Set active research AND area on the current session (both fields updated independently — pass the same area to change only research, or vice versa) |
+| `owrap update-area <research> <area> [child]` | Set active research AND area on the current session (both fields updated independently — pass the same area to change only research, or vice versa). `[child]` sets the session's `child` field when this area is a child area; omit it to clear/unset the field (e.g. when rebinding back to a parent after a collapse) |
+| `owrap spawn <child>` | Rebind current session to a child area `<parent>-<child>`, where `<parent>` is the session's current area |
 | `owrap update-home <path> [--dry-run]` | Point `OWRAP_HOME` at `<path>` — lightweight: validates target, updates `~/.owrap_home` pointer file only. Run `owrap sync` afterward. |
 | `owrap update-home <path> --migrate [--dry-run]` | Relocate `OWRAP_HOME`: backs up to `~/.owrap_backups/`, stops server pool + keepalive, atomically moves the directory, updates the pointer file, re-syncs current workspace |
 | `owrap stat <sid>` | Show session stats (tasks, durations, pool state) |
@@ -213,7 +316,7 @@ If `{{BIN_DIR}}/orun` or `{{BIN_DIR}}/oexec` is unavailable (binary missing, ser
 | `owrap f <path>` | Fallback: run `--execf`/`--taskf` directly (no server) on `<path>`; mode inferred from filename ("task" in name → `--taskf`, else `--execf`); tees to `f/<mode>/output.log`, logs to `f/<mode>/log.md`; errors if path missing or path doesn't exist |
 | `owrap f tstop` | Stop a running/stalled task fallback: SIGTERM the tracked `runner_pid`, mark `f/task/status.json` as `stopped`, log to `f/task/log.md` |
 | `owrap f estop` | Stop a running/stalled exec fallback: same as `tstop` but for `f/exec/status.json`/`log.md` |
-| `owrap restore trash [session_id]` | Restore a session previously moved to `.trash` by `owrap end`/`owrap stop`; run `owrap attach [session_id]` afterward to bind a window to it |
+| `owrap restore trash <sid>` | Restore a session previously moved to `.trash` by `owrap end`/`owrap stop`; run `owrap attach <sid>` afterward to bind a window to it |
 | `owrap cleanup trash` | Permanently delete `.trash` entries older than `trash_retention_days` (default 30); also runs automatically via `_housekeeping` on `owrap start`/`refresh` |
 | `owrap precompact` | PreCompact hook — summarises transcript before compaction |
 
@@ -251,6 +354,15 @@ If `{{BIN_DIR}}/orun` or `{{BIN_DIR}}/oexec` is unavailable (binary missing, ser
 | `oexec` | Execute `[ACTIVE]` plan; auto-background; harness notifies |
 | `oexec --execf <path>` | Execute plan from `<path>` |
 
+### oagent (subagent dispatch, OpenCode)
+| Flag | What it does |
+|---|---|
+| `oagent <<'OAGENT_PAYLOAD_END' ... OAGENT_PAYLOAD_END` | Pipe the payload in via a quoted-delimiter heredoc; default timeout 120s |
+| `oagent -t <seconds> <<'OAGENT_PAYLOAD_END' ... OAGENT_PAYLOAD_END` | Set the time budget |
+| `oagent -i <id> <<'OAGENT_PAYLOAD_END' ... OAGENT_PAYLOAD_END` | Parallel dispatch with id `<id>`; `run_in_background=True` |
+| `oagent --clear <<'OAGENT_PAYLOAD_END' ... OAGENT_PAYLOAD_END` | Clear prior agent output before dispatching |
+| `owrap get agents` | Read back all dispatched agent summaries |
+
 ### owait (dispatch coordinator)
 | Flag | What it does |
 |---|---|
@@ -275,6 +387,8 @@ If `{{BIN_DIR}}/orun` or `{{BIN_DIR}}/oexec` is unavailable (binary missing, ser
 | `1` | Watchdog: no output — server produced zero output within the no-output window |
 | `2` | Timeout (rerun with `-t` to extend) |
 | `143` | Crashed |
+
+On any non-zero exit (`status: FAILED`), the previously-dispatched `input.md` content is not safe to redispatch unchanged — rewrite the task file (get its path via `owrap get input`) with corrected content before redispatching via `orun`.
 
 ## DONE
 

@@ -1,11 +1,17 @@
 import json
 import os
+import re
 import time
 import threading
 from pathlib import Path
 
-from ..constants import STALL_NOTIFY_S, WATCHDOG_POLL_S
+from ..constants import STALL_NOTIFY_S, WATCHDOG_POLL_S, SCRIPT_STALL_MULTIPLIER
 from .paths import _read_config
+
+
+_SCRIPT_PRECURSOR_RE = re.compile(
+    r'(?i)\b(run|running|execute|executing|writ(?:e|ing)|creat(?:e|ing))\b.*\bscript\b'
+)
 
 
 class Watchdog:
@@ -16,8 +22,15 @@ class Watchdog:
         self._kill_callback = kill_callback
         self._notify_callback = notify_callback
         self._kill_after_s = kill_after_s
-        self._stall_s = stall_s if stall_s is not None else float(_cfg.get("stall_notify_s", STALL_NOTIFY_S))
-        self._poll_s = poll_s if poll_s is not None else float(_cfg.get("watchdog_poll_s", WATCHDOG_POLL_S))
+        self._stall_s = stall_s if stall_s is not None else float(
+            _cfg.get("stall_notify_s", STALL_NOTIFY_S)
+        )
+        self._poll_s = poll_s if poll_s is not None else float(
+            _cfg.get("watchdog_poll_s", WATCHDOG_POLL_S)
+        )
+        self._script_stall_multiplier = float(
+            _cfg.get("script_stall_multiplier", SCRIPT_STALL_MULTIPLIER)
+        )
         self._thread = None
         self._stop_event = threading.Event()
         self._state = "healthy"
@@ -55,6 +68,20 @@ class Watchdog:
             pass
         return False
 
+    def _is_script_running(self):
+        try:
+            with open(self._log_path, 'rb') as f:
+                f.seek(0, os.SEEK_END)
+                size = f.tell()
+                f.seek(max(0, size - 4096))
+                tail = f.read().decode('utf-8', errors='ignore')
+        except OSError:
+            return False
+        lines = [l for l in tail.splitlines() if l.strip()]
+        if not lines:
+            return False
+        return bool(_SCRIPT_PRECURSOR_RE.search(lines[-1]))
+
     def _run(self):
         while not self._stop_event.is_set():
             self._stop_event.wait(self._poll_s)
@@ -70,11 +97,18 @@ class Watchdog:
                     self._notify_callback("healthy")
             else:
                 elapsed = now - self._last_change_time
-                if self._state == "healthy" and elapsed >= self._stall_s:
+                _scale = (
+                    self._script_stall_multiplier if self._is_script_running() else 1.0
+                )
+                if self._state == "healthy" and elapsed >= self._stall_s * _scale:
                     self._state = "stalled"
                     self._stall_since = now
                     self._notify_callback("stalled")
-                elif self._state == "stalled" and self._stall_since and now - self._stall_since >= self._kill_after_s:
+                elif (
+                    self._state == "stalled"
+                    and self._stall_since
+                    and now - self._stall_since >= self._kill_after_s * _scale
+                ):
                     self._kill_callback()
                     break
 

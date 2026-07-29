@@ -7,6 +7,7 @@ if [ -z "$OWRAP_HOME" ]; then
   fi
 fi
 mkdir -p "$OWRAP_HOME/sessions/by_ccsid"
+mkdir -p "$OWRAP_HOME/sessions/by_opencode_run_id"
 
 _resolve_owrap_session() {
   local SID="${SESSION_ID:-}"
@@ -14,6 +15,11 @@ _resolve_owrap_session() {
   local PTR="$OWRAP_HOME/sessions/by_ccsid/${CCSID}"
   if [ -z "$SID" ] && [ -n "$CCSID" ] && [ -f "$PTR" ]; then
     SID=$(cat "$PTR")
+  fi
+  local OID="${OPENCODE_RUN_ID:-}"
+  local OID_PTR="$OWRAP_HOME/sessions/by_opencode_run_id/${OID}"
+  if [ -z "$SID" ] && [ -n "$OID" ] && [ -f "$OID_PTR" ]; then
+    SID=$(cat "$OID_PTR")
   fi
   export SESSION_ID="$SID"
   local SF="$OWRAP_HOME/sessions/${SID}.session"

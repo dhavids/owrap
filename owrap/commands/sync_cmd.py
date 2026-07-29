@@ -5,7 +5,8 @@ import sys
 from pathlib import Path
 
 from ..staging import stage_all, resolve_flags
-from ..utils.paths import get_workspace_config, RUNTIME_HOME
+from ..utils.paths import get_workspace_config, RUNTIME_HOME, _read_config
+from ..utils.session_resolver import resolve, _parse, session_file as _sf
 
 
 class SyncRunner:
@@ -43,33 +44,24 @@ class SyncRunner:
         print(f"workspace: {workspace}")
         print(f"research_root: {research_root}")
         print()
-        print(f"Next: ~/bin/orun --input {task_path}")
+        if flags.get("OWRAP_ENABLED"):
+            print(f"Next: ~/bin/orun --input {task_path}")
+        else:
+            print("owrap has now been disabled — dispatch tooling unavailable, work directly.")
         sys.exit(0)
 
     def _active_workspace(self):
         """Read active workspace name from current session file."""
-        ccsid = os.environ.get('CLAUDE_CODE_SESSION_ID', '').strip()
-        if ccsid:
-            ptr = RUNTIME_HOME / 'sessions' / 'by_ccsid' / ccsid
-            if ptr.exists():
-                sid = ptr.read_text().strip()
-                sf = RUNTIME_HOME / 'sessions' / f'{sid}.session'
-                if sf.exists():
-                    for line in sf.read_text().splitlines():
-                        if line.startswith('workspace='):
-                            return line.split('=', 1)[1].strip(), sid
-        sid = os.environ.get('SESSION_ID', '').strip()
-        if not sid:
-            cs = RUNTIME_HOME / 'runtime' / 'current_session'
-            if cs.exists():
-                sid = cs.read_text().strip()
-        if sid:
-            sf = RUNTIME_HOME / 'sessions' / f'{sid}.session'
-            if sf.exists():
-                for line in sf.read_text().splitlines():
-                    if line.startswith('workspace='):
-                        return line.split('=', 1)[1].strip(), sid
-        return (None, None)
+        session_id, session_path, source = resolve(mode="refresh")
+        if session_id is None:
+            return (None, None)
+        data = _parse(session_path)
+        workspace_name = data.get("workspace")
+        if not workspace_name:
+            workspace_name = _read_config().get("default_workspace", "")
+        if not workspace_name:
+            return (None, None)
+        return workspace_name, session_id
 
     def _write_sync_task(self, targets, sid):
         task_dir = RUNTIME_HOME / 'docs' / 'sessions' / sid / 'run'

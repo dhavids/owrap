@@ -12,7 +12,7 @@ from .utils.paths import _read_config, get_workspace_config
 
 
 def main():
-    parser = argparse.ArgumentParser(description="OWrap Runner Utility")
+    parser = argparse.ArgumentParser(description="OWrap Runner Utility", prog="owrap")
 
     parser.add_argument("-a", "--allow-all", action="store_true", help="Pass --dangerously-skip-permissions to opencode")
 
@@ -24,6 +24,7 @@ def main():
     start_parser.add_argument("--session-file", type=str, default=None, help="Session file path")
     start_parser.add_argument("-i", "--session-id", type=str, default=None, help="Session ID: attach if exists, create with this ID if not")
     start_parser.add_argument("area", nargs="?", default=None, help="Area within research (e.g. self-translator)")
+    start_parser.add_argument("child", nargs="?", default=None, help="Child suffix — session's area becomes '<area>-<child>'")
 
     stop_parser = subparsers.add_parser("stop", help="Stop an owrap session")
     stop_parser.add_argument("target", nargs="?", default=None, help="Session ID prefix or research name to stop (alias for -i/--session-id)")
@@ -102,12 +103,29 @@ def main():
     run_parser.add_argument("--add-context", action="store_true", help="Tell the msg task to read context.md before responding")
     run_parser.add_argument("--model", "-m", type=str, default=None, help="Model override")
 
+    agent_parser = subparsers.add_parser("agent", help="Dispatch a self-contained agent dive (like --msg, but with its own timeout/log conventions)")
+    agent_parser.add_argument("data", nargs="?", default=None, help="Self-contained agent instruction — your task and context. Omit (or pass \"-\") to read the payload from stdin instead (e.g. via a quoted heredoc), which avoids shell-quoting issues for payloads containing code, quotes, or shell metacharacters.")
+    agent_parser.add_argument("--id", "-i", type=str, default=None, help="Agent ID for parallel tracking")
+    agent_parser.add_argument("-t", "--timeout", type=int, default=None, help="Hard wall-clock timeout in seconds (default: 120)")
+    agent_parser.add_argument("--model", "-m", type=str, default=None, help="Model override")
+    agent_parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    agent_parser.add_argument("--log-time", action="store_true", help="Show the [timing] block (debugging/tests only)")
+    agent_parser.add_argument("--clear", action="store_true", help="Clear agent output log before dispatching")
+
     exec_parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     exec_parser.add_argument("--log-time", action="store_true", help="Show the [timing] block (debugging/tests only)")
+    exec_parser.add_argument("--model", "-m", type=str, default=None, help="Model override")
+    exec_parser.add_argument(
+        "-t", "--timeout", type=int, default=None,
+        help="Hard wall-clock timeout in seconds (default: 600)",
+    )
 
-    finish_parser = subparsers.add_parser("finish", help="Kill a running orun/oexec job by target (exec, task1, task2, ...)")
-    finish_parser.add_argument("target", help="Job to kill: 'exec', 'task', 'task1', 'task2', 'msg1', ...")
+    finish_parser = subparsers.add_parser("finish", help="Kill a running orun/oexec job by target (exec, task1, task2, ..., agent1, agent2, ...)")
+    finish_parser.add_argument("target", help="Job to kill: 'exec', 'task', 'task1', 'task2', 'msg1', ..., 'agent1', ...")
     finish_parser.add_argument("--session", type=str, default=None, help="Session ID override")
+
+    agents_parser = subparsers.add_parser("agents", help="Manage subagent dive output (use `oagent clear` instead of this directly)")
+    agents_parser.add_argument("action", choices=["clear"], help="clear: wipe agents/output.log and agents/output/ for the current session")
 
     killservers_parser = subparsers.add_parser("killservers", help="Kill all servers and running tasks without clearing session/context state")
     killservers_parser.add_argument("--session", type=str, default=None, help="Limit to a specific session ID")
@@ -118,6 +136,10 @@ def main():
     update_area_parser = subparsers.add_parser("update-area", help="Set research and area for the current session")
     update_area_parser.add_argument("research", help="Research name")
     update_area_parser.add_argument("area", help="Area within research (e.g. self-translator)")
+    update_area_parser.add_argument("child", nargs="?", default=None, help="Child suffix if this area is a child area (omit to clear/not set)")
+
+    spawn_parser = subparsers.add_parser("spawn", help="Spawn a child area under the current session's area and rebind to it")
+    spawn_parser.add_argument("child", help="Child suffix — current session's area becomes '<area>-<child>'")
 
     update_home_parser = subparsers.add_parser("update-home", help="Point OWRAP_HOME at a new path (default: lightweight repoint; --migrate: backs up, stops live processes, moves, re-syncs)")
     update_home_parser.add_argument("path", help="New absolute path for OWRAP_HOME")
@@ -130,7 +152,7 @@ def main():
     precompact_worker_parser.add_argument("--input", type=str, required=True, help="Input JSON path")
 
     get_parser = subparsers.add_parser("get", help="Inspect session files")
-    get_parser.add_argument("what", choices=["plan", "input", "context", "session", "memory", "project", "area", "research", "config"])
+    get_parser.add_argument("what", choices=["plan", "input", "context", "session", "memory", "project", "area", "research", "config", "home", "agents"])
     get_parser.add_argument("--session", default=None)
 
     keepalive_parser = subparsers.add_parser("keepalive", help="Run the keepalive daemon")
@@ -174,7 +196,8 @@ def main():
     if args.command == "start":
         StartRunner(manager, logger, allow_all=allow_all).run(
             shell_pid=args.shell_pid, session_file=args.session_file, research=args.research,
-            session_id=getattr(args, 'session_id', None), area=getattr(args, 'area', None))
+            session_id=getattr(args, 'session_id', None), area=getattr(args, 'area', None),
+            child=getattr(args, 'child', None))
     elif args.command == "stop":
         target = getattr(args, 'session_id', None) or getattr(args, 'target', None)
         StopRunner(manager, logger, allow_all=allow_all).run(session_file=args.session_file, force=args.force, target=target)
@@ -211,13 +234,28 @@ def main():
             msg=args.msg, msg_id=getattr(args, 'id', None),
             input_path=Path(args.input) if args.input else None,
             log_time=args.log_time, timeout=getattr(args, 'timeout', None))
+    elif args.command == "agent":
+        from .commands.agents import AgentsRunner
+        agent_data = args.data
+        if agent_data is None or agent_data == "-":
+            import sys as _sys
+            agent_data = _sys.stdin.read()
+        AgentsRunner(manager, logger, allow_all=allow_all, model=args.model).run_agent(
+            data=agent_data, agent_id=getattr(args, 'id', None),
+            log_time=args.log_time, timeout=getattr(args, 'timeout', None),
+            clear=args.clear)
     elif args.command in ("exec", "work"):
-        ExecRunner(manager, logger, allow_all=allow_all).run(log_time=args.log_time)
+        ExecRunner(manager, logger, allow_all=allow_all, model=args.model).run(
+            log_time=args.log_time, timeout=getattr(args, 'timeout', None),
+        )
     elif args.command == "finish":
         FinishRunner(manager, logger, allow_all=allow_all).run(
             target=args.target,
             session_id=getattr(args, "session", None),
         )
+    elif args.command == "agents":
+        from .commands.agents import AgentsRunner
+        AgentsRunner(manager, logger, allow_all=allow_all).run(action=args.action)
     elif args.command == "killservers":
         from .session.stop import KillServersRunner
         KillServersRunner().run(session_id=getattr(args, "session", None))
@@ -227,7 +265,10 @@ def main():
         from .commands.permit import PermitRunner
         PermitRunner().run()
     elif args.command == "update-area":
-        UpdateAreaRunner(manager, logger, allow_all=allow_all).run(research=args.research, area=args.area)
+        UpdateAreaRunner(manager, logger, allow_all=allow_all).run(research=args.research, area=args.area, child=args.child)
+    elif args.command == "spawn":
+        from .session.start import SpawnRunner
+        SpawnRunner(manager, logger, allow_all=allow_all).run(child=args.child)
     elif args.command == "update-home":
         from .commands.update_home import UpdateHomeRunner
         UpdateHomeRunner(manager, logger, allow_all=allow_all).run(new_path=args.path, dry_run=args.dry_run, migrate=args.migrate)

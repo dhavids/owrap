@@ -233,7 +233,7 @@ def pick_server(call_type: str) -> str:
                 entry["url"]: _estimate_remaining(entry["url"], now)
                 for entry in selectable
             }
-            if call_type in ("msg", "read"):
+            if call_type in ("msg", "read", "agent"):
                 for entry in selectable:
                     tasks = _active_tasks_by_type(entry["url"])
                     exec_count = tasks.get("exec", 0)
@@ -270,31 +270,28 @@ def release_server(url: str):
 
 def record_unresponsive(url: str, threshold: int | None = None) -> bool:
     """Increment a server's consecutive-unresponsive counter. Once it reaches `threshold`
-    (config key 'unresponsive_kill_threshold', default UNRESPONSIVE_KILL_THRESHOLD), kill that
-    server's process and evict it from the pool so the next pick_server() call routes elsewhere
-    or spins up a fresh one. Returns True if the server was killed, False otherwise."""
+    (config key 'unresponsive_kill_threshold', default UNRESPONSIVE_KILL_THRESHOLD), mark that
+    server as draining so pick_server() stops routing new work to it — actual eviction happens
+    once it goes idle, via the same draining-reap logic pick_server already uses for the
+    max_requests quota case, so an in-flight request on it (from a different concurrent dispatch)
+    isn't cut off. Returns True if the server was newly marked draining, False otherwise."""
     from ..constants import UNRESPONSIVE_KILL_THRESHOLD
     if threshold is None:
-        threshold = int(_read_config().get("unresponsive_kill_threshold", UNRESPONSIVE_KILL_THRESHOLD))
+        threshold = int(
+            _read_config().get("unresponsive_kill_threshold", UNRESPONSIVE_KILL_THRESHOLD)
+        )
     with _pool_lock():
         pool = _read_pool()
-        killed = False
+        marked = False
         for entry in pool:
             if entry.get("url") == url:
                 entry["unresponsive_count"] = entry.get("unresponsive_count", 0) + 1
-                if entry["unresponsive_count"] >= threshold:
-                    pid = entry.get("pid")
-                    if pid:
-                        try:
-                            os.kill(pid, 15)
-                        except OSError:
-                            pass
-                    killed = True
+                if entry["unresponsive_count"] >= threshold and not entry.get("draining"):
+                    entry["draining"] = True
+                    marked = True
                 break
-        if killed:
-            pool = [e for e in pool if e.get("url") != url]
         _write_pool(pool)
-        return killed
+        return marked
 
 
 def record_responsive(url: str):

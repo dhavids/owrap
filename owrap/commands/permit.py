@@ -25,8 +25,17 @@ class PermitRunner:
             sys.exit(0)
 
         permit = json.loads(permit_path.read_text())
+        if isinstance(permit, dict) and permit.get("allow_all"):
+            print(json.dumps({
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "allow",
+                }
+            }))
+            return
         rules = permit.get("rules", permit) if isinstance(permit, dict) else permit
         orun_cmd = permit.get("orun_cmd", "~/bin/orun") if isinstance(permit, dict) else "~/bin/orun"
+
 
         def matches(rule):
             if "(" not in rule:

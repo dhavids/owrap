@@ -25,6 +25,12 @@ class WaitRunner(BaseRunner):
                 print("owait: msg requires an id", file=sys.stderr)
                 sys.exit(1)
             self._wait_marker(session_log(RUN_LOG, session_id), f"[m:{wait_id}]", timeout or 300)
+        elif wait_type == "agent":
+            if not wait_id:
+                print("owait: agent requires an id", file=sys.stderr)
+                sys.exit(1)
+            from ..utils.paths import session_agent_log_path
+            self._wait_marker(session_agent_log_path(session_id), f"[a:{wait_id}]", timeout or 300)
         elif wait_type == "input":
             self._wait_input_clear(session_input(session_id), timeout or 120)
 

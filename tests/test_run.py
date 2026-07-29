@@ -161,3 +161,38 @@ def test_run_runner_task_mode_empty_input(tmp_path, mock_manager):
 
         with pytest.raises(SystemExit):
             runner.run(input_path=input_file)
+
+
+def test_run_runner_task_mode_prints_donow_on_failure(tmp_path, mock_manager, capsys):
+    from owrap.utils.paths import session_tasks_dir, session_task_output_dir
+
+    sesh = mock_manager.session_id
+    tasks_dir = session_tasks_dir(sesh)
+    output_dir = session_task_output_dir(sesh)
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    input_file = tmp_path / "input.md"
+    input_file.write_text("task content")
+
+    mock_manager.ensure_running.return_value = "http://localhost:4096"
+
+    with patch("owrap.commands.run_cmd.Terminal") as mock_terminal_cls, \
+         patch("owrap.commands.run_cmd._pool_active", return_value=False):
+        mock_terminal = MagicMock()
+        mock_terminal.run.return_value = {"returncode": 1, "stdout": ""}
+        mock_terminal_cls.return_value = mock_terminal
+
+        from owrap.commands.run_cmd import RunRunner
+
+        runner = RunRunner(mock_manager)
+        runner.INPUT_FILE = input_file
+
+        with pytest.raises(SystemExit) as exc_info:
+            runner.run(input_path=input_file)
+
+        assert exc_info.value.code == 1
+
+    captured = capsys.readouterr()
+    assert "TASK_FAILED" in captured.out
+    assert "input.md" in captured.out

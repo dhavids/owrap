@@ -8,6 +8,8 @@
         "Bash(~/bin/orun*)",
         "Bash(oexec*)",
         "Bash(~/bin/oexec*)",
+        "Bash(oagent*)",
+        "Bash(~/bin/oagent*)",
         "Bash(owait*)",
         "Bash(~/bin/owait*)",
         "Bash(~/bin/nbread *)",
@@ -16,7 +18,7 @@
         "Bash(diff *)"
       ],
       "condition": null,
-      "display": {"section": "commands", "text": "`owrap*`, `orun*`, `oexec*`, `owait*`, `nbread *` (and `~/bin/` variants), `wait`, `cd *`, `diff *`"}
+      "display": {"section": "commands", "text": "`owrap*`, `orun*`, `oexec*`, `oagent*`, `owait*`, `nbread *` (and `~/bin/` variants), `wait`, `cd *`, `diff *`"}
     },
     {
       "rules": [
@@ -53,11 +55,12 @@
         "Bash(find *)",
         "Bash(ls *)",
         "Bash(cat *)",
+        "Bash(tail *)",
         "Bash(wc *)",
         "Read"
       ],
       "condition": "NO_OREAD",
-      "display": {"section": "commands", "text": "`Read` (any path), `Grep`, `grep *`, `find *`, `ls *`, `cat *`, `wc *`"}
+      "display": {"section": "commands", "text": "`Read` (any path), `Grep`, `grep *`, `find *`, `ls *`, `cat *`, `tail *`, `wc *`"}
     },
     {
       "rules": [

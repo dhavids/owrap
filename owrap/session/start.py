@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ..base import BaseRunner
 from ..manager import Manager
-from ..utils.paths import SESSION_DIR, EXEC_OUTPUT_DIR, READ_OUTPUT_DIR
+from ..utils.paths import SESSION_DIR
 from ..utils.paths import get_plan_path, get_todo_path, session_input, _read_config, SERVERS_DIR, STATE_FILE, context_path, get_workspace_config, BASE_CONFIG_FILE
 from ..utils.paths import session_dir, session_tasks_dir, session_msg_output_dir, session_task_output_dir, session_precompact_dir
 from ..utils.session_resolver import resolve, update_session_field, migrate_legacy_files, session_file as _sf, ccsid_pointer, _write as _sr_write, SESSIONS_DIR, BY_CCSID_DIR, list_sessions, _parse, attach
@@ -58,9 +58,14 @@ def _prune_logs(max_logs: int):
 
 
 class StartRunner(BaseRunner):
-    def run(self, shell_pid=None, session_file=None, research=None, session_id=None, area=None):
+    def run(self, shell_pid=None, session_file=None, research=None, session_id=None, area=None, child=None):
         if research is None:
             research = _read_config().get("default_research")
+        if child:
+            if not area:
+                print("Error: a child suffix requires an area to be given too", file=sys.stderr)
+                sys.exit(1)
+            area = f"{area}-{child}"
         migrate_legacy_files()
         
         if session_id is not None:
@@ -88,6 +93,8 @@ class StartRunner(BaseRunner):
             update_session_field(session_id, "research", research)
         if area:
             update_session_field(session_id, "area", area)
+        if child:
+            update_session_field(session_id, "child", child)
 
         # Resolve workspace name: explicit research → use as workspace key, else default_workspace
         base = _read_config()
@@ -101,9 +108,6 @@ class StartRunner(BaseRunner):
         config = _read_config()
         max_logs = int(config.get("max_servers", 1)) * 2
         _prune_logs(max_logs)
-
-        EXEC_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        READ_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
         session_dir(session_id).mkdir(parents=True, exist_ok=True)
         (session_dir(session_id) / "exec").mkdir(parents=True, exist_ok=True)
@@ -268,17 +272,28 @@ class AttachRunner(BaseRunner):
 
         data = _parse(sf)
         research = data.get("research", "")
+        area = data.get("area", "")
         url = data.get("server_url", "")
 
         plan_path = get_plan_path(sid)
         todo_path = get_todo_path(research)
         input_path = session_input(sid)
         cp = context_path(sid)
+        _rr = _read_config().get("research_root")
+        memory_path = project_path = None
+        if research and _rr:
+            _mp = Path(_rr) / "memory" / f"{research}.md"
+            _pp = Path(_rr) / "projects" / f"{research}.md"
+            memory_path = _mp if _mp.exists() else None
+            project_path = _pp if _pp.exists() else None
 
         self.manager.session_id = sid
-        print(f"ATTACHED session={sid}  research={research or '-'}  prev_session_for_this_window={prev or '-'}")
-        print_orientation(sid, research, url, plan_path, todo_path, input_path, context_path=cp, attach=True)
+        print(f"ATTACHED session={sid}  research={research or '-'}  area={area or '-'}  prev_session_for_this_window={prev or '-'}")
+        print_orientation(sid, research, url, plan_path, todo_path, input_path, context_path=cp,
+                          area=area, memory_path=memory_path, project_path=project_path, attach=True)
         print(f"\n__OWRAP_EXPORT__ SESSION_ID={sid}")
+        if area:
+            print(f"__OWRAP_EXPORT__ OWRAP_AREA={area}")
         sys.exit(0)
 
 
@@ -292,12 +307,13 @@ class RestartRunner(BaseRunner):
 
 
 class UpdateAreaRunner(BaseRunner):
-    def run(self, research=None, area=None):
+    def run(self, research=None, area=None, child=None):
         session_id, _, _ = resolve(mode="refresh")
         if research:
             update_session_field(session_id, "research", research)
         if area:
             update_session_field(session_id, "area", area)
+            update_session_field(session_id, "child", child)
         _rr = _read_config().get("research_root")
         memory_path = project_path = None
         if research and _rr:
@@ -316,6 +332,42 @@ class UpdateAreaRunner(BaseRunner):
         print(f"\n__OWRAP_EXPORT__ SESSION_ID={session_id}")
         if area:
             print(f"__OWRAP_EXPORT__ OWRAP_AREA={area}")
+        sys.exit(0)
+
+
+class SpawnRunner(BaseRunner):
+    def run(self, child):
+        session_id, _, _ = resolve(mode="refresh")
+        if not session_id:
+            print("Error: no active session — run owrap start first", file=sys.stderr)
+            sys.exit(1)
+        sess = _parse(_sf(session_id))
+        research = sess.get("research")
+        area = sess.get("area")
+        if not research or not area:
+            print("Error: current session has no research/area set — run owrap start <research> <area> first", file=sys.stderr)
+            sys.exit(1)
+        new_area = f"{area}-{child}"
+        update_session_field(session_id, "area", new_area)
+        update_session_field(session_id, "child", child)
+        _rr = _read_config().get("research_root")
+        memory_path = project_path = None
+        if _rr:
+            _mp = Path(_rr) / "memory" / f"{research}.md"
+            _pp = Path(_rr) / "projects" / f"{research}.md"
+            memory_path = _mp if _mp.exists() else None
+            project_path = _pp if _pp.exists() else None
+        cp = context_path(session_id)
+        plan_path = get_plan_path(session_id)
+        input_path = session_input(session_id)
+        todo_path = get_todo_path(research)
+        print(f"[owrap] Spawned child area '{new_area}' (parent: {area}) under research '{research}'.")
+        print_orientation(session_id, research, plan_path=plan_path, todo_path=todo_path,
+                          input_path=input_path, context_path=cp,
+                          area=new_area, memory_path=memory_path,
+                          project_path=project_path)
+        print(f"\n__OWRAP_EXPORT__ SESSION_ID={session_id}")
+        print(f"__OWRAP_EXPORT__ OWRAP_AREA={new_area}")
         sys.exit(0)
 
 

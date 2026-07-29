@@ -1,5 +1,6 @@
 {
     "_comment": "OWrap configuration file. Copy to ~/.owrap/configs/base.json",
+    "owrap_enabled": true,
     "default_research": "my_project",
     "workspace": "/home/user",
     "research_root": "/home/user/my_project/docs/research",
@@ -13,6 +14,7 @@
     "keepalive_interval_s": 10,
     "keepalive_idle_exit_s": 1800,
     "keepalive_ping_model": "opencode/deepseek-v4-flash-free",
+    "exec_model": "opencode-go/qwen3.6-plus",
     "msg_kill_s": 30,
     "task_kill_s": 60,
     "exec_kill_s": 120,

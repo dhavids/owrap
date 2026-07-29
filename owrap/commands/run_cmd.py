@@ -9,11 +9,12 @@ from datetime import datetime
 from pathlib import Path
 
 from ..utils.terminal import Terminal
+from ..utils.output_parser import OutputParser
 from ..manager import Manager
 from ..base import BaseRunner
-from ..constants import ANTI_SUMMARY_SUFFIX, MSG_KILL_S, TASK_KILL_S, LOG_WRAP_WIDTH, NO_OUTPUT_MSG_S, NO_OUTPUT_TASK_S, MSG_MAX_CHARS
+from ..constants import ANTI_SUMMARY_SUFFIX, MSG_KILL_S, TASK_KILL_S, TASK_HARD_TIMEOUT_S, LOG_WRAP_WIDTH, NO_OUTPUT_MSG_S, NO_OUTPUT_TASK_S, MSG_MAX_CHARS
 from ..utils.pool import _pool_active, pick_server, update_last_used
-from ..utils.paths import TASKS_DIR, RUNTIME_DIR, context_path, _read_config, get_agents_md_path, get_workspace_config, get_workspace_path, format_failure_pointer, FALLBACK_TASK, session_msg_output_dir, session_task_output_dir, session_tasks_dir, session_precompact_dir
+from ..utils.paths import TASKS_DIR, RUNTIME_DIR, context_path, _read_config, get_agents_md_path, get_workspace_config, get_workspace_path, get_dispatch_model, format_failure_pointer, FALLBACK_TASK, session_msg_output_dir, session_task_output_dir, session_tasks_dir, session_precompact_dir
 from ..utils.snippet import extract_snippet, wrap_log_text, divider
 
 _PLACEHOLDER_TAG_RE = re.compile(r'<([A-Za-z][\w-]*)>')
@@ -78,7 +79,7 @@ class RunRunner(BaseRunner):
 
         if msg is not None:
             return self._run_msg(msg, url, log_time, msg_id=msg_id, timeout=timeout)
-        return self._run_task(url, input_path, log_time)
+        return self._run_task(url, input_path, log_time, timeout=timeout)
 
     def _run_msg(self, msg, url, log_time, msg_id=None, timeout=None):
         self._install_sigterm_handler()
@@ -94,8 +95,6 @@ class RunRunner(BaseRunner):
                 f"(write input.md, then `orun`)."
             )
             sys.exit(1)
-        msg = _sanitize_placeholder_tags(msg)
-
         if msg_id:
             print(f"[m:{msg_id}]", flush=True)
         _msg_sentinel_id = msg_id or f"fg_{int(time.time())}"
@@ -109,26 +108,19 @@ class RunRunner(BaseRunner):
             msg = f"First read {cp} for context, then: {msg}"
             ctx_injected = True
         msg += " " + ANTI_SUMMARY_SUFFIX
-        exec_prompt = msg
+        exec_prompt = f"--executor {msg}"
         cmd = ["opencode", "run", "--thinking", "--dir", str(get_workspace_path())]
         if self.allow_all:
             cmd.append("--dangerously-skip-permissions")
-        if self.model:
-            cmd.extend(["-m", self.model])
-        else:
-            fast_model = _ctx_cfg.get("fast_model")
-            if not fast_model:
-                ws_name = _ctx_cfg.get("default_workspace", "")
-                if ws_name:
-                    fast_model = get_workspace_config(ws_name).get("fast_model")
-            if fast_model:
-                cmd.extend(["-m", fast_model])
+        model = get_dispatch_model(_ctx_cfg, override=self.model, default_to_fast=True)
+        if model:
+            cmd.extend(["-m", model])
         if url:
             cmd.extend(["--attach", url])
         if not url:
             fallback_file = self.FALLBACK_TASK
             fallback_file.write_text(f"## Do\n\n{exec_prompt}\n")
-            cmd.extend(["--", "--taskf", shlex.quote(str(fallback_file))])
+            cmd.extend(["--", shlex.quote(f"--executor --taskf {fallback_file}")])
         else:
             cmd.extend(["--", shlex.quote(exec_prompt)])
 
@@ -158,7 +150,8 @@ class RunRunner(BaseRunner):
                         from ..utils.pool import record_unresponsive
                         if record_unresponsive(url):
                             print(f"[watchdog] executor not responsive (no output in {NO_OUTPUT_MSG_S}s) "
-                                  f"— server {url} unresponsive too many times, killed — will respawn on next dispatch", flush=True)
+                                  f"— server {url} unresponsive too many times, marked for graceful "
+                                  f"eviction — will respawn on next dispatch", flush=True)
                         else:
                             print(f"[watchdog] executor not responsive (no output in {NO_OUTPUT_MSG_S}s) "
                                   f"— use owrap f as fallback", flush=True)
@@ -192,6 +185,10 @@ class RunRunner(BaseRunner):
                 rc = 2
             else:
                 rc = result.get("returncode", 1)
+                if rc == 0 and OutputParser.is_infra_failure(result.get("stdout") or ""):
+                    rc = 1
+                    print("[owrap] detected infra failure (opencode errored before any "
+                          "work) — forcing rc=1", flush=True)
         except Exception as exc:
             self.manager.t_cmd_end()
             if self.logger:
@@ -252,7 +249,7 @@ class RunRunner(BaseRunner):
                     pass
         sys.exit(rc)
 
-    def _run_task(self, url, input_path, log_time):
+    def _run_task(self, url, input_path, log_time, timeout=None):
         if input_path is None:
             input_path = self.manager.input_path
 
@@ -309,8 +306,11 @@ class RunRunner(BaseRunner):
             cmd = ["opencode", "run", "--thinking", "--dir", str(get_workspace_path())]
             if self.allow_all:
                 cmd.append("--dangerously-skip-permissions")
+            task_model = get_dispatch_model(_ctx_cfg, override=self.model, default_to_fast=False)
+            if task_model:
+                cmd.extend(["-m", task_model])
             cmd.extend(["--attach", url])
-            cmd.extend(["--", shlex.quote(f"--task {task_file} {ANTI_SUMMARY_SUFFIX}")])
+            cmd.extend(["--", shlex.quote(f"--executor --task {task_file} {ANTI_SUMMARY_SUFFIX}")])
 
             title = self._get_task_title(task_file)
             _task_kind = "precompact" if _is_precompact else ("context" if _is_context else ("updr" if _is_updr else ("sync" if _is_sync else "task")))
@@ -342,7 +342,8 @@ class RunRunner(BaseRunner):
                             from ..utils.pool import record_unresponsive
                             if record_unresponsive(url):
                                 print(f"[watchdog] executor not responsive (no output in {NO_OUTPUT_TASK_S}s) "
-                                      f"— server {url} unresponsive too many times, killed — will respawn on next dispatch", flush=True)
+                                      f"— server {url} unresponsive too many times, marked for graceful "
+                                      f"eviction — will respawn on next dispatch", flush=True)
                             else:
                                 print(f"[watchdog] executor not responsive (no output in {NO_OUTPUT_TASK_S}s) "
                                       f"— use owrap f as fallback", flush=True)
@@ -358,12 +359,21 @@ class RunRunner(BaseRunner):
                         unresponsive_callback=_task_unresp,
                     )
                     watchdog.start()
-                    result = terminal.run(" ".join(cmd), capture_output=True, print_output=True, tee_file=log, cwd=str(get_workspace_path()))
+                    hard_timeout = timeout if timeout is not None else TASK_HARD_TIMEOUT_S
+                    result = terminal.run(
+                        " ".join(cmd), capture_output=True, print_output=True,
+                        tee_file=log, cwd=str(get_workspace_path()),
+                        timeout=hard_timeout,
+                    )
                     self.manager.t_cmd_end()
                     if result.get("timed_out"):
                         timed_out = True
                         print(format_failure_pointer("TIMED_OUT", self.manager.session_id))
                     rc = result.get("returncode", 1)
+                    if rc == 0 and OutputParser.is_infra_failure(result.get("stdout") or ""):
+                        rc = 1
+                        print("[owrap] detected infra failure (opencode errored before "
+                              "any work) — forcing rc=1", flush=True)
             except Exception as exc:
                 self.manager.t_cmd_end()
                 if self.logger:
@@ -433,6 +443,11 @@ class RunRunner(BaseRunner):
                         release_server(url)
                     except Exception:
                         pass
+                if rc != 0:
+                    print(
+                        f"TASK_FAILED (rc={rc}) — rewrite input.md (get its path via "
+                        f"`owrap get input`) before redispatching via orun."
+                    )
         else:
             fallback_file = self.FALLBACK_TASK
             _ctx_cfg_fb = _read_config()
@@ -446,13 +461,16 @@ class RunRunner(BaseRunner):
                     content = f"## Context\nFirst read {cp} before starting this task.\n\n" + content
                 ctx_injected_fb = True
             content += " " + ANTI_SUMMARY_SUFFIX
-            fallback_file.write_text(content)
+            fallback_file.write_text(f"--executor\n\n{content}")
             input_path.write_text("")
 
             cmd = ["opencode", "run", "--thinking"]
             if self.allow_all:
                 cmd.append("--dangerously-skip-permissions")
-            cmd.extend(["--", "--taskf", shlex.quote(str(fallback_file))])
+            fb_model = get_dispatch_model(_ctx_cfg_fb, override=self.model, default_to_fast=False)
+            if fb_model:
+                cmd.extend(["-m", fb_model])
+            cmd.extend(["--", shlex.quote(f"--executor --taskf {fallback_file}")])
 
             title = self._get_task_title(fallback_file)
             self.manager.t_cmd_start()

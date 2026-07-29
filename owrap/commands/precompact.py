@@ -107,10 +107,11 @@ class PrecompactWorkerRunner:
         cmd = [os.path.expanduser("~/bin/orun"), "--input", str(task_file)]
         if config.get("fast_model"):
             cmd.extend(["--model", config["fast_model"]])
+        env = {**os.environ, "SESSION_ID": owrap_sid}
 
         print(f"precompact-worker: dispatching orun at {time.strftime('%Y-%m-%dT%H:%M:%S')}", flush=True)
         print(f"precompact-worker: transcript lines {transcript_offset}..{total_lines}", flush=True)
-        result = subprocess.run(cmd, capture_output=False)
+        result = subprocess.run(cmd, capture_output=False, env=env)
         print(f"precompact-worker: orun rc={result.returncode}", flush=True)
 
         counters["transcript_offset"] = total_lines

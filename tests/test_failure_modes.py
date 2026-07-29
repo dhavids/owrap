@@ -72,31 +72,6 @@ def test_timed_out_prints_donow(mock_manager, capsys):
     assert "TIMED_OUT" in captured.out
 
 
-def test_task_failed_prints_donow(mock_manager, capsys):
-    """TASK_FAILED: exec non-zero rc prints #DO NOW."""
-    sid = "test123"
-    plan_file = Path("/tmp/fake_plan.md")
-    plan_file.write_text("## [ACTIVE] test\n")
-    mock_manager.session_id = sid
-
-    with patch("owrap.commands.exec.get_plan_path", return_value=plan_file), \
-         patch("owrap.commands.exec.Terminal") as mock_terminal_cls, \
-         patch("owrap.commands.exec._pool_active", return_value=False), \
-         patch("owrap.commands.exec.context_path", return_value=Path("/tmp/fake_context.md")):
-        mock_terminal = MagicMock()
-        mock_terminal.run.return_value = {"returncode": 1, "stdout": ""}
-        mock_terminal_cls.return_value = mock_terminal
-
-        from owrap.commands.exec import ExecRunner
-        runner = ExecRunner(mock_manager)
-
-        with patch("owrap.utils.paths.get_self_path", return_value=Path("/tmp/fake_self.md")), \
-             patch("owrap.commands.exec.format_failure_pointer") as mock_fp:
-            mock_fp.return_value = "#DO NOW\nTASK_FAILED — read /tmp/fake_self.md § Update Context and follow it."
-            with pytest.raises(SystemExit):
-                runner.run()
-
-
 def test_no_server_prints_donow(mock_manager, capsys):
     """NO_SERVER: pick_server failure prints #DO NOW."""
     mock_manager.ensure_running.return_value = "http://localhost:4096"

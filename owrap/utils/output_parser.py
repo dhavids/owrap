@@ -4,6 +4,7 @@ import re
 class OutputParser:
     ANSI_RE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]')
     MODEL_RE = re.compile(r'^> build\s+\S\s+(\S+)', re.MULTILINE)
+    INFRA_ERROR_RE = re.compile(r'^model:\s*\S+\s*\n+\s*Error:\s', re.MULTILINE)
 
     def __init__(self):
         self._buf = ""
@@ -53,3 +54,8 @@ class OutputParser:
                 cleaned = self.MODEL_RE.sub(f"model: {self.model}", cleaned)
 
         return cleaned
+
+    @staticmethod
+    def is_infra_failure(text: str) -> bool:
+        """True if output is just a model banner + immediate top-level Error, no real work."""
+        return bool(OutputParser.INFRA_ERROR_RE.match((text or "").strip()))

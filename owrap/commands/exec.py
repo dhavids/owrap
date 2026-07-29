@@ -6,15 +6,20 @@ from datetime import datetime
 from pathlib import Path
 
 from ..utils.terminal import Terminal
+from ..utils.output_parser import OutputParser
 from ..manager import Manager
 from ..base import BaseRunner
-from ..constants import ANTI_SUMMARY_SUFFIX, EXEC_KILL_S, NO_OUTPUT_EXEC_S
+from ..constants import ANTI_SUMMARY_SUFFIX, EXEC_KILL_S, EXEC_HARD_TIMEOUT_S, NO_OUTPUT_EXEC_S
 from ..utils.pool import _pool_active, pick_server, update_last_used
-from ..utils.paths import session_exec_output_path, get_plan_path, context_path, _read_config, get_agents_md_path, get_workspace_path, format_failure_pointer
+from ..utils.paths import session_exec_output_path, get_plan_path, context_path, _read_config, get_agents_md_path, get_workspace_path, get_dispatch_model, format_failure_pointer
 from ..utils.snippet import extract_snippet, divider
 
 
 class ExecRunner(BaseRunner):
+
+    def __init__(self, manager, logger=None, allow_all=False, model=None):
+        super().__init__(manager, logger, allow_all)
+        self.model = model
 
     def _get_active_plan_name(self, plan_path: Path | None = None) -> str:
         if plan_path is None:
@@ -35,7 +40,7 @@ class ExecRunner(BaseRunner):
                 pass
         exec_log.write_text(entry + existing)
 
-    def run(self, log_time=False):
+    def run(self, log_time=False, timeout=None):
         sid = self.manager.session_id or "exec"
         self.LOG_FILE = session_exec_output_path(sid)
         print(f"log: {self.LOG_FILE}", flush=True)
@@ -59,6 +64,9 @@ class ExecRunner(BaseRunner):
         if self.allow_all:
             cmd.append("--dangerously-skip-permissions")
         _ctx_cfg = _read_config()
+        exec_model = get_dispatch_model(_ctx_cfg, override=self.model, default_to_fast=False)
+        if exec_model:
+            cmd.extend(["-m", exec_model])
         cp = context_path(session_id) if session_id else None
         ctx_instr = None
         executor_md = get_agents_md_path()
@@ -68,14 +76,14 @@ class ExecRunner(BaseRunner):
             else:
                 ctx_instr = f"First read {cp}, then: "
         plan_str = str(plan_path) if plan_path else ""
-        exec_msg = f"--exec {plan_str}".strip()
+        exec_msg = f"--executor --exec {plan_str}".strip()
         exec_msg += " " + ANTI_SUMMARY_SUFFIX
         if url:
             cmd.extend(["--attach", url])
             prompt = f"{ctx_instr}{exec_msg}" if ctx_instr else exec_msg
             cmd.extend(["--", shlex.quote(prompt)])
         else:
-            execf_msg = f"--execf {plan_str}".strip()
+            execf_msg = f"--executor --execf {plan_str}".strip()
             fb_prompt = f"{ctx_instr}{execf_msg}" if ctx_instr else execf_msg
             fb_prompt += " " + ANTI_SUMMARY_SUFFIX
             cmd.extend(["--", shlex.quote(fb_prompt)])
@@ -115,7 +123,8 @@ class ExecRunner(BaseRunner):
                         from ..utils.pool import record_unresponsive
                         if record_unresponsive(url):
                             print(f"[watchdog] executor not responsive (no output in {NO_OUTPUT_EXEC_S}s) "
-                                  f"— server {url} unresponsive too many times, killed — will respawn on next dispatch", flush=True)
+                                  f"— server {url} unresponsive too many times, marked for graceful "
+                                  f"eviction — will respawn on next dispatch", flush=True)
                         else:
                             print(f"[watchdog] executor not responsive (no output in {NO_OUTPUT_EXEC_S}s) "
                                   f"— use owrap f as fallback", flush=True)
@@ -131,9 +140,18 @@ class ExecRunner(BaseRunner):
                     unresponsive_callback=_exec_unresp,
                 )
                 watchdog.start()
-                result = terminal.run(" ".join(cmd), capture_output=True, print_output=True, tee_file=log, cwd=str(get_workspace_path()))
+                hard_timeout = timeout if timeout is not None else EXEC_HARD_TIMEOUT_S
+                result = terminal.run(
+                    " ".join(cmd), capture_output=True, print_output=True,
+                    tee_file=log, cwd=str(get_workspace_path()),
+                    timeout=hard_timeout,
+                )
                 self.manager.t_cmd_end()
                 rc = result.get("returncode", 1)
+                if rc == 0 and OutputParser.is_infra_failure(result.get("stdout") or ""):
+                    rc = 1
+                    print("[owrap] detected infra failure (opencode errored before any "
+                          "work) — forcing rc=1", flush=True)
                 if result.get("timed_out"):
                     print(format_failure_pointer("TIMED_OUT", session_id))
         finally:
@@ -200,9 +218,6 @@ class ExecRunner(BaseRunner):
                 release_server(url)
             except Exception:
                 pass
-
-        if rc != 0 and rc != 2:
-            print(format_failure_pointer("TASK_FAILED", session_id))
 
         sys.exit(rc)
 

@@ -35,17 +35,6 @@ def test_server_logs_dir_under_runtime_home():
     assert SERVER_LOGS_DIR.parent == RUNTIME_HOME
 
 
-def test_task_logs_dir_under_run_output():
-    from owrap.utils.paths import TASK_LOGS_DIR
-    # Name check: constant is always RUN_OUTPUT_DIR / "task"; patched in tests but name is preserved
-    assert TASK_LOGS_DIR.name in ("task", "task_logs")
-
-
-def test_plans_dir_under_exec_dir():
-    from owrap.utils.paths import PLANS_DIR
-    assert PLANS_DIR.name == "plans"
-
-
 def test_resolve_general_instruction_path_returns_claude_md(tmp_path):
     from owrap.utils.paths import resolve_general_instruction_path, get_claude_md_path
     with patch("owrap.utils.paths._read_config", return_value={"default_workspace": "x"}):

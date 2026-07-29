@@ -17,15 +17,12 @@ def _tilde_relative(path: str) -> str:
 
 def resolve_placeholders(config: dict, workspace_name: str) -> dict:
     """Build the full placeholder → value map from workspace config + derived values."""
-    import os
     workspace = config.get("workspace", "")
     research_root = config.get("research_root") or (f"{workspace}/docs/research" if workspace else "")
     bin_dir = config.get("bin_dir") or str(Path.home() / "bin")
     owrap_docs = str(OWRAP_HOME / "docs")
     owrap_home = str(OWRAP_HOME)
     oread = bool(config.get("oread", True))
-    is_claude = bool(os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip())
-    refresh_reread = "`CLAUDE.md`" if is_claude else "`AGENTS.md`"
     return {
         "WORKSPACE": workspace,
         "RESEARCH_ROOT": research_root,
@@ -36,7 +33,7 @@ def resolve_placeholders(config: dict, workspace_name: str) -> dict:
         "WORKSPACE_TILDE": _tilde_relative(workspace),
         "RESEARCH_ROOT_TILDE": _tilde_relative(research_root),
         "PERMIT_MATCHER": "Bash|Write|Edit|Read" if oread else "Bash|Write|Edit",
-        "REFRESH_REREAD": refresh_reread,
+        "REFRESH_REREAD": "`CLAUDE.md`",
     }
 
 
@@ -47,25 +44,35 @@ def substitute(text: str, placeholders: dict) -> str:
     return PLACEHOLDER_RE.sub(_r, text)
 
 
-COND_RE = re.compile(r"\{\{IF:([A-Z_]+)\}\}(.*?)\{\{ENDIF\}\}", re.DOTALL)
+# Matches only innermost {{IF:FLAG}}...{{ENDIF}} blocks (no nested {{IF:}} inside), so
+# process_conditionals can resolve nested blocks from the inside out.
+COND_RE = re.compile(r"\{\{IF:([A-Z_]+)\}\}((?:(?!\{\{IF:)[\s\S])*?)\{\{ENDIF\}\}")
 
 
 def process_conditionals(text: str, flags: dict) -> str:
-    """Strip {{IF:FLAG}}...{{ENDIF}} blocks where flags[FLAG] is falsy. Keep block contents otherwise."""
+    """Strip {{IF:FLAG}}...{{ENDIF}} blocks where flags[FLAG] is falsy. Keep block contents
+    otherwise. Supports nesting: repeatedly resolves innermost blocks until none remain."""
     def _r(m):
         flag = m.group(1)
         content = m.group(2)
         return content if flags.get(flag) else ""
-    return COND_RE.sub(_r, text)
+    prev = None
+    while prev != text:
+        prev = text
+        text = COND_RE.sub(_r, text)
+    return text
 
 
 def resolve_flags(config: dict) -> dict:
     """Build the boolean flag map for conditional template blocks."""
     oread = bool(config.get("oread", True))
+    owrap_enabled = bool(config.get("owrap_enabled", True))
     return {
         "OREAD": oread,
         "NO_OREAD": not oread,
         "ALLOW_ALL": bool(config.get("allow_all", False)),
+        "OWRAP_ENABLED": owrap_enabled,
+        "OWRAP_DISABLED": not owrap_enabled,
     }
 
 
@@ -146,6 +153,24 @@ def merge_into_workspace_file(dest_path: Path, content: str, marker: str):
     dest_path.write_text(wrapped + existing)
 
 
+def _strip_marker_block(dest_path: Path, marker: str):
+    """Remove an existing owrap marker block from dest_path if present."""
+    if not dest_path.exists():
+        return
+    open_marker = f"<!-- owrap:{marker} -->"
+    close_marker = f"<!-- /owrap:{marker} -->"
+    existing = dest_path.read_text()
+    open_idx = existing.find(open_marker)
+    if open_idx < 0:
+        return
+    close_idx = existing.find(close_marker, open_idx)
+    if close_idx < 0:
+        return
+    before = existing[:open_idx]
+    after = existing[close_idx + len(close_marker):]
+    dest_path.write_text(before + after.lstrip("\n"))
+
+
 def stage_all(workspace_name: str) -> Path:
     """Read workspace config, copy all templates to ~/.owrap/staged/<workspace_name>/ with conditionals processed and placeholders substituted. Then merge planner→CLAUDE.md and executor→AGENTS.md into the workspace. Returns staged dir."""
     config = get_workspace_config(workspace_name)
@@ -178,21 +203,21 @@ def stage_all(workspace_name: str) -> Path:
     bin_dir = placeholders.get("BIN_DIR", str(Path.home() / "bin"))
     orun_cmd = _tilde_relative(str(Path(bin_dir).expanduser() / "orun"))
     permit_path = CONFIGS_DIR / f"{workspace_name}_permit.json"
-    permit_path.write_text(json.dumps(
-        {"orun_cmd": orun_cmd, "rules": permit_rules}, indent=2
-    ))
+    permit_data = {"orun_cmd": orun_cmd, "rules": permit_rules}
+    if flags.get("OWRAP_DISABLED"):
+        permit_data["allow_all"] = True
+    permit_path.write_text(json.dumps(permit_data, indent=2))
 
-    # Merge planner.md and executor.md into workspace files (executor-aware)
+
+    # Merge planner.md into CLAUDE.md and executor.md into AGENTS.md
     ws = config.get("workspace")
     if ws:
         ws_path = Path(ws)
-        import os as _os
-        is_claude = bool(_os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip())
         planner_staged = out_dir / "planner.md"
         executor_staged = out_dir / "executor.md"
         if planner_staged.exists():
-            planner_dest = ws_path / ("CLAUDE.md" if is_claude else "AGENTS.md")
-            merge_into_workspace_file(planner_dest, planner_staged.read_text(), "planner")
+            merge_into_workspace_file(ws_path / "CLAUDE.md", planner_staged.read_text(), "planner")
+            _strip_marker_block(ws_path / "AGENTS.md", "planner")
         if executor_staged.exists():
             merge_into_workspace_file(ws_path / "AGENTS.md", executor_staged.read_text(), "executor")
 
