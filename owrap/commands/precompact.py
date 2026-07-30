@@ -5,7 +5,10 @@ import sys
 import time
 from pathlib import Path
 
-from ..utils.paths import RUNTIME_DIR, RUNTIME_HOME, TASKS_DIR, context_path, _read_config, session_precompact_dir, session_precompact_input_path
+from ..utils.paths import (
+    RUNTIME_DIR, RUNTIME_HOME, TASKS_DIR, context_path, _read_config,
+    session_precompact_dir, session_precompact_input_path,
+)
 from ..utils.session_resolver import _parse, session_file
 from ..constants import PRE_COMPACT_CTX_TEMPLATE, PRE_COMPACT_UPDR_TEMPLATE
 
@@ -13,7 +16,10 @@ MAX_EXCERPT_CHARS = 4000
 
 
 class PrecompactWorkerRunner:
+    """Process precompact worker tasks by summarizing assistant transcript text."""
+
     def run(self, input_path: Path = None):
+        """Execute a precompact worker run from the given input path."""
         if input_path is None:
             print("precompact-worker: --input required", file=sys.stderr)
             sys.exit(1)
@@ -47,8 +53,12 @@ class PrecompactWorkerRunner:
         config = _read_config()
         research_root = config.get("research_root", "")
         context_path_str = str(context_path(owrap_sid))
-        memory_path_str = f"{research_root}/memory/{research}.md" if research_root else ""
-        projects_path_str = f"{research_root}/projects/{research}.md" if research_root else ""
+        if research_root:
+            memory_path_str = f"{research_root}/memory/{research}.md"
+            projects_path_str = f"{research_root}/projects/{research}.md"
+        else:
+            memory_path_str = ""
+            projects_path_str = ""
 
         counters = self._read_counters(owrap_sid)
         transcript_offset = counters.get("transcript_offset", 0)
@@ -63,7 +73,9 @@ class PrecompactWorkerRunner:
         transcript_lines = Path(transcript_path).read_text().splitlines()
         total_lines = len(transcript_lines)
 
-        new_assistant_texts = self._extract_assistant_text(transcript_lines, transcript_offset)
+        new_assistant_texts = self._extract_assistant_text(
+            transcript_lines, transcript_offset,
+        )
 
         if not new_assistant_texts:
             print("precompact-worker: nothing to summarize", flush=True)
@@ -98,7 +110,10 @@ class PrecompactWorkerRunner:
                 memory_path=memory_path_str,
                 projects_path=projects_path_str,
             )
-            task_content = task_content + "\n\n" + updr_block if task_content else updr_block
+            if task_content:
+                task_content = task_content + "\n\n" + updr_block
+            else:
+                task_content = updr_block
 
         task_file = session_precompact_input_path(owrap_sid)
         task_file.parent.mkdir(parents=True, exist_ok=True)
@@ -109,8 +124,13 @@ class PrecompactWorkerRunner:
             cmd.extend(["--model", config["fast_model"]])
         env = {**os.environ, "SESSION_ID": owrap_sid}
 
-        print(f"precompact-worker: dispatching orun at {time.strftime('%Y-%m-%dT%H:%M:%S')}", flush=True)
-        print(f"precompact-worker: transcript lines {transcript_offset}..{total_lines}", flush=True)
+        ts = time.strftime("%Y-%m-%dT%H:%M:%S")
+        print(f"precompact-worker: dispatching orun at {ts}", flush=True)
+        print(
+            f"precompact-worker: transcript lines "
+            f"{transcript_offset}..{total_lines}",
+            flush=True,
+        )
         result = subprocess.run(cmd, capture_output=False, env=env)
         print(f"precompact-worker: orun rc={result.returncode}", flush=True)
 
@@ -159,7 +179,10 @@ class PrecompactWorkerRunner:
 
 
 class PrecompactRunner:
+    """Receive precompact hook data and dispatch a background worker."""
+
     def run(self):
+        """Read hook data from stdin and spawn a precompact worker process."""
         try:
             hook_data = json.load(sys.stdin)
         except (json.JSONDecodeError, EOFError):

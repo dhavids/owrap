@@ -7,9 +7,28 @@ from ..base import BaseRunner
 from ..utils.paths import RUNNING_DIR
 
 
+def _target_matches(target, kind, task_id):
+    """Check if a target string matches a job kind and task_id."""
+    t = target.lower()
+    if t == "exec":
+        return kind == "exec"
+    if t.startswith("task"):
+        suffix = t[4:]
+        return kind == "task" and (suffix == "" or task_id == suffix)
+    if t.startswith("msg"):
+        suffix = t[3:]
+        return kind == "msg" and (suffix == "" or task_id == suffix)
+    if t.startswith("agent"):
+        suffix = t[5:]
+        return kind == "agent" and (suffix == "" or task_id == suffix)
+    return kind == t
+
+
 class FinishRunner(BaseRunner):
+    """Terminate running jobs matching a target identifier."""
 
     def run(self, target, session_id=None):
+        """Find and terminate running jobs matching the given target."""
         if session_id is None:
             session_id = self.manager.session_id or os.environ.get("OWRAP_SESSION", "")
 
@@ -33,7 +52,10 @@ class FinishRunner(BaseRunner):
                 matched.append((f, data))
 
         if not matched:
-            print(f"owrap finish: no running job matching '{target}' for session {session_id}")
+            print(
+                f"owrap finish: no running job matching '{target}' "
+                f"for session {session_id}"
+            )
             sys.exit(1)
 
         killed = 0
@@ -69,19 +91,3 @@ class FinishRunner(BaseRunner):
 
         if killed == 0:
             sys.exit(1)
-
-
-def _target_matches(target, kind, task_id):
-    t = target.lower()
-    if t == "exec":
-        return kind == "exec"
-    if t.startswith("task"):
-        suffix = t[4:]
-        return kind == "task" and (suffix == "" or task_id == suffix)
-    if t.startswith("msg"):
-        suffix = t[3:]
-        return kind == "msg" and (suffix == "" or task_id == suffix)
-    if t.startswith("agent"):
-        suffix = t[5:]
-        return kind == "agent" and (suffix == "" or task_id == suffix)
-    return kind == t

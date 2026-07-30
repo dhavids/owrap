@@ -45,7 +45,8 @@ def mint_session_id() -> str:
 
 
 def list_sessions() -> list:
-    """Return list of {session_id, claude_session_id, opencode_run_id, research, started, last_refresh, owned_by_current}."""
+    """Return list of {session_id, claude_session_id, opencode_run_id,
+    research, started, last_refresh, owned_by_current}."""
     out = []
     cur_ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
     cur_oid = os.environ.get("OPENCODE_RUN_ID", "")
@@ -62,10 +63,11 @@ def list_sessions() -> list:
 
 
 def resolve(mode: str) -> tuple:
-    """Resolve session_id for current call. Returns (session_id, session_file_path, source).
+    """Resolve session_id for current call.
+    Returns (session_id, session_file_path, source).
 
-    mode='start':   env SESSION_ID → by_ccsid → MINT new (writes both files).
-    mode='refresh': env SESSION_ID → by_ccsid → returns (None, None, 'missing').
+    mode='start':   env SESSION_ID -> by_ccsid -> MINT new (writes both files).
+    mode='refresh': env SESSION_ID -> by_ccsid -> returns (None, None, 'missing').
     """
     env_sid = os.environ.get("SESSION_ID", "").strip()
     ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
@@ -117,8 +119,15 @@ def resolve(mode: str) -> tuple:
     return None, None, "missing"
 
 
-def _bind_anchor(target_sid: str, env_value: str, pointer_dir: Path, pointer_path: Path, session_key: str) -> str | None:
-    """Bind target_sid to a single environment anchor (CCSID or OPENCODE_RUN_ID), enforcing 1-1.
+def _bind_anchor(
+    target_sid: str,
+    env_value: str,
+    pointer_dir: Path,
+    pointer_path: Path,
+    session_key: str,
+) -> str | None:
+    """Bind target_sid to a single environment anchor (CCSID or
+    OPENCODE_RUN_ID), enforcing 1-1.
 
     Returns the previous session id pointed at by this anchor, if any.
     """
@@ -129,7 +138,11 @@ def _bind_anchor(target_sid: str, env_value: str, pointer_dir: Path, pointer_pat
     # De-own target_sid from any previous anchor of this type
     if pointer_dir.exists():
         for ptr in pointer_dir.iterdir():
-            if ptr.is_file() and ptr.read_text().strip() == target_sid and ptr.name != env_value:
+            if (
+                ptr.is_file()
+                and ptr.read_text().strip() == target_sid
+                and ptr.name != env_value
+            ):
                 ptr.unlink(missing_ok=True)
 
     # Release current anchor from any session it currently points at (1-1 the other way)
@@ -182,12 +195,18 @@ def attach(target_sid: str) -> tuple:
     prev_sid = None
 
     if ccsid:
-        prev_sid = _bind_anchor(target_sid, ccsid, BY_CCSID_DIR, ccsid_pointer(ccsid), "claude_session_id")
+        prev_sid = _bind_anchor(
+            target_sid, ccsid, BY_CCSID_DIR,
+            ccsid_pointer(ccsid), "claude_session_id",
+        )
         _clear_anchor(target_sid, BY_OPENCODE_RUN_ID_DIR)
         d["claude_session_id"] = ccsid
         d["opencode_run_id"] = ""
     elif oid:
-        prev_sid = _bind_anchor(target_sid, oid, BY_OPENCODE_RUN_ID_DIR, opencode_run_id_pointer(oid), "opencode_run_id")
+        prev_sid = _bind_anchor(
+            target_sid, oid, BY_OPENCODE_RUN_ID_DIR,
+            opencode_run_id_pointer(oid), "opencode_run_id",
+        )
         _clear_anchor(target_sid, BY_CCSID_DIR)
         d["opencode_run_id"] = oid
         d["claude_session_id"] = ""
@@ -214,7 +233,8 @@ def update_session_field(session_id: str, key: str, value: str):
 
 
 def remove_session(session_id: str):
-    """Delete session file + any by_ccsid or by_opencode_run_id pointers referencing it. Caller handles plan/context/input cleanup."""
+    """Delete session file and any by_ccsid or by_opencode_run_id pointers
+    referencing it. Caller handles plan/context/input cleanup."""
     sf = session_file(session_id)
     if sf.exists():
         sf.unlink(missing_ok=True)
@@ -226,13 +246,18 @@ def remove_session(session_id: str):
 
 
 def migrate_legacy_files():
-    """One-shot: detect ~/.owrap/sessions/<CCSID-format>.session files (UUID-style names) and convert.
+    """One-shot: detect ~/.owrap/sessions/<CCSID-format>.session files
+    (UUID-style names) and convert.
 
-    Old format: file named after CCSID (UUID-ish: 8-4-4-4-12), contains session_id=<hex>.
-    New format: file named after session_id (6 hex), has claude_session_id=<CCSID> field, plus by_ccsid/<CCSID> pointer.
+    Old format: file named after CCSID (UUID-ish: 8-4-4-4-12),
+    contains session_id=<hex>.
+    New format: file named after session_id (6 hex), has
+    claude_session_id=<CCSID> field, plus by_ccsid/<CCSID> pointer.
     """
     import re as _re
-    uuid_re = _re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+    uuid_re = _re.compile(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )
     if not SESSIONS_DIR.exists():
         return 0
     BY_CCSID_DIR.mkdir(parents=True, exist_ok=True)

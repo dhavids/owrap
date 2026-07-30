@@ -9,7 +9,10 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from .paths import _read_config, SERVERS_DIR, RUNNING_DIR, KEEPALIVE_PID_FILE, POOL_FILE, POOL_LOCK_FILE
+from .paths import (
+    _read_config, SERVERS_DIR, RUNNING_DIR,
+    KEEPALIVE_PID_FILE, POOL_FILE, POOL_LOCK_FILE,
+)
 
 MIN_SERVERS = 2
 
@@ -84,7 +87,9 @@ def _start_server(port: int) -> dict:
 
 
 def _next_port(pool: list) -> int:
-    """Scan the current pool for used ports and return the next free port in the configured range."""
+    """Scan the current pool for used ports and return the next free port
+    in the configured range.
+    """
     config = _read_config()
     max_servers = int(config.get("max_servers", 5))
     used = {entry.get("port") for entry in pool}
@@ -117,13 +122,20 @@ def get_pool() -> list[dict]:
 
 
 def ensure_min_servers():
-    """Start servers until pool reaches min_servers; no-op if already at or above minimum."""
+    """Start servers until pool reaches min_servers; no-op if already
+    at or above minimum.
+    """
     with _pool_lock():
         pool = _read_pool()
         config = _read_config()
         min_servers = int(config.get("min_servers", MIN_SERVERS))
         max_servers = int(config.get("max_servers", 5))
-        live = [entry for entry in pool if entry.get("pid") and _is_alive(entry["pid"]) and _is_responsive(entry.get("url", ""))]
+        live = [
+            entry for entry in pool
+            if entry.get("pid")
+            and _is_alive(entry["pid"])
+            and _is_responsive(entry.get("url", ""))
+        ]
         while len(live) < min_servers and len(live) < max_servers:
             try:
                 port = _next_port(live)
@@ -143,13 +155,23 @@ def _wait_responsive(url: str, timeout: float = 5.0):
 
 
 def pick_server(call_type: str) -> str:
+    """Select the best available server from the pool for the given call type.
+
+    Routes work to the least-loaded live server, starts new servers when
+    needed, and reaps draining or unresponsive entries.
+    """
     if not _pool_active():
         raise RuntimeError("pool is not active")
     _ensure_keepalive()  # self-heals keepalive on every pooled dispatch
     ensure_min_servers()
     with _pool_lock():
         pool = _read_pool()
-        live = [entry for entry in pool if entry.get("pid") and _is_alive(entry["pid"]) and _is_responsive(entry.get("url", ""))]
+        live = [
+            entry for entry in pool
+            if entry.get("pid")
+            and _is_alive(entry["pid"])
+            and _is_responsive(entry.get("url", ""))
+        ]
         config = _read_config()
         max_servers = int(config.get("max_servers", 5))
         max_req = int(config.get("max_requests", 0))
@@ -163,7 +185,10 @@ def pick_server(call_type: str) -> str:
                     e["draining"] = True
 
         # Reap draining servers once they've gone idle.
-        exhausted = [e for e in live if e.get("draining") and _active_load(e.get("url", "")) == 0]
+        exhausted = [
+            e for e in live
+            if e.get("draining") and _active_load(e.get("url", "")) == 0 and e.get("reserved", 0) == 0
+        ]
         for e in exhausted:
             pid = e.get("pid")
             if pid:
@@ -214,7 +239,10 @@ def pick_server(call_type: str) -> str:
 
         # compute load per server (active + reserved)
         now = time.time()
-        loads = {entry["url"]: _active_load(entry["url"]) + entry.get("reserved", 0) for entry in selectable}
+        loads = {
+            entry["url"]: _active_load(entry["url"]) + entry.get("reserved", 0)
+            for entry in selectable
+        }
         zero_load = [entry for entry in selectable if loads[entry["url"]] == 0]
         if zero_load:
             warm = [e for e in zero_load if now - e.get("last_used", 0) < 30]
@@ -247,7 +275,9 @@ def pick_server(call_type: str) -> str:
 
 
 def update_last_used(url: str):
-    """Update last_used timestamp for a pool entry; used by load balancer warm-server preference."""
+    """Update last_used timestamp for a pool entry; used by load balancer
+    warm-server preference.
+    """
     with _pool_lock():
         pool = _read_pool()
         for entry in pool:
@@ -258,7 +288,9 @@ def update_last_used(url: str):
 
 
 def release_server(url: str):
-    """Decrement the in-flight task counter for a pool entry after a dispatch completes."""
+    """Decrement the in-flight task counter for a pool entry after a
+    dispatch completes.
+    """
     with _pool_lock():
         pool = _read_pool()
         for entry in pool:
@@ -269,12 +301,16 @@ def release_server(url: str):
 
 
 def record_unresponsive(url: str, threshold: int | None = None) -> bool:
-    """Increment a server's consecutive-unresponsive counter. Once it reaches `threshold`
-    (config key 'unresponsive_kill_threshold', default UNRESPONSIVE_KILL_THRESHOLD), mark that
-    server as draining so pick_server() stops routing new work to it — actual eviction happens
-    once it goes idle, via the same draining-reap logic pick_server already uses for the
-    max_requests quota case, so an in-flight request on it (from a different concurrent dispatch)
-    isn't cut off. Returns True if the server was newly marked draining, False otherwise."""
+    """Increment a server's consecutive-unresponsive counter. Once it
+    reaches `threshold` (config key 'unresponsive_kill_threshold',
+    default UNRESPONSIVE_KILL_THRESHOLD), mark that server as draining
+    so pick_server() stops routing new work to it — actual eviction
+    happens once it goes idle, via the same draining-reap logic
+    pick_server already uses for the max_requests quota case, so an
+    in-flight request on it (from a different concurrent dispatch)
+    isn't cut off. Returns True if the server was newly marked
+    draining, False otherwise.
+    """
     from ..constants import UNRESPONSIVE_KILL_THRESHOLD
     if threshold is None:
         threshold = int(
@@ -295,7 +331,9 @@ def record_unresponsive(url: str, threshold: int | None = None) -> bool:
 
 
 def record_responsive(url: str):
-    """Reset a server's unresponsive counter after a dispatch that actually produced output."""
+    """Reset a server's unresponsive counter after a dispatch that
+    actually produced output.
+    """
     with _pool_lock():
         pool = _read_pool()
         for entry in pool:
@@ -314,11 +352,23 @@ def shutdown_idle(idle_s: float | None = None, min_n: int | None = None):
         min_n = int(config.get("min_servers", MIN_SERVERS))
     with _pool_lock():
         pool = _read_pool()
-        live = [entry for entry in pool if entry.get("pid") and _is_alive(entry["pid"]) and _is_responsive(entry.get("url", ""))]
+        live = [
+            entry for entry in pool
+            if entry.get("pid")
+            and _is_alive(entry["pid"])
+            and _is_responsive(entry.get("url", ""))
+        ]
         now = time.time()
-        # Heal stale reservations: reserved > 0 but no active tasks means a crash leaked the counter
+        # Heal stale reservations: reserved > 0 but no active tasks
+        # means a crash leaked the counter. Only heal if the reservation
+        # is older than a small grace period, avoiding the race window
+        # where reserved was just incremented but the sentinel file
+        # hasn't been written yet.
+        _RESERVED_HEAL_GRACE = 5.0
         for entry in live:
-            if entry.get("reserved", 0) > 0 and _active_load(entry["url"]) == 0:
+            if (entry.get("reserved", 0) > 0
+                    and _active_load(entry["url"]) == 0
+                    and (now - entry.get("last_used", now)) > _RESERVED_HEAL_GRACE):
                 entry["reserved"] = 0
         _write_pool(live)
         to_keep = []
@@ -349,7 +399,9 @@ def shutdown_idle(idle_s: float | None = None, min_n: int | None = None):
 
 
 def _active_load(url: str) -> int:
-    """Count currently active (alive PID) tasks routed to the given server URL by call type."""
+    """Count currently active (alive PID) tasks routed to the given
+    server URL by call type.
+    """
     count = 0
     if not RUNNING_DIR.exists():
         return 0
@@ -410,7 +462,12 @@ def _estimate_remaining(url: str, now: float | None = None) -> float:
                         call_type = data.get("call_type", "task")
                         started = data.get("started", now)
                         _cfg_dur = _rc()
-                        duration = float(_cfg_dur.get(f"expected_duration_{call_type}", EXPECTED_DURATION_S.get(call_type, 6)))
+                        duration = float(
+                            _cfg_dur.get(
+                                f"expected_duration_{call_type}",
+                                EXPECTED_DURATION_S.get(call_type, 6),
+                            )
+                        )
                         remaining = max(0.0, duration - (now - started))
                         total += remaining
                     except OSError:

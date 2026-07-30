@@ -8,7 +8,10 @@ from datetime import datetime
 from pathlib import Path
 
 from ..base import BaseRunner
-from ..utils.paths import OWRAP_HOME, OWRAP_HOME_POINTER_FILE, CONFIGS_DIR, KEEPALIVE_PID_FILE, _read_config
+from ..utils.paths import (
+    OWRAP_HOME, OWRAP_HOME_POINTER_FILE, CONFIGS_DIR,
+    KEEPALIVE_PID_FILE, _read_config,
+)
 
 
 class UpdateHomeRunner(BaseRunner):
@@ -31,9 +34,10 @@ class UpdateHomeRunner(BaseRunner):
         else:
             self._run_repoint(current_home, target, dry_run)
 
-    # ---- lightweight repoint (default) ----
+    # Lightweight repoint (default)
 
     def _validate_repoint(self, current_home: Path, target: Path) -> str | None:
+        """Validate inputs for a lightweight repoint; return error string or None."""
         if target == current_home:
             return "target path is the same as the current OWRAP_HOME"
         if target.exists() and target.is_file():
@@ -56,17 +60,26 @@ class UpdateHomeRunner(BaseRunner):
             print(f"  from: {current_home}")
             print(f"  to:   {target}")
             print(f"  would update pointer file: {OWRAP_HOME_POINTER_FILE}")
-            print("  no backup, no process changes, no data move (use --migrate to relocate existing content)")
-            print("  you would then run `owrap sync` to re-apply templates for the current workspace")
+            print(
+                "  no backup, no process changes, no data move "
+                "(use --migrate to relocate existing content)"
+            )
+            print(
+                "  you would then run `owrap sync` to re-apply templates "
+                "for the current workspace"
+            )
             return
 
         OWRAP_HOME_POINTER_FILE.write_text(str(target) + "\n")
         print(f"Pointer file updated: {OWRAP_HOME_POINTER_FILE} -> {target}")
         print(f"OWRAP_HOME now points to: {target}")
         print("Run `owrap sync` to re-apply templates for the current workspace.")
-        print("Note: any shell with OWRAP_HOME already exported will keep overriding the pointer file until updated/unset there.")
+        print(
+            "Note: any shell with OWRAP_HOME already exported will keep "
+            "overriding the pointer file until updated/unset there."
+        )
 
-    # ---- full migration (--migrate) ----
+    # Full migration (--migrate)
 
     def _run_migrate(self, current_home: Path, target: Path, dry_run: bool):
         workspaces = self._list_workspaces()
@@ -77,7 +90,10 @@ class UpdateHomeRunner(BaseRunner):
             sys.exit(1)
 
         if dry_run:
-            self._print_dry_run(current_home, target, workspaces, self._current_workspace_name())
+            self._print_dry_run(
+                current_home, target, workspaces,
+                self._current_workspace_name(),
+            )
             return
 
         backup_path = self._backup(current_home)
@@ -92,7 +108,10 @@ class UpdateHomeRunner(BaseRunner):
             self._move(current_home, target)
         except Exception as e:
             print(f"Error during move: {e}")
-            print(f"Original directory should still be intact at {current_home}; backup also available at {backup_path}.")
+            print(
+                f"Original directory should still be intact at {current_home}; "
+                f"backup also available at {backup_path}."
+            )
             sys.exit(1)
 
         OWRAP_HOME_POINTER_FILE.write_text(str(target) + "\n")
@@ -108,10 +127,21 @@ class UpdateHomeRunner(BaseRunner):
         if current_ws_ok:
             print("Current session's workspace re-synced automatically.")
         else:
-            print("Automatic re-sync of the current session's workspace FAILED — run `owrap sync` manually.")
+            print(
+                "Automatic re-sync of the current session's workspace FAILED "
+                "— run `owrap sync` manually."
+            )
         if other_workspaces:
-            print(f"Other configured workspaces found (re-sync these manually from a session bound to each): {', '.join(other_workspaces)}")
-        print("Note: any shell with OWRAP_HOME already exported will keep overriding the pointer file until updated/unset there.")
+            ws_list = ", ".join(other_workspaces)
+            print(
+                f"Other configured workspaces found "
+                f"(re-sync these manually from a session bound to each): "
+                f"{ws_list}"
+            )
+        print(
+            "Note: any shell with OWRAP_HOME already exported will keep "
+            "overriding the pointer file until updated/unset there."
+        )
 
     def _list_workspaces(self) -> list[str]:
         if not CONFIGS_DIR.exists():
@@ -136,14 +166,20 @@ class UpdateHomeRunner(BaseRunner):
             return "target path is the same as the current OWRAP_HOME"
         try:
             target.relative_to(current_home)
-            return f"target path {target} is nested inside current OWRAP_HOME ({current_home})"
+            return (
+                f"target path {target} is nested inside current OWRAP_HOME "
+                f"({current_home})"
+            )
         except ValueError:
             pass
         if target.exists():
             if any(target.iterdir()):
                 return f"target path {target} already exists and is not empty"
             if not os.access(target, os.W_OK):
-                return f"target path {target} exists but is not writable (check ownership/permissions)"
+                return (
+                    f"target path {target} exists but is not writable "
+                    f"(check ownership/permissions)"
+                )
         parent = target.parent
         while not parent.exists():
             parent = parent.parent
@@ -151,7 +187,10 @@ class UpdateHomeRunner(BaseRunner):
             return f"target parent directory {parent} is not writable"
         return None
 
-    def _print_dry_run(self, current_home: Path, target: Path, workspaces: list[str], current_ws_name: str):
+    def _print_dry_run(
+        self, current_home: Path, target: Path,
+        workspaces: list[str], current_ws_name: str,
+    ):
         print("[dry-run] Would move OWRAP_HOME:")
         print(f"  from: {current_home}")
         print(f"  to:   {target}")
@@ -167,7 +206,8 @@ class UpdateHomeRunner(BaseRunner):
         other_workspaces = [w for w in workspaces if w != current_ws_name]
         print("  would auto re-sync the current session's workspace")
         if other_workspaces:
-            print(f"  other configured workspaces to re-sync manually: {', '.join(other_workspaces)}")
+            ws_list = ", ".join(other_workspaces)
+            print(f"  other configured workspaces to re-sync manually: {ws_list}")
 
     def _backup(self, current_home: Path) -> Path:
         backup_dir = Path.home() / ".owrap_backups"
@@ -207,7 +247,10 @@ class UpdateHomeRunner(BaseRunner):
         else:
             shutil.move(str(current_home), str(target))
             if not target.exists() or not any(target.iterdir()):
-                raise RuntimeError("move appears incomplete — target is missing or empty after move")
+                raise RuntimeError(
+                    "move appears incomplete — target is missing or empty "
+                    "after move"
+                )
 
     def _resync_current_workspace(self, owrap_root: Path) -> bool:
         try:

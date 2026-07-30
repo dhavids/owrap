@@ -42,13 +42,30 @@ class TestRenderAllowedSection:
 
 
 class TestStageAll:
-    def test_stage_all_marl_produces_valid_settings_and_merged_claude(self):
+    def test_stage_all_marl_produces_valid_settings_and_merged_claude(self, tmp_path):
         from owrap.staging import stage_all
         from pathlib import Path
 
-        from owrap.utils.paths import CONFIGS_DIR
+        fixed_config = {
+            "allow_all": True,
+            "owrap_enabled": True,
+            "oread": False,
+            "context_enabled": True,
+            "research_root": str(tmp_path / "docs" / "research"),
+            "workspace": str(tmp_path / "marl"),
+            "exec_model": "opencode-go/qwen3.6-plus",
+            "keepalive_interval_s": 10,
+            "bin_dir": "~/bin",
+            "updr_every_orun": 15,
+            "max_requests": 10,
+        }
 
-        out_dir = stage_all("marl")
+        fake_configs = tmp_path / "configs"
+        fake_configs.mkdir()
+
+        with patch("owrap.staging.get_workspace_config", return_value=fixed_config), \
+             patch("owrap.staging.CONFIGS_DIR", fake_configs):
+            out_dir = stage_all("marl")
 
         settings_path = out_dir / "settings.json"
         assert settings_path.exists()
@@ -57,17 +74,15 @@ class TestStageAll:
         assert "Grep" in data["permissions"]["allow"]
         assert "Read" in data["permissions"]["allow"]
 
-        permit_path = CONFIGS_DIR / "marl_permit.json"
+        permit_path = fake_configs / "marl_permit.json"
         assert permit_path.exists()
         permit_data = json.loads(permit_path.read_text())
         assert "Bash(cd *)" in permit_data["rules"]
 
-        claude_path = Path("/home/humble/marl/CLAUDE.md")
+        ws_path = tmp_path / "marl"
+        claude_path = ws_path / "CLAUDE.md"
         assert claude_path.exists()
         content = claude_path.read_text()
 
-        # `### Commands`/`### Files` subsections are no longer rendered into planner.md
-        # (ALLOWED_COMMANDS/ALLOWED_FILES placeholders aren't referenced by any template);
-        # just confirm the merge produced the current flat `## Allowed` section.
         assert "## Allowed" in content
         assert "## Dispatch Tooling" in content

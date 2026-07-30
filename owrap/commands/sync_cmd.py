@@ -19,7 +19,10 @@ class SyncRunner:
             sys.exit(1)
         config = get_workspace_config(workspace_name)
         if not config.get("workspace"):
-            print(f"Error: ~/.owrap/configs/{workspace_name}.json missing `workspace`. Run `owrap setup` first.")
+            print(
+                f"Error: ~/.owrap/configs/{workspace_name}.json "
+                f"missing `workspace`. Run `owrap setup` first."
+            )
             sys.exit(1)
 
         staged = stage_all(workspace_name)
@@ -29,7 +32,8 @@ class SyncRunner:
         flags = resolve_flags(config)
         self._sync_global_read_permission(bool(flags.get("OREAD")))
 
-        # stage_all() already merged planner.md → CLAUDE.md and executor.md → AGENTS.md
+        # stage_all() already merged planner.md → CLAUDE.md and
+        # executor.md → AGENTS.md
         targets = [
             (staged / "self.md",       f"{research_root}/self.md"),
             (staged / "settings.json", f"{workspace}/.claude/settings.local.json"),
@@ -45,9 +49,12 @@ class SyncRunner:
         print(f"research_root: {research_root}")
         print()
         if flags.get("OWRAP_ENABLED"):
-            print(f"Next: ~/bin/orun --input {task_path}")
+            print(f"# DO NOW:\n Run `~/bin/orun --input {task_path}`")
         else:
-            print("owrap has now been disabled — dispatch tooling unavailable, work directly.")
+            print(
+                "owrap has now been disabled — dispatch tooling "
+                "unavailable, work directly."
+            )
         sys.exit(0)
 
     def _active_workspace(self):
@@ -70,9 +77,13 @@ class SyncRunner:
         lines = [
             "# Sync Task — re-apply staged templates to project files",
             "",
-            "**Merge rule:** `stage_all()` has already merged planner content into `CLAUDE.md` and executor content into `AGENTS.md` using owrap markers.",
-            "For the files listed below: read each STAGED file and write its contents to the TARGET path.",
-            "If TARGET exists, replace it entirely with STAGED (templates are authoritative; staging already substituted placeholders).",
+            "**Merge rule:** `stage_all()` has already merged planner content "
+            "into `CLAUDE.md` and executor content into `AGENTS.md` using "
+            "owrap markers.",
+            "For the files listed below: read each STAGED file and write "
+            "its contents to the TARGET path.",
+            "If TARGET exists, replace it entirely with STAGED (templates "
+            "are authoritative; staging already substituted placeholders).",
             "Create parent directories as needed.",
             "",
             "## Files",
@@ -90,7 +101,8 @@ class SyncRunner:
         return task_path
 
     def _sync_global_read_permission(self, oread: bool):
-        """Keep ~/.claude/settings.json (global, user-level) Read(//**) rule in sync with oread.
+        """Keep ~/.claude/settings.json (global, user-level) Read(//**)
+        rule in sync with oread.
 
         Claude Code's project-level settings.local.json/settings.json permission
         rules do not apply to paths outside the workspace root, regardless of

@@ -17,7 +17,28 @@ from ..utils.paths import (
 )
 
 
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(
+        description=(
+            "Run a fallback --execf/--taskf opencode invocation directly "
+            "(no server)"
+        )
+    )
+    parser.add_argument(
+        "path",
+        help=(
+            "Path to a plan or task .md file (mode inferred from filename: "
+            "'task' in name -> --taskf, else --execf)"
+        ),
+    )
+    args = parser.parse_args()
+    FallbackRunner().run(args.path)
+
+
 class FallbackRunner:
+    """Execute opencode plans or tasks via a direct fallback invocation."""
+
     EXEC_OUTPUT = FALLBACK_EXEC_OUTPUT
     EXEC_LOG = FALLBACK_EXEC_LOG
     EXEC_STATUS = FALLBACK_EXEC_STATUS
@@ -30,6 +51,7 @@ class FallbackRunner:
     STOP_MODES = {"tstop": "task", "estop": "exec"}
 
     def run(self, path):
+        """Run a fallback opencode invocation or stop a running fallback."""
         if path in self.STOP_MODES:
             self.stop(self.STOP_MODES[path])
             return
@@ -59,7 +81,10 @@ class FallbackRunner:
         fb_model = get_dispatch_model(_read_config(), default_to_fast=False)
         if fb_model:
             cmd.extend(["-m", fb_model])
-        cmd.extend(["--", shlex.quote(f"--executor {flag} {target} {ANTI_SUMMARY_SUFFIX}")])
+        cmd.extend([
+            "--",
+            shlex.quote(f"--executor {flag} {target} {ANTI_SUMMARY_SUFFIX}"),
+        ])
 
         output_log.parent.mkdir(parents=True, exist_ok=True)
         terminal = Terminal(verbose=False)
@@ -82,7 +107,10 @@ class FallbackRunner:
         poll_start = time.monotonic()
         first_output = False
         with open(output_log, "w") as log:
-            log.write(f"[{datetime.now().isoformat()}] FALLBACK {mode.upper()} START ({target}, pid={runner_pid})\n")
+            log.write(
+                f"[{datetime.now().isoformat()}] FALLBACK {mode.upper()} START "
+                f"({target}, pid={runner_pid})\n"
+            )
             log.flush()
             while terminal.is_running():
                 time.sleep(self.POLL_INTERVAL_S)
@@ -97,13 +125,21 @@ class FallbackRunner:
                         status["status"] = "running"
                         self._write_status(status_file, status)
                 elif not first_output and now - poll_start >= NO_OUTPUT_TASK_S:
-                    print(f"[fallback] executor not responsive (no output in {NO_OUTPUT_TASK_S}s) "
-                          f"— stop work immediately if you cannot edit files directly", flush=True)
+                    print(
+                        f"[fallback] executor not responsive "
+                        f"(no output in {NO_OUTPUT_TASK_S}s) "
+                        f"— stop work immediately if you cannot edit files "
+                        f"directly",
+                        flush=True,
+                    )
                     terminal.terminate_process()
                     status["status"] = "crashed"
                     self._write_status(status_file, status)
                     break
-                elif now - last_growth > self.STALL_THRESHOLD_S and status["status"] == "running":
+                elif (
+                    now - last_growth > self.STALL_THRESHOLD_S
+                    and status["status"] == "running"
+                ):
                     status["status"] = "stalled"
                     self._write_status(status_file, status)
 
@@ -158,7 +194,10 @@ class FallbackRunner:
         status_file = self.TASK_STATUS if mode == "task" else self.EXEC_STATUS
         run_log = self.TASK_LOG if mode == "task" else self.EXEC_LOG
         if not status_file.exists():
-            print(f"No {mode} fallback status file found ({status_file})", file=sys.stderr)
+            print(
+                f"No {mode} fallback status file found ({status_file})",
+                file=sys.stderr,
+            )
             sys.exit(1)
         status = json.loads(status_file.read_text())
         if status.get("status") not in ("running", "stalled"):
@@ -177,14 +216,6 @@ class FallbackRunner:
         target = Path(status.get("target", "?"))
         self._write_log(run_log, target, "stopped")
         print(f"Stopped {mode} fallback (pid={pid})")
-
-
-def main():
-    import argparse
-    parser = argparse.ArgumentParser(description="Run a fallback --execf/--taskf opencode invocation directly (no server)")
-    parser.add_argument("path", help="Path to a plan or task .md file (mode inferred from filename: 'task' in name -> --taskf, else --execf)")
-    args = parser.parse_args()
-    FallbackRunner().run(args.path)
 
 
 if __name__ == "__main__":

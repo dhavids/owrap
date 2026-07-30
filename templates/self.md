@@ -313,6 +313,8 @@ If `{{BIN_DIR}}/orun` or `{{BIN_DIR}}/oexec` is unavailable (binary missing, ser
 | `owrap update-home <path> --migrate [--dry-run]` | Relocate `OWRAP_HOME`: backs up to `~/.owrap_backups/`, stops server pool + keepalive, atomically moves the directory, updates the pointer file, re-syncs current workspace |
 | `owrap stat <sid>` | Show session stats (tasks, durations, pool state) |
 | `owrap keepalive` | Launch/restart keepalive daemon |
+| `owrap get <what>` | Print a session resource: `plan`, `input`, `context`, `session`, `memory`, `project`, `area`, `research`, `config`, `home`, `agents`, `output` |
+| `owrap get output <msg\|task\|agent\|exec> [--id <id>] [--head N] [--tail N]` | Print the resolved output log path + head/tail preview for the most recent (or a specific `--id`) msg/task/agent dispatch; `exec`/`task` fall back to the single `owrap f` output log when no session is active |
 | `owrap f <path>` | Fallback: run `--execf`/`--taskf` directly (no server) on `<path>`; mode inferred from filename ("task" in name → `--taskf`, else `--execf`); tees to `f/<mode>/output.log`, logs to `f/<mode>/log.md`; errors if path missing or path doesn't exist |
 | `owrap f tstop` | Stop a running/stalled task fallback: SIGTERM the tracked `runner_pid`, mark `f/task/status.json` as `stopped`, log to `f/task/log.md` |
 | `owrap f estop` | Stop a running/stalled exec fallback: same as `tstop` but for `f/exec/status.json`/`log.md` |

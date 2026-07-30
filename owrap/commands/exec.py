@@ -9,38 +9,33 @@ from ..utils.terminal import Terminal
 from ..utils.output_parser import OutputParser
 from ..manager import Manager
 from ..base import BaseRunner
-from ..constants import ANTI_SUMMARY_SUFFIX, EXEC_KILL_S, EXEC_HARD_TIMEOUT_S, NO_OUTPUT_EXEC_S
+from ..constants import (
+    ANTI_SUMMARY_SUFFIX, EXEC_KILL_S, EXEC_HARD_TIMEOUT_S,
+    NO_OUTPUT_EXEC_S,
+)
 from ..utils.pool import _pool_active, pick_server, update_last_used
-from ..utils.paths import session_exec_output_path, get_plan_path, context_path, _read_config, get_agents_md_path, get_workspace_path, get_dispatch_model, format_failure_pointer
+from ..utils.paths import (
+    session_exec_output_path, get_plan_path, context_path,
+    _read_config, get_agents_md_path, get_workspace_path,
+    get_dispatch_model, format_failure_pointer,
+)
 from ..utils.snippet import extract_snippet, divider
 
 
 class ExecRunner(BaseRunner):
+    """Execute the active plan via opencode."""
 
-    def __init__(self, manager, logger=None, allow_all=False, model=None):
+    def __init__(
+        self, manager, logger=None, allow_all=False, model=None, disablewd=False,
+    ):
         super().__init__(manager, logger, allow_all)
         self.model = model
+        self.disablewd = disablewd
 
-    def _get_active_plan_name(self, plan_path: Path | None = None) -> str:
-        if plan_path is None:
-            plan_path = get_plan_path(self.manager.session_id) if self.manager.session_id else None
-        if plan_path is None:
-            return "exec"
-        return extract_snippet(plan_path, default="exec")
-
-    def _write_exec_log(self, plan_name: str):
-        exec_log = self.manager.exec_log_path
-        exec_log.parent.mkdir(parents=True, exist_ok=True)
-        entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M')} — {plan_name}\n"
-        existing = ""
-        if exec_log.exists():
-            try:
-                existing = exec_log.read_text()
-            except Exception:
-                pass
-        exec_log.write_text(entry + existing)
-
-    def run(self, log_time=False, timeout=None):
+    def run(self, log_time=False, timeout=None, disablewd=None):
+        """Run the exec session, sending the plan to opencode."""
+        if disablewd is None:
+            disablewd = self.disablewd
         sid = self.manager.session_id or "exec"
         self.LOG_FILE = session_exec_output_path(sid)
         print(f"log: {self.LOG_FILE}", flush=True)
@@ -49,7 +44,10 @@ class ExecRunner(BaseRunner):
         plan_path = get_plan_path(session_id) if session_id else None
 
         if self.logger:
-            self.logger.info("exec session=%s plan=%s", session_id or "none", plan_path or "none")
+            self.logger.info(
+                "exec session=%s plan=%s",
+                session_id or "none", plan_path or "none",
+            )
 
         if _pool_active():
             try:
@@ -64,13 +62,18 @@ class ExecRunner(BaseRunner):
         if self.allow_all:
             cmd.append("--dangerously-skip-permissions")
         _ctx_cfg = _read_config()
-        exec_model = get_dispatch_model(_ctx_cfg, override=self.model, default_to_fast=False)
+        exec_model = get_dispatch_model(
+            _ctx_cfg, override=self.model, default_to_fast=False,
+        )
         if exec_model:
             cmd.extend(["-m", exec_model])
         cp = context_path(session_id) if session_id else None
         ctx_instr = None
         executor_md = get_agents_md_path()
-        if _ctx_cfg.get("context_enabled", True) and cp and cp.exists() and cp.stat().st_size > 0:
+        if (
+            _ctx_cfg.get("context_enabled", True)
+            and cp and cp.exists() and cp.stat().st_size > 0
+        ):
             if executor_md and executor_md.exists():
                 ctx_instr = f"First read {executor_md}, then read {cp}, then: "
             else:
@@ -98,13 +101,19 @@ class ExecRunner(BaseRunner):
                 self.LOG_FILE.unlink()
             except OSError:
                 ts = datetime.now().strftime("%H%M%S")
-                self.LOG_FILE = self.LOG_FILE.parent / f"{self.LOG_FILE.stem}_{ts}{self.LOG_FILE.suffix}"
+                stem = self.LOG_FILE.stem
+                suffix = self.LOG_FILE.suffix
+                self.LOG_FILE = self.LOG_FILE.parent / f"{stem}_{ts}{suffix}"
 
         task_id = session_id or "exec"
         self.manager.register_task(task_id, "exec")
-        sentinel = self._write_sentinel(task_id, plan_name[:60], kind="exec", call_type="exec", url=url, output_path=self.LOG_FILE)
+        sentinel = self._write_sentinel(
+            task_id, plan_name[:60], kind="exec",
+            call_type="exec", url=url, output_path=self.LOG_FILE,
+        )
         self._install_sigterm_handler()
         rc = 1
+        timed_out = False
         watchdog = None
         try:
             with open(self.LOG_FILE, "w") as log:
@@ -119,27 +128,59 @@ class ExecRunner(BaseRunner):
                 def _exec_unresp():
                     setattr(self, '_stall_killed', True)
                     terminal.terminate_process()
+                    hint = (
+                        " — dispatch with --disablewd to prevent the "
+                        "watchdog from killing this task."
+                    )
                     if url:
                         from ..utils.pool import record_unresponsive
                         if record_unresponsive(url):
-                            print(f"[watchdog] executor not responsive (no output in {NO_OUTPUT_EXEC_S}s) "
-                                  f"— server {url} unresponsive too many times, marked for graceful "
-                                  f"eviction — will respawn on next dispatch", flush=True)
+                            print(
+                                f"[watchdog] executor not responsive "
+                                f"(no output in {NO_OUTPUT_EXEC_S}s) "
+                                f"— server {url} unresponsive too many "
+                                f"times, marked for graceful eviction — "
+                                f"will respawn on next dispatch{hint}",
+                                flush=True,
+                            )
                         else:
-                            print(f"[watchdog] executor not responsive (no output in {NO_OUTPUT_EXEC_S}s) "
-                                  f"— use owrap f as fallback", flush=True)
+                            print(
+                                f"[watchdog] executor not responsive "
+                                f"(no output in {NO_OUTPUT_EXEC_S}s) "
+                                f"— use owrap f as fallback{hint}",
+                                flush=True,
+                            )
                     else:
-                        print(f"[watchdog] executor not responsive (no output in {NO_OUTPUT_EXEC_S}s) "
-                              f"— use owrap f as fallback", flush=True)
-                watchdog = Watchdog(
-                    log_path=self.LOG_FILE,
-                    kill_callback=lambda: (setattr(self, '_stall_killed', True), terminal.terminate_process()),
-                    notify_callback=lambda state: (write_sentinel_health(sentinel, state), print(f"[watchdog] exec {state}", flush=True)),
-                    kill_after_s=float(_read_config().get("exec_kill_s", EXEC_KILL_S)),
-                    no_output_s=float(_read_config().get("no_output_exec_s", NO_OUTPUT_EXEC_S)),
-                    unresponsive_callback=_exec_unresp,
-                )
-                watchdog.start()
+                        print(
+                            f"[watchdog] executor not responsive "
+                            f"(no output in {NO_OUTPUT_EXEC_S}s) "
+                            f"— use owrap f as fallback{hint}",
+                            flush=True,
+                        )
+                if not disablewd:
+                    watchdog = Watchdog(
+                        log_path=self.LOG_FILE,
+                        kill_callback=lambda: (
+                            setattr(self, '_stall_killed', True),
+                            terminal.terminate_process(),
+                        ),
+                        notify_callback=lambda state: (
+                            write_sentinel_health(sentinel, state),
+                            print(f"[watchdog] exec {state}", flush=True),
+                        ),
+                        kill_after_s=float(
+                            _read_config().get("exec_kill_s", EXEC_KILL_S),
+                        ),
+                        no_output_s=float(
+                            _read_config().get(
+                                "no_output_exec_s", NO_OUTPUT_EXEC_S,
+                            ),
+                        ),
+                        unresponsive_callback=_exec_unresp,
+                    )
+                    watchdog.start()
+                else:
+                    watchdog = None
                 hard_timeout = timeout if timeout is not None else EXEC_HARD_TIMEOUT_S
                 result = terminal.run(
                     " ".join(cmd), capture_output=True, print_output=True,
@@ -150,22 +191,48 @@ class ExecRunner(BaseRunner):
                 rc = result.get("returncode", 1)
                 if rc == 0 and OutputParser.is_infra_failure(result.get("stdout") or ""):
                     rc = 1
-                    print("[owrap] detected infra failure (opencode errored before any "
-                          "work) — forcing rc=1", flush=True)
+                    print(
+                        "[owrap] detected infra failure (opencode errored "
+                        "before any work) — forcing rc=1",
+                        flush=True,
+                    )
+                    print(format_failure_pointer("INFRA_UNAVAILABLE", session_id))
                 if result.get("timed_out"):
+                    timed_out = True
+                    partial = (result.get("stdout") or "").strip()
+                    chars = len(partial)
+                    print(flush=True)
+                    print(
+                        f"[oexec] timed out after {hard_timeout}s "
+                        f"({chars} chars captured)",
+                        flush=True,
+                    )
+                    print(
+                        f"  rerun with -t <seconds> to extend "
+                        f"(default: {EXEC_HARD_TIMEOUT_S}s)",
+                        flush=True,
+                    )
                     print(format_failure_pointer("TIMED_OUT", session_id))
         finally:
             if watchdog:
                 watchdog.stop()
-            self._complete_sentinel(sentinel, rc)
+            self._complete_sentinel(
+                sentinel, rc, stalled=getattr(self, '_stall_killed', False),
+                timed_out=timed_out,
+            )
             self.manager.complete_task(task_id)
 
         t = ""
         if self.manager._t_cmd_end is not None:
-            t = f"opencode={self.manager._t_cmd_end - self.manager._t_cmd_start:.1f}s  total={self.manager._t_cmd_end - self.manager._t_invocation:.1f}s"
+            elapsed = self.manager._t_cmd_end - self.manager._t_cmd_start
+            total = self.manager._t_cmd_end - self.manager._t_invocation
+            t = f"opencode={elapsed:.1f}s  total={total:.1f}s"
         status = "SUCCESS" if rc == 0 else "FAILED"
         if self.logger:
-            self.logger.info("exec done rc=%d status=%s log=%s", rc, status, self.LOG_FILE)
+            self.logger.info(
+                "exec done rc=%d status=%s log=%s",
+                rc, status, self.LOG_FILE,
+            )
         print(divider("[exec] completed"))
         print(f"status: {status}")
         print(f"exit: {rc}")
@@ -181,7 +248,10 @@ class ExecRunner(BaseRunner):
             except Exception:
                 pass
         from ..utils.donow import check_donow
-        donow_msg = check_donow(self.manager, session_id, area, self.manager.research, kind="exec")
+        donow_msg = check_donow(
+            self.manager, session_id, area,
+            self.manager.research, kind="exec",
+        )
         if donow_msg:
             print(f"\n{donow_msg}")
         try:
@@ -197,7 +267,9 @@ class ExecRunner(BaseRunner):
         self.manager.log_time(log_time)
         self._write_exec_log(plan_name)
         try:
-            self.manager.append_context_recent(plan_name, rc, ctx=ctx_instr is not None, kind="exec")
+            self.manager.append_context_recent(
+                plan_name, rc, ctx=ctx_instr is not None, kind="exec",
+            )
             self.manager.refresh_context_plan(plan_path)
             self.manager.update_frequent_files()
         except Exception:
@@ -221,10 +293,36 @@ class ExecRunner(BaseRunner):
 
         sys.exit(rc)
 
+    def _get_active_plan_name(self, plan_path: Path | None = None) -> str:
+        if plan_path is None:
+            plan_path = get_plan_path(
+                self.manager.session_id,
+            ) if self.manager.session_id else None
+        if plan_path is None:
+            return "exec"
+        return extract_snippet(plan_path, default="exec")
+
+    def _write_exec_log(self, plan_name: str):
+        exec_log = self.manager.exec_log_path
+        exec_log.parent.mkdir(parents=True, exist_ok=True)
+        entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M')} — {plan_name}\n"
+        existing = ""
+        if exec_log.exists():
+            try:
+                existing = exec_log.read_text()
+            except Exception:
+                pass
+        exec_log.write_text(entry + existing)
+
 
 def main():
-    parser = argparse.ArgumentParser(description="Execute the active plan via opencode")
-    parser.add_argument("--log-time", action="store_true", help="Show the [timing] block (debugging/tests only)")
+    parser = argparse.ArgumentParser(
+        description="Execute the active plan via opencode",
+    )
+    parser.add_argument(
+        "--log-time", action="store_true",
+        help="Show the [timing] block (debugging/tests only)",
+    )
     args = parser.parse_args()
     manager = Manager()
     ExecRunner(manager).run(log_time=args.log_time)

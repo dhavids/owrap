@@ -4,7 +4,10 @@ from datetime import datetime
 from pathlib import Path
 
 from ..constants import TRASH_RETENTION_DAYS
-from .paths import TRASH_DIR, SESSIONS_DIR, RUNTIME_DIR, DOCS_DIR, session_dir, _read_config
+from .paths import (
+    TRASH_DIR, SESSIONS_DIR, RUNTIME_DIR, DOCS_DIR,
+    session_dir, _read_config,
+)
 
 
 def move_to_trash(session_id: str) -> Path:
@@ -71,7 +74,9 @@ def sweep_trash(retention_days: float | None = None) -> int:
     if not TRASH_DIR.exists():
         return 0
     if retention_days is None:
-        retention_days = float(_read_config().get("trash_retention_days", TRASH_RETENTION_DAYS))
+        retention_days = float(
+            _read_config().get("trash_retention_days", TRASH_RETENTION_DAYS)
+        )
     cutoff = time.time() - (retention_days * 86400)
     removed = 0
     for entry in TRASH_DIR.iterdir():
@@ -81,7 +86,9 @@ def sweep_trash(retention_days: float | None = None) -> int:
         trashed_at = None
         if marker.exists():
             try:
-                trashed_at = datetime.fromisoformat(marker.read_text().strip()).timestamp()
+                trashed_at = datetime.fromisoformat(
+                    marker.read_text().strip()
+                ).timestamp()
             except Exception:
                 trashed_at = None
         if trashed_at is None:

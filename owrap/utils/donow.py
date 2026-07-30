@@ -75,7 +75,16 @@ def _count_marked_steps(plan_path: Path) -> int:
     return count
 
 
-def check_donow(manager, session_id: str, area: str, research: str, kind: str, input_path=None) -> str | None:
+def check_donow(
+    manager,
+    session_id: str,
+    area: str,
+    research: str,
+    kind: str,
+    input_path=None,
+) -> str | None:
+    """Validate that context and area sections exist before proceeding.
+    Returns an error message string or None if all checks pass."""
     if not area:
         return None
 

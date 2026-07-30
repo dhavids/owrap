@@ -1,3 +1,5 @@
+import json
+import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -18,7 +20,7 @@ def test_extract_agent_summary_with_summary_then_another_heading():
 
     output = "some output\n\n## Summary\nSummary content here.\n\n## Next Section\nMore stuff."
     result = _extract_agent_summary(output)
-    assert result == "Summary content here."
+    assert result == "Summary content here.\n\n## Next Section\nMore stuff."
 
 
 def test_extract_agent_summary_no_summary_header():
@@ -112,3 +114,45 @@ def test_agents_run_agent_dispatch_path(tmp_path, mock_manager):
         assert "test agent instruction" in call_args
         assert "Aim to finish this task within 120 seconds" in call_args
         assert "## Summary" in call_args
+
+
+def test_clear_skipped_when_agent_job_running(tmp_path, mock_manager, monkeypatch):
+    """When another agent-kind job is running for the same session, --clear is skipped."""
+    from owrap.commands import agents as agents_mod
+    from owrap.commands.agents import AgentsRunner
+    from owrap.utils.paths import (
+        session_agent_log_path, session_agent_full_log_dir,
+    )
+
+    sid = mock_manager.session_id
+    log_path = session_agent_log_path(sid)
+    full_log_dir = session_agent_full_log_dir(sid)
+
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("old log")
+    full_log_dir.mkdir(parents=True, exist_ok=True)
+    (full_log_dir / "some.log").write_text("some log")
+
+    running_dir = tmp_path / "running"
+    running_dir.mkdir(parents=True, exist_ok=True)
+    sentinel_data = {
+        "pid": os.getpid(),
+        "task_id": "other_agent",
+        "session_id": sid,
+        "kind": "agent",
+        "title": "other agent task",
+        "started": 0,
+    }
+    sentinel_file = running_dir / f"agentother_agent_{sid}.json"
+    sentinel_file.write_text(json.dumps(sentinel_data))
+
+    with patch.object(agents_mod, "RUNNING_DIR", running_dir):
+        runner = AgentsRunner(mock_manager)
+        with pytest.raises(SystemExit) as exc_info:
+            runner.run(action="clear")
+        assert exc_info.value.code == 0
+
+    # Directory and log should still exist because clear was skipped
+    assert log_path.exists()
+    assert full_log_dir.exists()
+    assert (full_log_dir / "some.log").exists()

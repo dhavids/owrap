@@ -7,9 +7,19 @@ from ..base import BaseRunner
 from ..utils.pool import get_pool, _active_load, shutdown_idle, ensure_min_servers
 from ..utils.paths import _read_config
 
+
+def main():
+    """Entry point for the keepalive daemon process."""
+    from ..manager import Manager
+    manager = Manager()
+    KeepaliveRunner(manager).run()
+
+
 class KeepaliveRunner(BaseRunner):
-    """Background daemon that manages pool lifecycle: shuts down idle servers and maintains minimum server count."""
+    """Background daemon that manages pool lifecycle: shuts down idle
+    servers and maintains minimum server count."""
     def run(self):
+        """Run the keepalive daemon loop: manage pool lifecycle and idle shutdown."""
         from ..utils.paths import KEEPALIVE_PID_FILE, KEEPALIVE_STATE_FILE
         keepalive_pid_file = KEEPALIVE_PID_FILE
         my_pid = os.getpid()
@@ -29,6 +39,13 @@ class KeepaliveRunner(BaseRunner):
         except Exception:
             pass
         keepalive_pid_file.write_text(str(my_pid))
+
+        keepalive_start_file = KEEPALIVE_STATE_FILE.with_name("keepalive.start")
+        try:
+            if not keepalive_start_file.exists():
+                keepalive_start_file.write_text(str(time.time()))
+        except Exception:
+            pass
 
         config = _read_config()
         idle_shutdown_s = float(config.get("idle_shutdown_s", 240))
@@ -74,13 +91,11 @@ class KeepaliveRunner(BaseRunner):
                 keepalive_state_file.unlink(missing_ok=True)
             except OSError:
                 pass
-
-
-def main():
-    """Entry point for the keepalive daemon process."""
-    from ..manager import Manager
-    manager = Manager()
-    KeepaliveRunner(manager).run()
+            keepalive_start_file = KEEPALIVE_STATE_FILE.with_name("keepalive.start")
+            try:
+                keepalive_start_file.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 if __name__ == "__main__":

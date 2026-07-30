@@ -9,12 +9,31 @@ from ..constants import STALL_NOTIFY_S, WATCHDOG_POLL_S, SCRIPT_STALL_MULTIPLIER
 from .paths import _read_config
 
 
-_SCRIPT_PRECURSOR_RE = re.compile(
-    r'(?i)\b(run|running|execute|executing|writ(?:e|ing)|creat(?:e|ing))\b.*\bscript\b'
+_SCRIPT_TRIGGER_RE = re.compile(
+    r'(?i)\b(run|running|execute|executing|writ(?:e|ing)|creat(?:e|ing))\b'
+)
+_SCRIPT_WORD_RE = re.compile(r'(?i)\bscript\b')
+
+_WRITE_TRIGGER_RE = re.compile(r'(?i)\b(writ(?:e|ing)|execut(?:e|ing))\b')
+_WRITE_TARGET_RE = re.compile(
+    r'(?i)\b(notebook|entire\s+(file|notebook)|full\s+file|whole\s+file)\b'
 )
 
 
+def write_sentinel_health(sentinel_path, health_state):
+    """Update the health field in a sentinel JSON file."""
+    try:
+        if sentinel_path and sentinel_path.exists():
+            data = json.loads(sentinel_path.read_text())
+            data["health"] = health_state
+            sentinel_path.write_text(json.dumps(data))
+    except Exception:
+        pass
+
+
 class Watchdog:
+    """Monitor a log file for staleness and invoke callbacks on stall/kill."""
+
     def __init__(self, log_path, kill_callback, notify_callback, kill_after_s,
                  stall_s=None, poll_s=None, no_output_s=None, unresponsive_callback=None):
         _cfg = _read_config()
@@ -80,7 +99,30 @@ class Watchdog:
         lines = [l for l in tail.splitlines() if l.strip()]
         if not lines:
             return False
-        return bool(_SCRIPT_PRECURSOR_RE.search(lines[-1]))
+        last = lines[-1]
+        return (
+            bool(_SCRIPT_TRIGGER_RE.search(last))
+            and bool(_SCRIPT_WORD_RE.search(last))
+        )
+
+    def _is_write_running(self):
+        """Check if the last log line indicates a large write or notebook execution."""
+        try:
+            with open(self._log_path, 'rb') as f:
+                f.seek(0, os.SEEK_END)
+                size = f.tell()
+                f.seek(max(0, size - 4096))
+                tail = f.read().decode('utf-8', errors='ignore')
+        except OSError:
+            return False
+        lines = [l for l in tail.splitlines() if l.strip()]
+        if not lines:
+            return False
+        last = lines[-1]
+        return (
+            bool(_WRITE_TRIGGER_RE.search(last))
+            and bool(_WRITE_TARGET_RE.search(last))
+        )
 
     def _run(self):
         while not self._stop_event.is_set():
@@ -98,7 +140,9 @@ class Watchdog:
             else:
                 elapsed = now - self._last_change_time
                 _scale = (
-                    self._script_stall_multiplier if self._is_script_running() else 1.0
+                    self._script_stall_multiplier
+                    if self._is_script_running() or self._is_write_running()
+                    else 1.0
                 )
                 if self._state == "healthy" and elapsed >= self._stall_s * _scale:
                     self._state = "stalled"
@@ -124,13 +168,3 @@ class Watchdog:
                     if self._unresponsive_callback:
                         self._unresponsive_callback()
                     break
-
-
-def write_sentinel_health(sentinel_path, health_state):
-    try:
-        if sentinel_path and sentinel_path.exists():
-            data = json.loads(sentinel_path.read_text())
-            data["health"] = health_state
-            sentinel_path.write_text(json.dumps(data))
-    except Exception:
-        pass

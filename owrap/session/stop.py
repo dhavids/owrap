@@ -6,18 +6,80 @@ import time
 from pathlib import Path
 
 from ..base import BaseRunner
-from ..utils.paths import _read_config, DOCS_DIR, RUNTIME_DIR, get_plan_path, session_input, context_path, context_lock_path, SERVER_LOGS_DIR, SERVERS_DIR, RUNNING_DIR, RECENTLY_DONE_DIR, SESSION_DIR, session_dir
-from ..utils.session_resolver import resolve, remove_session, BY_CCSID_DIR, list_sessions, _parse
+from ..utils.paths import (
+    _read_config, DOCS_DIR, RUNTIME_DIR, get_plan_path, session_input,
+    context_path, context_lock_path, SERVER_LOGS_DIR, SERVERS_DIR,
+    RUNNING_DIR, RECENTLY_DONE_DIR, SESSION_DIR, session_dir,
+)
+from ..utils.session_resolver import (
+    resolve, remove_session, BY_CCSID_DIR, list_sessions, _parse,
+)
 from ..utils.trash import move_to_trash, restore_from_trash
 
 
+def _parse_session(path: Path) -> dict:
+    """Parse a key=value session file into a dict."""
+    data = {}
+    try:
+        for line in path.read_text().splitlines():
+            if "=" in line:
+                k, v = line.split("=", 1)
+                data[k.strip()] = v.strip()
+    except Exception:
+        pass
+    return data
+
+
+def _kill_pid(pid: int, signum: int = 15) -> bool:
+    """Send *signum* to *pid*; return True on success."""
+    try:
+        os.kill(pid, signum)
+        return True
+    except OSError:
+        return False
+
+
+def _pid_alive(pid: int) -> bool:
+    """Return True if *pid* is still running."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _wait_dead(pids: list[int], timeout: float = 3.0):
+    """Wait up to *timeout* seconds for *pids* to exit, then SIGKILL
+    any that remain.
+    """
+    deadline = time.time() + timeout
+    remaining = list(pids)
+    while remaining and time.time() < deadline:
+        time.sleep(0.2)
+        remaining = [p for p in remaining if _pid_alive(p)]
+    for p in remaining:
+        _kill_pid(p, 9)
+
+
+def _cleanup_context(session_id: str, removed: list):
+    """Remove context files for *session_id* and record them in *removed*."""
+    for suffix in (".md", ".lock"):
+        p = DOCS_DIR / f"context_{session_id}{suffix}"
+        if p.exists():
+            p.unlink(missing_ok=True)
+            removed.append(f"context_{session_id}{suffix}")
+
+
 class StopRunner:
+    """Runner for the ``owrap stop`` command."""
+
     def __init__(self, manager, logger=None, allow_all=False):
         self.manager = manager
         self.logger = logger
         self.allow_all = allow_all
 
     def run(self, session_file=None, no_exit=False, force=False, target=None):
+        """Stop the current session and move it to the trash."""
         sessions_dir = SESSION_DIR / "sessions"
         global_session = SESSION_DIR / "session"
         config = _read_config()
@@ -42,8 +104,16 @@ class StopRunner:
                     if ptr.is_file():
                         ptr.unlink(missing_ok=True)
             if self.logger:
-                self.logger.info("stop --force: all servers killed sessions moved to trash count=%d", count)
-            print(f"OWRAP STOPPED  all servers killed  {count} session(s) moved to .trash (restore any with `owrap restore trash [session_id]`)")
+                self.logger.info(
+                    "stop --force: all servers killed sessions moved to "
+                    "trash count=%d", count,
+                )
+            msg = (
+                f"OWRAP STOPPED  all servers killed  {count} session(s) "
+                f"moved to .trash (restore any with `owrap restore trash "
+                f"[session_id]`)"
+            )
+            print(msg)
             if not no_exit:
                 sys.exit(0)
             return
@@ -59,13 +129,19 @@ class StopRunner:
                     sf = sessions_dir / f"{sid}.session"
                     break
             if sid is None:
-                print(f"OWRAP STOP: no session matching '{target}'. Use `owrap stop --force` to clear everything.")
+                print(
+                    f"OWRAP STOP: no session matching '{target}'. "
+                    "Use `owrap stop --force` to clear everything."
+                )
                 sys.exit(0)
         else:
             sid, sf, _ = resolve(mode="refresh")
 
         if sid is None:
-            print("OWRAP STOP: no current session to stop. Use `owrap stop --force` to clear everything.")
+            print(
+                "OWRAP STOP: no current session to stop. "
+                "Use `owrap stop --force` to clear everything."
+            )
             sys.exit(0)
 
         # Move session file + docs/runtime/context to .trash; clear by_ccsid pointer
@@ -80,7 +156,8 @@ class StopRunner:
 
         n = len(other_sessions)
         if n:
-            print(f"OWRAP SESSION ENDED  ({n} other session{'s' if n != 1 else ''} active)")
+            plural = "s" if n != 1 else ""
+            print(f"OWRAP SESSION ENDED  ({n} other session{plural} active)")
         else:
             print("OWRAP STOPPED  no other sessions")
 
@@ -88,59 +165,16 @@ class StopRunner:
             sys.exit(0)
 
 
-def _parse_session(path: Path) -> dict:
-    data = {}
-    try:
-        for line in path.read_text().splitlines():
-            if "=" in line:
-                k, v = line.split("=", 1)
-                data[k.strip()] = v.strip()
-    except Exception:
-        pass
-    return data
-
-
-def _kill_pid(pid: int, signum: int = 15) -> bool:
-    try:
-        os.kill(pid, signum)
-        return True
-    except OSError:
-        return False
-
-
-def _pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
-
-
-def _wait_dead(pids: list[int], timeout: float = 3.0):
-    deadline = time.time() + timeout
-    remaining = list(pids)
-    while remaining and time.time() < deadline:
-        time.sleep(0.2)
-        remaining = [p for p in remaining if _pid_alive(p)]
-    for p in remaining:
-        _kill_pid(p, 9)
-
-
-def _cleanup_context(session_id: str, removed: list):
-    for suffix in (".md", ".lock"):
-        p = DOCS_DIR / f"context_{session_id}{suffix}"
-        if p.exists():
-            p.unlink(missing_ok=True)
-            removed.append(f"context_{session_id}{suffix}")
-
-
 class EndRunner:
+    """Runner for the ``owrap end`` command."""
+
     def __init__(self, manager, logger=None, allow_all=False):
         self.manager = manager
         self.logger = logger
         self.allow_all = allow_all
 
     def run(self, session_file=None, target=None):
+        """End the resolved or targeted session and move it to the trash."""
         sessions_dir = SESSION_DIR / "sessions"
 
         session_id = ""
@@ -170,10 +204,18 @@ class EndRunner:
                 data = _parse_session(sp)
                 session_id = data.get("session_id", "") or matched_sid
                 if not session_id:
-                    print(f"OWRAP END: could not determine session_id from '{session_file}' — aborting.")
+                    print(
+                        f"OWRAP END: could not determine session_id from "
+                        f"'{session_file}' — aborting."
+                    )
                     sys.exit(1)
-                if target and not session_id.startswith(target) and target not in (session_id, data.get("research", "")):
-                    print(f"OWRAP END: resolved session '{session_id}' does not match target '{target}' — aborting.")
+                if target and not session_id.startswith(target) and target not in (
+                    session_id, data.get("research", ""),
+                ):
+                    print(
+                        f"OWRAP END: resolved session '{session_id}' does not "
+                        f"match target '{target}' — aborting."
+                    )
                     sys.exit(1)
 
         if session_id:
@@ -183,29 +225,41 @@ class EndRunner:
         if self.logger:
             self.logger.info("end session=%s", session_id)
         if session_id:
-            print(f"OWRAP SESSION ENDED  session: {session_id}  (moved to .trash — restore with `owrap restore trash {session_id}`)")
+            print(
+                f"OWRAP SESSION ENDED  session: {session_id}  (moved to "
+                f".trash — restore with `owrap restore trash {session_id}`)"
+            )
         else:
             print("OWRAP SESSION ENDED  session: (none resolved)")
         sys.exit(0)
 
 
 class RestoreRunner(BaseRunner):
+    """Runner for the ``owrap restore`` command."""
+
     def run(self, args):
+        """Restore a trashed session back to its active location."""
         session_id = args.session_id
         try:
             restore_from_trash(session_id)
         except FileNotFoundError as e:
             print(f"Error: {e}")
             return 1
-        print(f"OWRAP RESTORED  session: {session_id}  (run `owrap attach {session_id}` to bind this window to it)")
+        print(
+            f"OWRAP RESTORED  session: {session_id}  (run `owrap attach "
+            f"{session_id}` to bind this window to it)"
+        )
         return 0
 
 
 class KillServersRunner:
+    """Runner that kills all owrap task and server processes."""
+
     def __init__(self, manager=None, logger=None, allow_all=False):
         pass
 
     def run(self, session_id: str | None = None):
+        """Kill running tasks and servers, optionally filtered by *session_id*."""
         from ..utils.pool import POOL_FILE, _read_pool
 
         killed_tasks = 0
@@ -274,9 +328,12 @@ class KillServersRunner:
 
 
 class CleanupRunner(BaseRunner):
+    """Runner for the ``owrap cleanup`` command."""
+
     TWO_HOURS = 2 * 3600
 
     def run(self, args):
+        """Remove stale session files, orphaned context, and dead server state."""
         partial = getattr(args, "session_id", None)
         sessions_dir = SESSION_DIR / "sessions"
         global_session = SESSION_DIR / "session"
@@ -301,7 +358,8 @@ class CleanupRunner(BaseRunner):
             if sessions_dir.exists():
                 for sf in sessions_dir.glob("*.session"):
                     data = _parse_session(sf)
-                    if data.get("session_id", "").startswith(partial) or sf.stem.startswith(partial):
+                    sid_val = data.get("session_id", "")
+                    if sid_val.startswith(partial) or sf.stem.startswith(partial):
                         sf.unlink(missing_ok=True)
                         removed.append(sf.name)
                         _cleanup_context(data.get("session_id", sf.stem), removed)

@@ -1,6 +1,9 @@
 import re
 
 
+_INFRA_SHORT_OUTPUT_THRESHOLD = 100
+
+
 class OutputParser:
     ANSI_RE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]')
     MODEL_RE = re.compile(r'^> build\s+\S\s+(\S+)', re.MULTILINE)
@@ -11,6 +14,7 @@ class OutputParser:
         self.model: str | None = None
 
     def feed(self, chunk: str) -> str:
+        """Append chunk to buffer, return cleaned printable portion."""
         self._buf += chunk
         idx = self._buf.rfind('\x1b')
         if idx != -1:
@@ -57,5 +61,21 @@ class OutputParser:
 
     @staticmethod
     def is_infra_failure(text: str) -> bool:
-        """True if output is just a model banner + immediate top-level Error, no real work."""
-        return bool(OutputParser.INFRA_ERROR_RE.match((text or "").strip()))
+        """True if output is just a model banner + immediate top-level Error,
+        no real work."""
+        raw = (text or "").strip()
+        if OutputParser.INFRA_ERROR_RE.match(raw):
+            return True
+        lines = raw.splitlines()
+        stripped = []
+        for line in lines:
+            s = line.strip()
+            if s.startswith("model:"):
+                continue
+            if s.startswith("[server:"):
+                continue
+            if not s:
+                continue
+            stripped.append(s)
+        remaining = "\n".join(stripped)
+        return len(remaining) < _INFRA_SHORT_OUTPUT_THRESHOLD

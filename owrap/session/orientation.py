@@ -1,4 +1,9 @@
-def print_orientation(session_id, research, url=None, plan_path=None, todo_path=None, input_path=None, context_path=None, area=None, memory_path=None, project_path=None, attach=False):
+def print_orientation(
+    session_id, research, url=None, plan_path=None,
+    todo_path=None, input_path=None, context_path=None,
+    area=None, memory_path=None, project_path=None,
+    attach=False,
+):
     import shutil as _shutil
     import io as _io
     import re as _re
@@ -18,13 +23,25 @@ def print_orientation(session_id, research, url=None, plan_path=None, todo_path=
         _cp = _Path(context_path)
         if _cp.exists():
             _text = _cp.read_text()
-            _m = _re.search(r"^## Focus\s*\n(.+?)(?=\n## |\Z)", _text, _re.DOTALL | _re.MULTILINE)
+            _m = _re.search(
+                r"^## Focus\s*\n(.+?)(?=\n## |\Z)",
+                _text, _re.DOTALL | _re.MULTILINE,
+            )
             if _m:
                 focus = _m.group(1).strip()
-            _m = _re.search(r"^## Active Plan\s*\n(.+?)(?=\n## |\Z)", _text, _re.DOTALL | _re.MULTILINE)
+            _m = _re.search(
+                r"^## Active Plan\s*\n(.+?)(?=\n## |\Z)",
+                _text, _re.DOTALL | _re.MULTILINE,
+            )
             if _m:
-                plan_steps = _re.findall(r"^(?:\d+\. \[ \]|- \[ \])\s+(.+)$", _m.group(1), _re.MULTILINE)[:3]
-            _m = _re.search(r"^## Environment\s*\n(.+?)(?=\n## |\Z)", _text, _re.DOTALL | _re.MULTILINE)
+                plan_steps = _re.findall(
+                    r"^(?:\d+\. \[ \]|- \[ \])\s+(.+)$",
+                    _m.group(1), _re.MULTILINE,
+                )[:3]
+            _m = _re.search(
+                r"^## Environment\s*\n(.+?)(?=\n## |\Z)",
+                _text, _re.DOTALL | _re.MULTILINE,
+            )
             if _m:
                 for _line in _m.group(1).splitlines():
                     _line = _line.strip()
@@ -35,7 +52,11 @@ def print_orientation(session_id, research, url=None, plan_path=None, todo_path=
     server_str = f"   server: {url}" if url else ""
     print(f"  session: {session_id}   research: {r}{server_str}")
     print()
-    print("You are the planner. Design plans, dispatch work, review results. Never write code or run commands directly.")
+    print(
+        "You are the planner. Design plans, dispatch work, "
+        "review results. Never write code or run commands "
+        "directly.",
+    )
     print()
     _gi_path = None
     if session_id:
@@ -49,7 +70,10 @@ def print_orientation(session_id, research, url=None, plan_path=None, todo_path=
         if _gi_path:
             print(f"  {_gi_path} — read this file now before continuing.")
         if context_path and attach:
-            print(f"  {context_path} — also re-read this file for current session context.")
+            print(
+                f"  {context_path} — also re-read this file "
+                f"for current session context.",
+            )
     print()
     _fallback_note = ""
     if research == "owrap":

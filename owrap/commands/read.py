@@ -25,18 +25,45 @@ FILE_TYPE_DEFAULTS = {
 _STYLE_FALLBACK = "terse"
 
 PROMPT_STYLES = {
-    "default": ". Answer in {max_lines} lines or fewer. No preamble, direct answer only.",
-    "terse": ". Max 5 bullet points, one line each. Most important facts only. No preamble, no headers.",
-    "structured": ". Use ## headers: Purpose, Key Parts, Watch-outs. Bullets under each — no prose. 25 lines max.",
-    "code": ". List: (1) purpose in one sentence, (2) key classes/functions each with one-line description, (3) important side-effects or config caveats. 20 lines max. No preamble.",
-    "exec": ". Write exactly one paragraph (4–6 sentences). Plain prose. Cover: what it does, what it is for, what an engineer needs to know. No preamble.",
-    "bullets": ". Output bullet points only — no headers, no prose. Cover what, why, how, gotchas. 10 bullets max.",
+    "default": (
+        ". Answer in {max_lines} lines or fewer."
+        " No preamble, direct answer only."
+    ),
+    "terse": (
+        ". Max 5 bullet points, one line each."
+        " Most important facts only. No preamble, no headers."
+    ),
+    "structured": (
+        ". Use ## headers: Purpose, Key Parts, Watch-outs."
+        " Bullets under each — no prose. 25 lines max."
+    ),
+    "code": (
+        ". List: (1) purpose in one sentence,"
+        " (2) key classes/functions each with one-line description,"
+        " (3) important side-effects or config caveats."
+        " 20 lines max. No preamble."
+    ),
+    "exec": (
+        ". Write exactly one paragraph (4–6 sentences)."
+        " Plain prose. Cover: what it does, what it is for,"
+        " what an engineer needs to know. No preamble."
+    ),
+    "bullets": (
+        ". Output bullet points only — no headers, no prose."
+        " Cover what, why, how, gotchas. 10 bullets max."
+    ),
     "deep": (
-        ". Read strategically: for .py — __init__ first, then method signatures, then main();"
-        " for .yaml — env/model sections first, then flag disabled/null values;"
-        " for .md — tables and numbers first, then hypothesis/discussion."
-        " Flag: None/stub values, config mutations, disabled features with active sub-config, magic numbers."
-        " Compare numeric values across sections for inconsistencies."
+        ". Read strategically: for .py — __init__ first,"
+        " then method signatures, then main();"
+        " for .yaml — env/model sections first,"
+        " then flag disabled/null values;"
+        " for .md — tables and numbers first,"
+        " then hypothesis/discussion."
+        " Flag: None/stub values, config mutations,"
+        " disabled features with active sub-config,"
+        " magic numbers."
+        " Compare numeric values across sections"
+        " for inconsistencies."
         " 30 lines max. No preamble."
     ),
 }
@@ -50,48 +77,12 @@ def _scale_timeout(size: int, base: int = 55) -> int:
 
 
 class ReadRunner(BaseRunner):
+    """Runner for the ``oread`` command — reads files with style-aware prompting."""
     TASKS_DIR = TASKS_DIR
     FALLBACK_TASK = FALLBACK_TASK
 
-    def _run_grep(self, pattern: str, file_path=None):
-        import subprocess
-        if isinstance(file_path, list):
-            if self.logger:
-                self.logger.info("grep pattern=%r target=%s session=%s", pattern, file_path, self.manager.session_id or "none")
-            cmd = ["grep", "-n", pattern] + [str(Path(f)) for f in file_path]
-        else:
-            target = Path(file_path) if file_path else Path.cwd()
-            if self.logger:
-                self.logger.info("grep pattern=%r target=%s session=%s", pattern, target, self.manager.session_id or "none")
-            if target.is_file():
-                cmd = ["grep", "-n", pattern, str(target)]
-            else:
-                cmd = ["grep", "-rn", pattern, str(target)]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.stdout:
-            print(result.stdout, end="")
-        if result.returncode == 1:
-            print(f"(no matches for {pattern!r} in {file_path})")
-        elif result.returncode not in (0, 1):
-            print(result.stderr, end="", file=sys.stderr)
-        sys.exit(0)
-
-    def _write_read_log(self, file_path: str, tag: str = ""):
-        import fcntl
-        read_log = self.manager.read_log_path
-        read_log.parent.mkdir(parents=True, exist_ok=True)
-        tag_str = f" {tag}" if tag else ""
-        entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M')}{tag_str} — {file_path}\n"
-        read_log.touch(exist_ok=True)
-        with open(read_log, "r+") as f:
-            fcntl.flock(f, fcntl.LOCK_EX)
-            existing = f.read()
-            f.seek(0)
-            f.write(entry + existing)
-            f.truncate()
-
-
     def list_styles(self):
+        """List available prompt styles and their file-type auto-detection mappings."""
         print("oread prompt styles:")
         print()
         for name, suffix in PROMPT_STYLES.items():
@@ -107,7 +98,12 @@ class ReadRunner(BaseRunner):
         print()
         print(f"  fallback (unknown extension): {_STYLE_FALLBACK}")
 
-    def run(self, file_path, summarise=False, details=None, log_time=True, grep=None, read_id=None, timeout=None, verbose=False, prompt_style=None):
+    def run(
+        self, file_path, summarise=False, details=None, log_time=True,
+        grep=None, read_id=None, timeout=None, verbose=False,
+        prompt_style=None,
+    ):
+        """Read a file, optionally summarising or grepping, with style-aware prompting."""
         if grep is not None:
             self._run_grep(grep, file_path)
             return
@@ -116,7 +112,10 @@ class ReadRunner(BaseRunner):
         if read_id:
             print(f"[r:{read_id}]", flush=True)
         if self.logger:
-            self.logger.info("read file=%s session=%s", file_path, self.manager.session_id or "none")
+            self.logger.info(
+                "read file=%s session=%s",
+                file_path, self.manager.session_id or "none",
+            )
             if details:
                 self.logger.debug("read details=%r", details)
         if not summarise and details is None:
@@ -133,9 +132,16 @@ class ReadRunner(BaseRunner):
                 char_count = len(text)
                 if verbose or char_count <= OREAD_MAX_CHARS:
                     print(text, end="")
-                    self._write_read_log(file_path, tag=f"[r:{read_id}]" if read_id else "")
+                    self._write_read_log(
+                        file_path,
+                        tag=f"[r:{read_id}]" if read_id else "",
+                    )
                     sys.exit(0)
-                print(f"[oread] {char_count} chars (>{OREAD_MAX_CHARS}) — forwarding to opencode for summary", flush=True)
+                print(
+                    f"[oread] {char_count} chars (>{OREAD_MAX_CHARS})"
+                    f" — forwarding to opencode for summary",
+                    flush=True,
+                )
                 summarise = True
 
         if _pool_active():
@@ -150,7 +156,12 @@ class ReadRunner(BaseRunner):
         prompt = f"Read the file at {file_path}"
         _ctx_cfg = _read_config()
         cp = context_path(self.manager.session_id)
-        if _ctx_cfg.get("context_enabled", True) and self.manager.session_id and cp.exists() and cp.stat().st_size > 0:
+        if (
+            _ctx_cfg.get("context_enabled", True)
+            and self.manager.session_id
+            and cp.exists()
+            and cp.stat().st_size > 0
+        ):
             prompt = f"First read {cp}, then: " + prompt
         if summarise:
             prompt += ", summarise the content"
@@ -192,19 +203,26 @@ class ReadRunner(BaseRunner):
         if self.logger:
             snippet = f" detail={details[:60]!r}" if details else ""
             id_str = f" id={read_id}" if read_id else ""
-            self.logger.info("read opencode file=%s mode=%s%s%s session=%s",
-                             file_path, mode_label, snippet, id_str,
-                             self.manager.session_id or "none")
+            self.logger.info(
+                "read opencode file=%s mode=%s%s%s session=%s",
+                file_path, mode_label, snippet, id_str,
+                self.manager.session_id or "none",
+            )
             self.logger.debug("read cmd=%s", " ".join(cmd))
 
-        sentinel = self._write_sentinel(sentinel_id, sentinel_title, kind="read", call_type="read")
+        sentinel = self._write_sentinel(
+            sentinel_id, sentinel_title, kind="read", call_type="read",
+        )
         self._install_sigterm_handler()
 
         rc = 1
         timed_out = False
         try:
             self.manager.t_cmd_start()
-            result = Terminal(verbose=False).run(" ".join(cmd), print_output=True, capture_output=True, timeout=TIMEOUT)
+            result = Terminal(verbose=False).run(
+                " ".join(cmd), print_output=True,
+                capture_output=True, timeout=TIMEOUT,
+            )
             self.manager.t_cmd_end()
             if result.get("timed_out"):
                 timed_out = True
@@ -212,9 +230,21 @@ class ReadRunner(BaseRunner):
                 chars = len(partial)
                 print(flush=True)
                 print(f"[oread] timed out after {TIMEOUT}s", flush=True)
-                print(f"  partial output printed above ({chars} chars captured)", flush=True)
-                print(f"  rerun with -t <seconds> to extend (default: {DEFAULT_TIMEOUT}s)", flush=True)
-                print(f"  the file or query is too large for -d — try -s (summarise) instead", flush=True)
+                print(
+                    f"  partial output printed above"
+                    f" ({chars} chars captured)",
+                    flush=True,
+                )
+                print(
+                    f"  rerun with -t <seconds> to extend"
+                    f" (default: {DEFAULT_TIMEOUT}s)",
+                    flush=True,
+                )
+                print(
+                    f"  the file or query is too large for -d"
+                    f" — try -s (summarise) instead",
+                    flush=True,
+                )
                 rc = 2
             else:
                 rc = result.get("returncode", 1)
@@ -227,9 +257,11 @@ class ReadRunner(BaseRunner):
             if self.logger:
                 snippet = f" detail={details[:60]!r}" if details else ""
                 id_str = f" id={read_id}" if read_id else ""
-                self.logger.info("read opencode done file=%s mode=%s%s%s rc=%d%s",
-                                 file_path, mode_label, snippet, id_str, rc,
-                                 " (timeout)" if timed_out else "")
+                self.logger.info(
+                    "read opencode done file=%s mode=%s%s%s rc=%d%s",
+                    file_path, mode_label, snippet, id_str, rc,
+                    " (timeout)" if timed_out else "",
+                )
             self._write_read_log(file_path, tag=f"[r:{read_id}]" if read_id else "")
             self.manager.log_time(log_time)
             if url:
@@ -243,4 +275,49 @@ class ReadRunner(BaseRunner):
                 except Exception:
                     pass
         sys.exit(rc)
+
+    def _run_grep(self, pattern: str, file_path=None):
+        import subprocess
+        if isinstance(file_path, list):
+            if self.logger:
+                self.logger.info(
+                    "grep pattern=%r target=%s session=%s",
+                    pattern, file_path,
+                    self.manager.session_id or "none",
+                )
+            cmd = ["grep", "-n", pattern] + [str(Path(f)) for f in file_path]
+        else:
+            target = Path(file_path) if file_path else Path.cwd()
+            if self.logger:
+                self.logger.info(
+                    "grep pattern=%r target=%s session=%s",
+                    pattern, target,
+                    self.manager.session_id or "none",
+                )
+            if target.is_file():
+                cmd = ["grep", "-n", pattern, str(target)]
+            else:
+                cmd = ["grep", "-rn", pattern, str(target)]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.returncode == 1:
+            print(f"(no matches for {pattern!r} in {file_path})")
+        elif result.returncode not in (0, 1):
+            print(result.stderr, end="", file=sys.stderr)
+        sys.exit(0)
+
+    def _write_read_log(self, file_path: str, tag: str = ""):
+        import fcntl
+        read_log = self.manager.read_log_path
+        read_log.parent.mkdir(parents=True, exist_ok=True)
+        tag_str = f" {tag}" if tag else ""
+        entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M')}{tag_str} — {file_path}\n"
+        read_log.touch(exist_ok=True)
+        with open(read_log, "r+") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            existing = f.read()
+            f.seek(0)
+            f.write(entry + existing)
+            f.truncate()
 

@@ -34,7 +34,10 @@ class PermitRunner:
             }))
             return
         rules = permit.get("rules", permit) if isinstance(permit, dict) else permit
-        orun_cmd = permit.get("orun_cmd", "~/bin/orun") if isinstance(permit, dict) else "~/bin/orun"
+        orun_cmd = (
+            permit.get("orun_cmd", "~/bin/orun")
+            if isinstance(permit, dict) else "~/bin/orun"
+        )
 
 
         def matches(rule):

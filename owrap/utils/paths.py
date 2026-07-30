@@ -7,27 +7,18 @@ OWRAP_ROOT = Path(__file__).resolve().parents[2]
 OWRAP_HOME_POINTER_FILE = Path.home() / ".owrap_home"
 
 
-def _resolve_owrap_home() -> Path:
-    """Resolve the OWRAP_HOME directory: $OWRAP_HOME env var > ~/.owrap_home pointer file > ~/.owrap default.
-
-    The pointer file lives at a fixed location outside the relocatable directory itself
-    (so it can always be found regardless of where OWRAP_HOME currently points), and is
-    what `owrap update-home` rewrites when relocating.
-    """
-    env_val = os.environ.get("OWRAP_HOME", "").strip()
-    if env_val:
-        return Path(env_val).expanduser()
-    if OWRAP_HOME_POINTER_FILE.exists():
-        try:
-            pointer_val = OWRAP_HOME_POINTER_FILE.read_text().strip()
-            if pointer_val:
-                return Path(pointer_val).expanduser()
-        except OSError:
-            pass
-    return Path.home() / ".owrap"
-
-
-OWRAP_HOME = _resolve_owrap_home()
+_env_home = os.environ.get("OWRAP_HOME", "").strip()
+if _env_home:
+    OWRAP_HOME = Path(_env_home).expanduser()
+elif OWRAP_HOME_POINTER_FILE.exists():
+    try:
+        _ptr = OWRAP_HOME_POINTER_FILE.read_text().strip()
+        OWRAP_HOME = Path(_ptr).expanduser() if _ptr else Path.home() / ".owrap"
+    except OSError:
+        OWRAP_HOME = Path.home() / ".owrap"
+else:
+    OWRAP_HOME = Path.home() / ".owrap"
+del _env_home
 RUNTIME_HOME = OWRAP_HOME
 RUNTIME_DIR = RUNTIME_HOME / "runtime"
 RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
@@ -79,9 +70,32 @@ POOL_FILE = RUNTIME_DIR / "pool.json"
 POOL_LOCK_FILE = RUNTIME_DIR / "pool.lock"
 KEEPALIVE_PID_FILE = RUNTIME_DIR / "keepalive.pid"
 KEEPALIVE_STATE_FILE = RUNTIME_DIR / "keepalive.state"
+STATS_FILE = RUNTIME_DIR / "stats.json"
 
 _config_cache: dict | None = None
 _config_cache_stat: tuple | None = None
+
+
+def _resolve_owrap_home() -> Path:
+    """Resolve the OWRAP_HOME directory: $OWRAP_HOME env var >
+    ~/.owrap_home pointer file > ~/.owrap default.
+
+    The pointer file lives at a fixed location outside the relocatable
+    directory itself (so it can always be found regardless of where
+    OWRAP_HOME currently points), and is what `owrap update-home`
+    rewrites when relocating.
+    """
+    env_val = os.environ.get("OWRAP_HOME", "").strip()
+    if env_val:
+        return Path(env_val).expanduser()
+    if OWRAP_HOME_POINTER_FILE.exists():
+        try:
+            pointer_val = OWRAP_HOME_POINTER_FILE.read_text().strip()
+            if pointer_val:
+                return Path(pointer_val).expanduser()
+        except OSError:
+            pass
+    return Path.home() / ".owrap"
 
 
 def session_dir(session_id: str) -> Path:
@@ -139,7 +153,10 @@ def session_agent_full_log_dir(session_id: str) -> Path:
 
 
 def _read_config() -> dict:
-    """Read base config merged with the default workspace config. Base keys are overridden by workspace keys."""
+    """Read base config merged with the default workspace config.
+
+    Base keys are overridden by workspace keys.
+    """
     global _config_cache, _config_cache_stat
     if BASE_CONFIG_FILE.exists():
         st = os.stat(BASE_CONFIG_FILE)
@@ -161,7 +178,11 @@ def _read_config() -> dict:
 
 
 def get_workspace_config(workspace_name: str) -> dict:
-    """Read workspace-scoped config from ~/.owrap/configs/<workspace_name>.json. Returns {} if missing."""
+    """Read workspace-scoped config from
+    ~/.owrap/configs/<workspace_name>.json.
+
+    Returns {} if missing.
+    """
     if not workspace_name:
         return {}
     p = CONFIGS_DIR / f"{workspace_name}.json"
@@ -172,7 +193,10 @@ def get_workspace_config(workspace_name: str) -> dict:
 
 
 def get_project_config(project_name: str) -> dict:
-    """Read per-project config from ~/.owrap/configs/<project_name>.json. Returns {} if missing."""
+    """Read per-project config from ~/.owrap/configs/<project_name>.json.
+
+    Returns {} if missing.
+    """
     if not project_name:
         return {}
     p = CONFIGS_DIR / f"{project_name}.json"
@@ -186,7 +210,11 @@ def project_config_path(project_name: str):
     return CONFIGS_DIR / f"{project_name}.json"
 
 
-def get_dispatch_model(config: dict, override: str | None = None, default_to_fast: bool = False) -> str | None:
+def get_dispatch_model(
+    config: dict,
+    override: str | None = None,
+    default_to_fast: bool = False,
+) -> str | None:
     """Resolve the model to pass to `opencode run` for an owrap dispatch.
 
     Resolution order:
@@ -209,12 +237,17 @@ def staged_dir(project_name: str):
 
 
 def get_plan_path(session_id: str) -> Path:
-    """Return session-scoped plan path. session_id is required (always set after owrap start)."""
+    """Return session-scoped plan path.
+
+    session_id is required (always set after owrap start).
+    """
     return session_dir(session_id) / "exec" / "plan.md"
 
 
 def get_self_path() -> Path:
-    """Return self.md path: research_root/self.md if configured, else DOCS_DIR/self.md fallback."""
+    """Return self.md path: research_root/self.md if configured,
+    else DOCS_DIR/self.md fallback.
+    """
     config = _read_config()
     ws_name = config.get("default_workspace", "")
     if ws_name:
@@ -270,7 +303,9 @@ def resolve_general_instruction_path(session_id: str | None) -> Path | None:
 
 
 def get_workspace_path() -> Path:
-    """Return workspace from workspace config, else fall back to research_root parent or DOCS_DIR parent."""
+    """Return workspace from workspace config, else fall back to
+    research_root parent or DOCS_DIR parent.
+    """
     config = _read_config()
     default_ws = config.get("default_workspace")
     if default_ws:

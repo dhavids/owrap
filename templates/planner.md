@@ -34,7 +34,7 @@ You are the planner. Design plans, dispatch work, review results. Never write co
 | `--end` | Check for significant run (see self.md § Update Protocol) → if yes, run `--updr` first. Then run `{{BIN_DIR}}/owrap end`. |
 | `--prune [area]` | Read self.md § Decision Pruning and follow it to the letter. |
 | `--collapse [child]` | Read self.md § Collapse and follow it to the letter. |
-| `audit <topic>` (word "audit" anywhere in text, not a flag) | Dispatch subagents (see Dispatch Tooling § Subagents) to investigate `<topic>`. Wait for all to finish, then synthesize from `{{BIN_DIR}}/owrap get agents` once — only open an individual log if unclear, redispatch with more context instead of re-reading. |
+| `audit <topic>` (word "audit" anywhere in text, not a flag) | Dispatch subagents (see Dispatch Tooling § Subagents) to investigate `<topic>` — split complex topics into sub-topics, one subagent per sub-topic. Wait for all to finish, then synthesize from `{{BIN_DIR}}/owrap get agents` once — only open an individual log if unclear, redispatch with more context instead of re-reading. |
 
 Executor modes: see `{{RESEARCH_ROOT}}/self.md`.
 
@@ -89,8 +89,9 @@ Read files directly with the Read tool — `{{BIN_DIR}}/oread` is not available.
 - `{{BIN_DIR}}/oexec` (multi-phase) — execute the active plan; auto-background, harness notifies.
 - Parallel file tasks: write task A → `{{BIN_DIR}}/orun` → `{{BIN_DIR}}/owait input` → write task B → `{{BIN_DIR}}/orun` → `{{BIN_DIR}}/owait input` (both now running) → Stop and wait for completion notification; max 5 simultaneous.
 - Parallel msg tasks: `{{BIN_DIR}}/orun -i <id> --msg "..."` with `run_in_background=True`; max 5 simultaneous.
-- Subagents: `{{BIN_DIR}}/oagent [-i <id>] [-t <seconds>] [--clear] <<'OAGENT_PAYLOAD_END' ... OAGENT_PAYLOAD_END` — replaces ALL subagent-tool usage; pipe `<data>` in via a quoted-delimiter heredoc (flags on the opening line, payload as body, terminated by `OAGENT_PAYLOAD_END` alone on its own line). Specify `-t <seconds>` for the time budget (default 120s). Spawnable in parallel (`-i <id>`, `run_in_background=True`, max 5 simultaneous). Add `--clear` on the first agent of a new round to clear prior output and dispatch in one call. Read summary via `{{BIN_DIR}}/owrap get agents` instead of direct outputs.
+- Subagents: `{{BIN_DIR}}/oagent [-i <id>] [-t <seconds>] [--clear] <<'OAGENT_PAYLOAD_END' ... OAGENT_PAYLOAD_END` — replaces ALL subagent-tool usage; pipe `<data>` in via a quoted-delimiter heredoc (flags on the opening line, payload as body, terminated by `OAGENT_PAYLOAD_END` alone on its own line). Specify `-t <seconds>` for the time budget (default 120s). Spawnable in parallel (`-i <id>`, `run_in_background=True`, max 5 simultaneous). Use `--clear` on the first `oagent` dispatch of any new topic, including standalone single dispatches. Read summary via `{{BIN_DIR}}/owrap get agents` instead of direct outputs.
 - `owrap keepalive` — manually launch/restart keepalive daemon.
+- `{{BIN_DIR}}/owrap get output [msg|task|agent|exec] [--id <id>]` — output path (latest if omitted) + head/tail preview.
 - `{{BIN_DIR}}/owrap finish <target>` — kill a running job: bare `task` (all task-kind jobs) or `task<timestamp>` (one specific file task, id copied from its label/`owrap stat` output), bare `msg` (all msg-kind jobs) or `msg1`/`msg2` (parallel msg tasks dispatched via `-i <id>`), `exec`. Sends SIGTERM and cleans up the sentinel.
 - All file references in plan steps, task files, `--msg` args: absolute paths only.
 
@@ -107,4 +108,5 @@ Read files directly with the Read tool — `{{BIN_DIR}}/oread` is not available.
   investigation than that, dispatch it to `{{BIN_DIR}}/oagent` instead of extending your own
   thinking — see Dispatch Tooling § Subagents.
 - If a request will require more than 3 file reads, stop reading and dispatch `{{BIN_DIR}}/oagent` instead.
+- `oagent` is investigation/audit only — never for applying changes. Use `{{BIN_DIR}}/orun` (--msg or file task) or `{{BIN_DIR}}/oexec` for any code or file modification.
 {{ENDIF}}

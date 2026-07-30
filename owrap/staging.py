@@ -2,10 +2,17 @@ import json
 import re
 import shutil
 from pathlib import Path
-from .utils.paths import CONFIGS_DIR, TEMPLATES_DIR, staged_dir, get_workspace_config, OWRAP_HOME
+from .utils.paths import (
+    CONFIGS_DIR, OWRAP_HOME, TEMPLATES_DIR,
+    get_workspace_config, staged_dir,
+)
 
 
 PLACEHOLDER_RE = re.compile(r"\{\{([A-Z_]+)\}\}")
+
+# Matches only innermost {{IF:FLAG}}...{{ENDIF}} blocks (no nested {{IF:}} inside), so
+# process_conditionals can resolve nested blocks from the inside out.
+COND_RE = re.compile(r"\{\{IF:([A-Z_]+)\}\}((?:(?!\{\{IF:)[\s\S])*?)\{\{ENDIF\}\}")
 
 
 def _tilde_relative(path: str) -> str:
@@ -18,7 +25,9 @@ def _tilde_relative(path: str) -> str:
 def resolve_placeholders(config: dict, workspace_name: str) -> dict:
     """Build the full placeholder → value map from workspace config + derived values."""
     workspace = config.get("workspace", "")
-    research_root = config.get("research_root") or (f"{workspace}/docs/research" if workspace else "")
+    research_root = config.get("research_root") or (
+        f"{workspace}/docs/research" if workspace else ""
+    )
     bin_dir = config.get("bin_dir") or str(Path.home() / "bin")
     owrap_docs = str(OWRAP_HOME / "docs")
     owrap_home = str(OWRAP_HOME)
@@ -44,14 +53,10 @@ def substitute(text: str, placeholders: dict) -> str:
     return PLACEHOLDER_RE.sub(_r, text)
 
 
-# Matches only innermost {{IF:FLAG}}...{{ENDIF}} blocks (no nested {{IF:}} inside), so
-# process_conditionals can resolve nested blocks from the inside out.
-COND_RE = re.compile(r"\{\{IF:([A-Z_]+)\}\}((?:(?!\{\{IF:)[\s\S])*?)\{\{ENDIF\}\}")
-
-
 def process_conditionals(text: str, flags: dict) -> str:
-    """Strip {{IF:FLAG}}...{{ENDIF}} blocks where flags[FLAG] is falsy. Keep block contents
-    otherwise. Supports nesting: repeatedly resolves innermost blocks until none remain."""
+    """Strip {{IF:FLAG}}...{{ENDIF}} blocks where flags[FLAG] is falsy.
+    Keep block contents otherwise. Supports nesting: repeatedly resolves
+    innermost blocks until none remain."""
     def _r(m):
         flag = m.group(1)
         content = m.group(2)
@@ -89,8 +94,12 @@ def load_permission_groups(filename: str) -> list:
     return json.loads(path.read_text()).get("groups", [])
 
 
-def render_rule_array(groups: list, flags: dict, placeholders: dict, indent: int = 6, exclude_tools: set = None) -> str:
-    """Render the flat list of permission rules (filtered by flags, placeholders resolved) as a JSON array literal."""
+def render_rule_array(
+    groups: list, flags: dict, placeholders: dict,
+    indent: int = 6, exclude_tools: set = None,
+) -> str:
+    """Render the flat list of permission rules (filtered by flags,
+    placeholders resolved) as a JSON array literal."""
     rules = []
     for group in groups:
         if not _group_active(group, flags):
@@ -109,8 +118,11 @@ def render_rule_array(groups: list, flags: dict, placeholders: dict, indent: int
     return f"[\n{items}\n{' ' * (indent - 2)}]"
 
 
-def render_allowed_section(groups: list, flags: dict, placeholders: dict, section: str) -> str:
-    """Render the '## Allowed' markdown bullet list for `section` ('commands' or 'files')."""
+def render_allowed_section(
+    groups: list, flags: dict, placeholders: dict, section: str,
+) -> str:
+    """Render the '## Allowed' markdown bullet list for `section`
+    ('commands' or 'files')."""
     lines = []
     for group in groups:
         display = group.get("display")
@@ -149,7 +161,10 @@ def merge_into_workspace_file(dest_path: Path, content: str, marker: str):
             after = existing[close_idx + len(close_marker):]
             dest_path.write_text(before + wrapped + after.lstrip("\n"))
             return
+
+
     # No markers found — prepend
+
     dest_path.write_text(wrapped + existing)
 
 
@@ -172,16 +187,28 @@ def _strip_marker_block(dest_path: Path, marker: str):
 
 
 def stage_all(workspace_name: str) -> Path:
-    """Read workspace config, copy all templates to ~/.owrap/staged/<workspace_name>/ with conditionals processed and placeholders substituted. Then merge planner→CLAUDE.md and executor→AGENTS.md into the workspace. Returns staged dir."""
+    """Read workspace config, copy all templates to staged dir with
+    conditionals processed and placeholders substituted. Then merge
+    planner into CLAUDE.md and executor into AGENTS.md in the workspace.
+    Returns staged dir."""
     config = get_workspace_config(workspace_name)
     placeholders = resolve_placeholders(config, workspace_name)
     flags = resolve_flags(config)
 
     allow_groups = load_permission_groups("allow.json")
-    matcher_tools = {"Bash", "Write", "Edit"} | ({"Read"} if flags.get("OREAD") else set())
-    placeholders["ALLOW_RULES"] = render_rule_array(allow_groups, flags, placeholders, exclude_tools=matcher_tools)
-    placeholders["ALLOWED_COMMANDS"] = render_allowed_section(allow_groups, flags, placeholders, "commands")
-    placeholders["ALLOWED_FILES"] = render_allowed_section(allow_groups, flags, placeholders, "files")
+    matcher_tools = (
+        {"Bash", "Write", "Edit"}
+        | ({"Read"} if flags.get("OREAD") else set())
+    )
+    placeholders["ALLOW_RULES"] = render_rule_array(
+        allow_groups, flags, placeholders, exclude_tools=matcher_tools,
+    )
+    placeholders["ALLOWED_COMMANDS"] = render_allowed_section(
+        allow_groups, flags, placeholders, "commands",
+    )
+    placeholders["ALLOWED_FILES"] = render_allowed_section(
+        allow_groups, flags, placeholders, "files",
+    )
 
     out_dir = staged_dir(workspace_name)
     if out_dir.exists():
@@ -194,7 +221,9 @@ def stage_all(workspace_name: str) -> Path:
         text = process_conditionals(text, flags)
         (out_dir / tpl.name).write_text(substitute(text, placeholders))
 
+
     # Generate permit.json — consumed by `owrap p`
+
     permit_rules = []
     for group in allow_groups:
         if _group_active(group, flags):
@@ -210,15 +239,22 @@ def stage_all(workspace_name: str) -> Path:
 
 
     # Merge planner.md into CLAUDE.md and executor.md into AGENTS.md
+
     ws = config.get("workspace")
     if ws:
         ws_path = Path(ws)
         planner_staged = out_dir / "planner.md"
         executor_staged = out_dir / "executor.md"
         if planner_staged.exists():
-            merge_into_workspace_file(ws_path / "CLAUDE.md", planner_staged.read_text(), "planner")
+            merge_into_workspace_file(
+                ws_path / "CLAUDE.md", planner_staged.read_text(),
+                "planner",
+            )
             _strip_marker_block(ws_path / "AGENTS.md", "planner")
         if executor_staged.exists():
-            merge_into_workspace_file(ws_path / "AGENTS.md", executor_staged.read_text(), "executor")
+            merge_into_workspace_file(
+                ws_path / "AGENTS.md", executor_staged.read_text(),
+                "executor",
+            )
 
     return out_dir

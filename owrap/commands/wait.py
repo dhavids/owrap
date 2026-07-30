@@ -7,8 +7,11 @@ from ..base import BaseRunner
 
 
 class WaitRunner(BaseRunner):
+    """Wait for session events: run, exec, read markers,
+    messages, agents, or input clear."""
 
     def run(self, wait_type, wait_id=None, session_id=None, timeout=None):
+        """Wait for the specified event type, optionally scoped by id and session."""
         if session_id is None:
             session_id = os.environ.get("OWRAP_SESSION", "")
         if wait_type == "run":
@@ -19,18 +22,27 @@ class WaitRunner(BaseRunner):
             if not wait_id:
                 print("owait: read requires an id", file=sys.stderr)
                 sys.exit(1)
-            self._wait_marker(session_log(READ_LOG, session_id), f"[r:{wait_id}]", timeout or 300)
+            self._wait_marker(
+                session_log(READ_LOG, session_id),
+                f"[r:{wait_id}]", timeout or 300,
+            )
         elif wait_type == "msg":
             if not wait_id:
                 print("owait: msg requires an id", file=sys.stderr)
                 sys.exit(1)
-            self._wait_marker(session_log(RUN_LOG, session_id), f"[m:{wait_id}]", timeout or 300)
+            self._wait_marker(
+                session_log(RUN_LOG, session_id),
+                f"[m:{wait_id}]", timeout or 300,
+            )
         elif wait_type == "agent":
             if not wait_id:
                 print("owait: agent requires an id", file=sys.stderr)
                 sys.exit(1)
             from ..utils.paths import session_agent_log_path
-            self._wait_marker(session_agent_log_path(session_id), f"[a:{wait_id}]", timeout or 300)
+            self._wait_marker(
+                session_agent_log_path(session_id),
+                f"[a:{wait_id}]", timeout or 300,
+            )
         elif wait_type == "input":
             self._wait_input_clear(session_input(session_id), timeout or 120)
 

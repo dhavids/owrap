@@ -132,21 +132,19 @@ def test_record_unresponsive_kills_at_threshold(tmp_path):
     fake_lock = tmp_path / "pool.lock"
 
     with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
-         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock), \
-         patch("os.kill") as mock_kill:
+         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock):
         first = record_unresponsive("http://localhost:4096", threshold=2)
         assert first is False
         remaining = json.loads(fake_pool.read_text())
         assert len(remaining) == 1
         assert remaining[0]["unresponsive_count"] == 1
-        mock_kill.assert_not_called()
+        assert remaining[0].get("draining") is not True
 
         second = record_unresponsive("http://localhost:4096", threshold=2)
         assert second is True
-        mock_kill.assert_called_once_with(os.getpid(), 15)
-
-    remaining = json.loads(fake_pool.read_text())
-    assert remaining == []
+        remaining = json.loads(fake_pool.read_text())
+        assert len(remaining) == 1
+        assert remaining[0]["draining"] is True
 
 
 def test_record_unresponsive_custom_threshold_one(tmp_path):
@@ -159,14 +157,12 @@ def test_record_unresponsive_custom_threshold_one(tmp_path):
     fake_lock = tmp_path / "pool.lock"
 
     with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
-         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock), \
-         patch("os.kill") as mock_kill:
+         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock):
         result = record_unresponsive("http://localhost:4096", threshold=1)
         assert result is True
-        mock_kill.assert_called_once()
-
-    remaining = json.loads(fake_pool.read_text())
-    assert remaining == []
+        remaining = json.loads(fake_pool.read_text())
+        assert len(remaining) == 1
+        assert remaining[0]["draining"] is True
 
 
 def test_record_responsive_resets_counter(tmp_path):

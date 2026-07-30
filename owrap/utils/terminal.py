@@ -48,19 +48,20 @@ class Terminal:
         self._original_handlers: dict[int, object] = {}
         self._handling_signal = False
 
-    def _get_signals_to_register(self, signals=None):
-        sig_config = signals if signals is not None else self.signals
-        if sig_config in ("all", True):
-            return [signal.SIGINT, signal.SIGTERM]
-        elif sig_config in ("none", False, None):
-            return []
-        elif sig_config in ("sigterm", "SIGTERM"):
-            return [signal.SIGTERM]
-        elif sig_config in ("sigint", "SIGINT"):
-            return [signal.SIGINT]
-        elif isinstance(sig_config, (list, tuple)):
-            return list(sig_config)
-        return [signal.SIGINT, signal.SIGTERM]
+    def __enter__(self):
+        self.register_signal_handlers()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+
+    def __del__(self):
+        self.close()
+
+    @property
+    def model(self) -> Optional[str]:
+        return self._output_parser.model
 
     def register_signal_handlers(self, signals=None):
         if self._signal_handlers_registered:
@@ -81,28 +82,12 @@ class Terminal:
         self._signal_handlers_registered = False
         self._original_handlers = {}
 
-    def _signal_handler(self, signum, frame):
-        if self._handling_signal:
-            return
-        self._handling_signal = True
-        if self.verbose:
-            print(f"[{self.name}] Caught signal {signum}")
-        if self.send_sigint and signum == signal.SIGINT and self.is_running():
-            if self.send_stdin("\x03"):
-                import time
-                time.sleep(1.0)
-        self.terminate_process()
-        original = self._original_handlers.get(signum)
-        if original and callable(original) and original not in (signal.SIG_IGN, signal.SIG_DFL):
-            original(signum, frame)
-        elif original == signal.SIG_DFL:
-            signal.signal(signum, signal.SIG_DFL)
-            os.kill(os.getpid(), signum)
-
     def is_running(self):
+        """Check if the managed process is currently running."""
         return self._process is not None and self._process.poll() is None
 
     def terminate_process(self, timeout=3):
+        """Terminate the managed process and its process group."""
         if self._process is None:
             return False
         proc = self._process
@@ -143,6 +128,7 @@ class Terminal:
         cwd=None,
         use_pty=False,
     ):
+        """Execute a command in the managed subprocess."""
         if silent:
             print_output = False
         if register_signals:
@@ -152,7 +138,9 @@ class Terminal:
             if detached:
                 return self._run_detached(command, stdin, print_output)
             elif self.interactive_shell:
-                return self._run_interactive(command, stdin, capture_output, print_output, silent, timeout)
+                return self._run_interactive(
+                    command, stdin, capture_output, print_output, silent, timeout,
+                )
             else:
                 return self._run_standard(
                     command, stdin, capture_output, print_output, silent, timeout,
@@ -163,6 +151,7 @@ class Terminal:
                 self.unregister_signal_handlers()
 
     def send_stdin(self, data: str) -> bool:
+        """Send data to the subprocess standard input."""
         if not self.is_running():
             return False
         try:
@@ -176,6 +165,74 @@ class Terminal:
         except Exception:
             return False
         return False
+
+    def get_output(self):
+        """Retrieve the current output of a detached subprocess."""
+        if self._process is None:
+            return {"stdout": None, "stderr": None, "returncode": None, "running": False}
+        running = self._process.poll() is None
+        with self._stdout_lock:
+            stdout = "".join(self._detached_stdout)
+        return {
+            "stdout": stdout,
+            "stderr": None,
+            "returncode": self._process.returncode,
+            "running": running,
+            "command": self.cmd,
+        }
+
+    def pop_output(self) -> str:
+        """Retrieve and clear the raw output buffer of a detached subprocess."""
+        with self._stdout_lock:
+            out = "".join(self._detached_stdout)
+            self._detached_stdout.clear()
+        return out
+
+    def pop_clean_output(self) -> str:
+        """Retrieve and clear the parsed/clean output buffer of a detached subprocess."""
+        with self._stdout_lock:
+            out = "".join(self._detached_stdout_clean)
+            self._detached_stdout_clean.clear()
+        return out
+
+    def close(self):
+        """Terminate the subprocess and unregister signal handlers."""
+        self.terminate_process()
+        self.unregister_signal_handlers()
+
+    def _get_signals_to_register(self, signals=None):
+        sig_config = signals if signals is not None else self.signals
+        if sig_config in ("all", True):
+            return [signal.SIGINT, signal.SIGTERM]
+        elif sig_config in ("none", False, None):
+            return []
+        elif sig_config in ("sigterm", "SIGTERM"):
+            return [signal.SIGTERM]
+        elif sig_config in ("sigint", "SIGINT"):
+            return [signal.SIGINT]
+        elif isinstance(sig_config, (list, tuple)):
+            return list(sig_config)
+        return [signal.SIGINT, signal.SIGTERM]
+
+    def _signal_handler(self, signum, frame):
+        if self._handling_signal:
+            return
+        self._handling_signal = True
+        if self.verbose:
+            print(f"[{self.name}] Caught signal {signum}")
+        if self.send_sigint and signum == signal.SIGINT and self.is_running():
+            if self.send_stdin("\x03"):
+                import time
+                time.sleep(1.0)
+        self.terminate_process()
+        original = self._original_handlers.get(signum)
+        if original and callable(original) and original not in (
+            signal.SIG_IGN, signal.SIG_DFL,
+        ):
+            original(signum, frame)
+        elif original == signal.SIG_DFL:
+            signal.signal(signum, signal.SIG_DFL)
+            os.kill(os.getpid(), signum)
 
     def _run_detached(self, command, stdin, print_output):
         import pty
@@ -446,7 +503,9 @@ class Terminal:
             "command": command,
         }
 
-    def _run_interactive(self, command, stdin, capture_output, print_output, silent, timeout):
+    def _run_interactive(
+        self, command, stdin, capture_output, print_output, silent, timeout,
+    ):
         full_cmd = f"bash -i -c 'set +m; {command}'"
         if self.verbose and not silent:
             print(f"Running (interactive): {command}")
@@ -472,48 +531,3 @@ class Terminal:
             "success": rc == 0,
             "command": command,
         }
-
-    def get_output(self):
-        if self._process is None:
-            return {"stdout": None, "stderr": None, "returncode": None, "running": False}
-        running = self._process.poll() is None
-        with self._stdout_lock:
-            stdout = "".join(self._detached_stdout)
-        return {
-            "stdout": stdout,
-            "stderr": None,
-            "returncode": self._process.returncode,
-            "running": running,
-            "command": self.cmd,
-        }
-
-    def pop_output(self) -> str:
-        with self._stdout_lock:
-            out = "".join(self._detached_stdout)
-            self._detached_stdout.clear()
-        return out
-
-    def pop_clean_output(self) -> str:
-        with self._stdout_lock:
-            out = "".join(self._detached_stdout_clean)
-            self._detached_stdout_clean.clear()
-        return out
-
-    @property
-    def model(self) -> Optional[str]:
-        return self._output_parser.model
-
-    def close(self):
-        self.terminate_process()
-        self.unregister_signal_handlers()
-
-    def __enter__(self):
-        self.register_signal_handlers()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
-        return False
-
-    def __del__(self):
-        self.close()

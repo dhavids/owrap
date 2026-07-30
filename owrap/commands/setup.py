@@ -74,7 +74,8 @@ class SetupRunner:
 
         staged = stage_all(project_name)
 
-        # Delete standalone planner.md and executor.md (now merged into CLAUDE.md/AGENTS.md)
+        # Delete standalone planner.md and executor.md (now merged into
+        # CLAUDE.md/AGENTS.md)
         ws = Path(workspace)
         for stale in ("planner.md", "executor.md"):
             (ws / stale).unlink(missing_ok=True)
@@ -86,6 +87,12 @@ class SetupRunner:
         print(f"  research_root:  {cfg['research_root']}")
         print(f"  staged:         {staged}")
         print()
-        print("planner content merged into CLAUDE.md; executor content merged into AGENTS.md")
-        print("Next: run `~/bin/owrap sync` (via orun) to apply staged templates to project files.")
+        print(
+            "planner content merged into CLAUDE.md; "
+            "executor content merged into AGENTS.md"
+        )
+        print(
+            "Next: run `~/bin/owrap sync` (via orun) to apply "
+            "staged templates to project files."
+        )
         sys.exit(0)

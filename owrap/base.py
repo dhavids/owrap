@@ -7,6 +7,29 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 
+def _increment_stat(key: str):
+    """Atomically increment a counter in the stats file using flock."""
+    import fcntl
+    from .utils.paths import STATS_FILE
+    STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = STATS_FILE.with_suffix(".lock")
+    fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        try:
+            data = json.loads(STATS_FILE.read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            data = {
+                "dispatched": 0, "succeeded": 0, "failed": 0,
+                "stalled": 0, "timed_out": 0,
+            }
+        data[key] = data.get(key, 0) + 1
+        STATS_FILE.write_text(json.dumps(data))
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
 class BaseRunner(ABC):
     """Abstract base for owrap subcommand runners."""
 
@@ -24,7 +47,10 @@ class BaseRunner(ABC):
         """Return the server URL from the manager, or None."""
         return self.manager.get_server_url()
 
-    def _write_sentinel(self, task_id, title, kind="task", call_type="task", url=None, output_path=None):
+    def _write_sentinel(
+        self, task_id, title, kind="task", call_type="task",
+        url=None, output_path=None,
+    ):
         from .utils.paths import RUNNING_DIR
         RUNNING_DIR.mkdir(parents=True, exist_ok=True)
         session_id = self.manager.session_id or "none"
@@ -46,7 +72,11 @@ class BaseRunner(ABC):
         path.write_text(json.dumps(data))
         return path
 
-    def _complete_sentinel(self, sentinel_path, rc, timed_out=False):
+    def _complete_sentinel(
+        self, sentinel_path, rc, timed_out=False, stalled=False,
+    ):
+        if getattr(self, '_externally_killed', False):
+            return
         from .utils.paths import RECENTLY_DONE_DIR
         if sentinel_path is None or not sentinel_path.exists():
             return
@@ -62,38 +92,54 @@ class BaseRunner(ABC):
         except Exception:
             pass
 
+        _increment_stat("dispatched")
+        if rc == 0:
+            _increment_stat("succeeded")
+        elif timed_out:
+            _increment_stat("timed_out")
+        elif stalled:
+            _increment_stat("stalled")
+        else:
+            _increment_stat("failed")
+
     def _install_sigterm_handler(self):
         def _handler(signum, frame):
+            self._externally_killed = True
             sys.exit(143)
         signal.signal(signal.SIGTERM, _handler)
 
     def _cleanup_recently_done(self):
         from .utils.paths import RUNNING_DIR, RECENTLY_DONE_DIR
+
+
         # Reap stale running sentinels whose PID is dead
+
         if RUNNING_DIR.exists():
             running_entries = list(RUNNING_DIR.iterdir())
-            if len(running_entries) > 10 or len(running_entries) % 5 == 0:
-                for f in running_entries:
-                    try:
-                        data = json.loads(f.read_text())
-                        pid = data.get("pid")
-                        alive = False
-                        if pid:
-                            try:
-                                os.kill(pid, 0)
-                                alive = True
-                            except OSError:
-                                pass
-                        if not alive:
-                            RECENTLY_DONE_DIR.mkdir(parents=True, exist_ok=True)
-                            data["finished"] = time.time()
-                            data["rc"] = 143
-                            data["crashed"] = True
-                            (RECENTLY_DONE_DIR / f.name).write_text(json.dumps(data))
-                            f.unlink()
-                    except Exception:
-                        pass
+            for f in running_entries:
+                try:
+                    data = json.loads(f.read_text())
+                    pid = data.get("pid")
+                    alive = False
+                    if pid:
+                        try:
+                            os.kill(pid, 0)
+                            alive = True
+                        except OSError:
+                            pass
+                    if not alive:
+                        RECENTLY_DONE_DIR.mkdir(parents=True, exist_ok=True)
+                        data["finished"] = time.time()
+                        data["rc"] = 143
+                        data["crashed"] = True
+                        (RECENTLY_DONE_DIR / f.name).write_text(json.dumps(data))
+                        f.unlink()
+                except Exception:
+                    pass
+
+
         # Remove recently_done entries older than 120s
+
         if not RECENTLY_DONE_DIR.exists():
             return
         cutoff = time.time() - 120
