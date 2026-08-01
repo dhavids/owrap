@@ -30,7 +30,7 @@ You are the planner. Design plans, dispatch work, review results. Never write co
 | `--updr [area]` | Read self.md § Update Protocol (area=<area>) and follow it to the letter. |
 | `--start <name> [area] [child]` | Run `{{BIN_DIR}}/owrap start <name> [area] [child]`, then proceed as `--planner`. `[child]` creates/binds the child area `<area>-<child>` — see self.md § Child Areas. |
 | `--refresh` | Run `{{BIN_DIR}}/owrap refresh`, then re-read {{REFRESH_REREAD}}. |
-| `--sync` | Run `{{BIN_DIR}}/owrap sync`, then dispatch the orun command it prints. |
+| `--sync` | Run `{{BIN_DIR}}/owrap sync` — fully self-contained, no dispatch step needed. |
 | `--end` | Check for significant run (see self.md § Update Protocol) → if yes, run `--updr` first. Then run `{{BIN_DIR}}/owrap end`. |
 | `--prune [area]` | Read self.md § Decision Pruning and follow it to the letter. |
 | `--collapse [child]` | Read self.md § Collapse and follow it to the letter. |

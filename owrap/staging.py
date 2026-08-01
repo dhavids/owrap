@@ -245,6 +245,7 @@ def stage_all(workspace_name: str) -> Path:
         ws_path = Path(ws)
         planner_staged = out_dir / "planner.md"
         executor_staged = out_dir / "executor.md"
+        self_staged = out_dir / "self.md"
         if planner_staged.exists():
             merge_into_workspace_file(
                 ws_path / "CLAUDE.md", planner_staged.read_text(),
@@ -255,6 +256,15 @@ def stage_all(workspace_name: str) -> Path:
             merge_into_workspace_file(
                 ws_path / "AGENTS.md", executor_staged.read_text(),
                 "executor",
+            )
+        if self_staged.exists():
+            research_root = config.get("research_root") or (
+                f"{ws}/docs/research"
+            )
+            merge_into_workspace_file(
+                Path(research_root) / "self.md",
+                self_staged.read_text(),
+                "self",
             )
 
     return out_dir

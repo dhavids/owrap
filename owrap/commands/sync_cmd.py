@@ -1,16 +1,14 @@
 import json
-import os
-import subprocess
 import sys
 from pathlib import Path
 
 from ..staging import stage_all, resolve_flags
-from ..utils.paths import get_workspace_config, RUNTIME_HOME, _read_config
-from ..utils.session_resolver import resolve, _parse, session_file as _sf
+from ..utils.paths import get_workspace_config, _read_config
+from ..utils.session_resolver import resolve, _parse
 
 
 class SyncRunner:
-    """Re-stage templates and dispatch sync_task.md via orun to write planner files."""
+    """Re-stage templates and write planner files directly."""
 
     def run(self):
         workspace_name, sid = self._active_workspace()
@@ -32,24 +30,25 @@ class SyncRunner:
         flags = resolve_flags(config)
         self._sync_global_read_permission(bool(flags.get("OREAD")))
 
-        # stage_all() already merged planner.md → CLAUDE.md and
-        # executor.md → AGENTS.md
-        targets = [
-            (staged / "self.md",       f"{research_root}/self.md"),
-            (staged / "settings.json", f"{workspace}/.claude/settings.local.json"),
-        ]
-        settings_json_path = Path(workspace) / ".claude" / "settings.json"
-        if settings_json_path.exists():
-            targets.append((staged / "settings.json", str(settings_json_path)))
+        # stage_all() already merged planner.md -> CLAUDE.md and
+        # executor.md -> AGENTS.md; self.md -> docs/research/self.md
 
-        task_path = self._write_sync_task(targets, sid)
-        print(f"sync_task written: {task_path}")
+        staged_settings = staged / "settings.json"
+        if staged_settings.exists():
+            target_local = f"{workspace}/.claude/settings.local.json"
+            Path(target_local).parent.mkdir(parents=True, exist_ok=True)
+            Path(target_local).write_text(staged_settings.read_text())
+
+            settings_json_path = Path(workspace) / ".claude" / "settings.json"
+            if settings_json_path.exists():
+                settings_json_path.write_text(staged_settings.read_text())
+
         print(f"staged: {staged}")
         print(f"workspace: {workspace}")
         print(f"research_root: {research_root}")
         print()
         if flags.get("OWRAP_ENABLED"):
-            print(f"# DO NOW:\n Run `~/bin/orun --input {task_path}`")
+            print("sync complete — reread CLAUDE.md if needed")
         else:
             print(
                 "owrap has now been disabled — dispatch tooling "
@@ -69,36 +68,6 @@ class SyncRunner:
         if not workspace_name:
             return (None, None)
         return workspace_name, session_id
-
-    def _write_sync_task(self, targets, sid):
-        task_dir = RUNTIME_HOME / 'docs' / 'sessions' / sid / 'run'
-        task_dir.mkdir(parents=True, exist_ok=True)
-        task_path = task_dir / 'input_sync.md'
-        lines = [
-            "# Sync Task — re-apply staged templates to project files",
-            "",
-            "**Merge rule:** `stage_all()` has already merged planner content "
-            "into `CLAUDE.md` and executor content into `AGENTS.md` using "
-            "owrap markers.",
-            "For the files listed below: read each STAGED file and write "
-            "its contents to the TARGET path.",
-            "If TARGET exists, replace it entirely with STAGED (templates "
-            "are authoritative; staging already substituted placeholders).",
-            "Create parent directories as needed.",
-            "",
-            "## Files",
-            "",
-        ]
-        for src, dst in targets:
-            lines.append(f"- STAGED: `{src}`  →  TARGET: `{dst}`")
-        lines += [
-            "",
-            "## Output",
-            "",
-            "List each file written with a one-line confirmation.",
-        ]
-        task_path.write_text("\n".join(lines) + "\n")
-        return task_path
 
     def _sync_global_read_permission(self, oread: bool):
         """Keep ~/.claude/settings.json (global, user-level) Read(//**)
