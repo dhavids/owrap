@@ -11,7 +11,7 @@
           {
             "type": "command",
             "command": "~/bin/owrap p",
-            "timeout": 5
+            "timeout": 20
           }
         ]
       }

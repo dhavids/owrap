@@ -499,6 +499,11 @@ def main():
         )
         sys.exit(1)
 
+    if args.command == "p":
+        from .commands.permit import PermitRunner
+        PermitRunner().run()
+        sys.exit(0)
+
     manager = Manager()
     level = "DEBUG" if getattr(args, "debug", False) else "INFO"
     logger = manager.get_logger(level=level)
@@ -643,9 +648,6 @@ def main():
         KillServersRunner().run(session_id=getattr(args, "session", None))
     elif args.command == "keepalive":
         KeepaliveRunner(manager, logger, allow_all=allow_all).run()
-    elif args.command == "p":
-        from .commands.permit import PermitRunner
-        PermitRunner().run()
     elif args.command == "update-area":
         UpdateAreaRunner(
             manager, logger, allow_all=allow_all,
