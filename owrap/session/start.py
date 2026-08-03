@@ -20,7 +20,9 @@ from ..utils.paths import (
 from ..utils.session_resolver import (
     resolve, update_session_field, migrate_legacy_files,
     session_file as _sf, ccsid_pointer, _write as _sr_write,
-    SESSIONS_DIR, BY_CCSID_DIR, list_sessions, _parse, attach,
+    SESSIONS_DIR, BY_CCSID_DIR, BY_OPENCODE_RUN_ID_DIR,
+    list_sessions, _parse, attach, mint_session_id,
+    opencode_run_id_pointer, _clear_anchor,
 )
 from .orientation import print_orientation
 from .stop import StopRunner
@@ -71,6 +73,39 @@ def _prune_logs(max_logs: int):
         pass
 
 
+def _mint_from(old_sid, parent_sid=None):
+    """Detach current window from old_sid, mint a new session, and
+    write fresh pointers. Returns (new_sid, new_path)."""
+    _clear_anchor(old_sid, BY_CCSID_DIR)
+    _clear_anchor(old_sid, BY_OPENCODE_RUN_ID_DIR)
+    ccsid_env = os.environ.get(
+        "CLAUDE_CODE_SESSION_ID", "",
+    ).strip()
+    oid_env = os.environ.get(
+        "OPENCODE_RUN_ID", "",
+    ).strip()
+    new_sid = mint_session_id()
+    new_path = _sf(new_sid)
+    data = {
+        "session_id": new_sid,
+        "claude_session_id": ccsid_env,
+        "opencode_run_id": oid_env,
+        "started": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    if parent_sid is not None:
+        data["parent_session_id"] = parent_sid
+    _sr_write(new_path, data)
+    if ccsid_env:
+        BY_CCSID_DIR.mkdir(parents=True, exist_ok=True)
+        ccsid_pointer(ccsid_env).write_text(new_sid)
+    if oid_env:
+        BY_OPENCODE_RUN_ID_DIR.mkdir(
+            parents=True, exist_ok=True,
+        )
+        opencode_run_id_pointer(oid_env).write_text(new_sid)
+    return new_sid, new_path
+
+
 class StartRunner(BaseRunner):
     """Initialize a new owrap session, resolve workspace, and print orientation."""
 
@@ -87,7 +122,7 @@ class StartRunner(BaseRunner):
                 sys.exit(1)
             area = f"{area}-{child}"
         migrate_legacy_files()
-        
+
         if session_id is not None:
             sf_path = _sf(session_id)
             if sf_path.exists():
@@ -103,8 +138,18 @@ class StartRunner(BaseRunner):
                     BY_CCSID_DIR.mkdir(parents=True, exist_ok=True)
                     ccsid_pointer(ccsid).write_text(session_id)
                 session_path = sf_path
+        elif child:
+            parent_sid, parent_path, _ = resolve(mode="start")
+            session_id, session_path = _mint_from(
+                parent_sid, parent_sid,
+            )
         else:
             session_id, session_path, source = resolve(mode="start")
+            if source != "minted" and research:
+                existing_research = _parse(session_path).get("research")
+                if existing_research and existing_research != research:
+                    session_id, session_path = _mint_from(session_id)
+                    source = "minted"
 
         from ..utils.pool import _pool_active, ensure_min_servers, _ensure_keepalive
         if _pool_active():
@@ -425,13 +470,13 @@ class SpawnRunner(BaseRunner):
     """Spawn a child area under the current session's research and area."""
 
     def run(self, child):
-        """Create a child area, update session fields, and print orientation."""
-        session_id, _, _ = resolve(mode="refresh")
-        if not session_id:
+        """Create a child area as a genuinely isolated new session."""
+        parent_sid, parent_path, _ = resolve(mode="refresh")
+        if not parent_sid:
             print("Error: no active session — run owrap start first",
                   file=sys.stderr)
             sys.exit(1)
-        sess = _parse(_sf(session_id))
+        sess = _parse(_sf(parent_sid))
         research = sess.get("research")
         area = sess.get("area")
         if not research or not area:
@@ -441,6 +486,7 @@ class SpawnRunner(BaseRunner):
             )
             sys.exit(1)
         new_area = f"{area}-{child}"
+        session_id, session_path = _mint_from(parent_sid, parent_sid)
         update_session_field(session_id, "area", new_area)
         update_session_field(session_id, "child", child)
         _rr = _read_config().get("research_root")

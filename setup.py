@@ -7,7 +7,8 @@ import stat
 import sys
 from pathlib import Path
 
-from owrap.utils.paths import OWRAP_ROOT
+from owrap.utils.paths import (
+    OWRAP_ROOT, _resolve_owrap_home, OWRAP_HOME_POINTER_FILE)
 
 
 class SetupRunner:
@@ -51,13 +52,38 @@ class SetupRunner:
                        .replace("<OWRAP_ROOT>", str(OWRAP_ROOT))
                        .replace("<PYTHON>", python_exe))
             dst = bin_dst / name
+            existed = dst.exists()
             dst.write_text(content)
             dst.chmod(dst.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-            print(f"  installed {dst}")
+            verb = "updated" if existed else "installed"
+            print(f"  {verb} {dst}")
 
-        session_dir = Path.home() / ".owrap"
-        session_dir.mkdir(parents=True, exist_ok=True)
-        print(f"  created {session_dir}")
+        # Install bash autocompletion
+        auto_comp = OWRAP_ROOT / "bin" / "auto_comp.sh"
+        if auto_comp.exists():
+            auto_comp.chmod(0o755)
+            bashrc = Path.home() / ".bashrc"
+            if not bashrc.exists():
+                bashrc.touch()
+            target = str(auto_comp.resolve())
+            content = bashrc.read_text()
+            if target not in content:
+                with open(bashrc, "a") as f:
+                    f.write(f"# Auto-compiled completion: source {target}\n")
+                    f.write(f'if [ -f "{target}" ]; then\n')
+                    f.write(f'    source "{target}"\n')
+                    f.write("fi\n")
+                print("  installed bash autocompletion")
+            else:
+                print("  bash autocompletion already installed")
+
+        resolved_home = _resolve_owrap_home()
+        if OWRAP_HOME_POINTER_FILE.exists() or os.environ.get("OWRAP_HOME"):
+            print(f"  Using existing OWRAP_HOME: {resolved_home}")
+        else:
+            resolved_home.mkdir(parents=True, exist_ok=True)
+            OWRAP_HOME_POINTER_FILE.write_text(str(resolved_home))
+            print(f"  Created new OWRAP_HOME: {resolved_home}")
 
         print("\nShims installed. Use the ~/bin/ prefix for all commands:")
         print(f"  {bin_dst}/owrap setup <research_root>")
@@ -69,7 +95,9 @@ class SetupRunner:
         if bin_dst_str not in os.environ.get("PATH", "") and check_path:
             print(f"\n{bin_dst} is not in your PATH.")
             try:
-                answer = input("Add it to ~/.bashrc automatically? [y/N] ").strip().lower()
+                answer = input(
+                    "Add it to ~/.bashrc automatically? [y/N] "
+                ).strip().lower()
             except (EOFError, KeyboardInterrupt):
                 answer = "n"
 

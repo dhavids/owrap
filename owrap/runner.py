@@ -16,10 +16,11 @@ from .commands.sync_cmd import SyncRunner
 from .commands.keepalive import KeepaliveRunner
 from .manager import Manager
 from .utils.paths import _read_config, get_workspace_config
+from .utils.arg_parser import OwrapArgumentParser
 
 
 def main():
-    parser = argparse.ArgumentParser(
+    parser = OwrapArgumentParser(
         description="OWrap Runner Utility", prog="owrap",
     )
 

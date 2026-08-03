@@ -264,7 +264,16 @@ The executor applies exactly what you wrote — it makes no merge decisions of i
 
 This must be a **standalone** task with the header **# Collapse**. It must not be lumped with any other tasks.
 
-6. If the current session's area is `<parent>-<child>`, rebind it afterward: `owrap update-area <research> <parent>`.
+6. After the merge task completes:
+   a. Read the current session's file (`owrap get session`) to confirm its area matches
+      `<parent>-<child>` and find its `parent_session_id` field.
+   b. If `parent_session_id` is present: end the child session (`owrap stop`), then
+      re-attach the window to the parent (`owrap attach <parent_session_id>`) — this
+      restores the parent's own separate context/history as active.
+   c. If `parent_session_id` is NOT present (an older child area created before session
+      isolation existed, or one created via the legacy in-place `owrap update-area` path):
+      fall back to the old behavior — rebind in place via
+      `owrap update-area <research> <parent>`.
 
 ### Safety
 
