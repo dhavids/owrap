@@ -27,7 +27,13 @@ from .utils.paths import (
     session_tasks_dir, session_msg_output_dir,
     session_task_output_dir, session_agent_full_log_dir,
 )
-from .utils.trash import sweep_trash
+from .utils.trash import sweep_trash, move_to_trash
+from .utils.session_resolver import (
+    _parse as _parse_session, _clear_anchor,
+    BY_CCSID_DIR, BY_OPENCODE_RUN_ID_DIR,
+)
+
+BARE_SESSION_AGE_MINUTES = 30
 
 
 _health_cache: dict[str, tuple[bool, float]] = {}
@@ -841,10 +847,50 @@ class Manager:
                     if d.is_dir() and d.name not in active_ids:
                         shutil.rmtree(d, ignore_errors=True)
 
+        self._sweep_bare_sessions(sessions_dir)
+
         try:
             sweep_trash()
         except Exception:
             pass
+
+    def _sweep_bare_sessions(self, sessions_dir):
+        """Move bare sessions (no research field, older than threshold) to trash."""
+        if not sessions_dir.exists():
+            return
+        now = time.time()
+        threshold = BARE_SESSION_AGE_MINUTES * 60
+        for sf in sessions_dir.glob("*.session"):
+            try:
+                data = _parse_session(sf)
+            except Exception:
+                continue
+            research = data.get("research", "").strip()
+            if research:
+                continue
+            started_str = data.get("started", "")
+            if not started_str:
+                continue
+            try:
+                started_ts = datetime.strptime(
+                    started_str, "%Y-%m-%dT%H:%M:%S"
+                ).timestamp()
+            except ValueError:
+                continue
+            if now - started_ts < threshold:
+                continue
+            sid = data.get("session_id", sf.stem)
+            if self._logger:
+                self._logger.info(
+                    "housekeeping: trashing bare session %s (started %s)",
+                    sid, started_str,
+                )
+            _clear_anchor(sid, BY_CCSID_DIR)
+            _clear_anchor(sid, BY_OPENCODE_RUN_ID_DIR)
+            try:
+                move_to_trash(sid)
+            except Exception:
+                pass
 
     def _cap_context_sections(self, cp: Path):
         """Ensure context file doesn't grow unbounded; keep each section bounded."""
