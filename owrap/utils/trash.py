@@ -5,7 +5,7 @@ from pathlib import Path
 
 from ..constants import TRASH_RETENTION_DAYS
 from .paths import (
-    TRASH_DIR, SESSIONS_DIR, RUNTIME_DIR, DOCS_DIR,
+    TRASH_DIR, SESSIONS_DIR, SESSION_DIR, RUNTIME_DIR, DOCS_DIR,
     session_dir, _read_config,
 )
 
@@ -17,7 +17,7 @@ def move_to_trash(session_id: str) -> Path:
     trash_dir = TRASH_DIR / session_id
     trash_dir.mkdir(parents=True, exist_ok=True)
 
-    session_file = SESSIONS_DIR / f"{session_id}.session"
+    session_file = SESSION_DIR / "sessions" / f"{session_id}.session"
     if session_file.exists():
         shutil.move(str(session_file), str(trash_dir / "session"))
 
