@@ -6,7 +6,6 @@ from datetime import datetime
 from pathlib import Path
 
 from ..utils.terminal import Terminal
-from ..utils.output_parser import OutputParser
 from ..manager import Manager
 from ..base import BaseRunner
 from ..constants import (
@@ -114,7 +113,10 @@ class ExecRunner(BaseRunner):
         self._install_sigterm_handler()
         rc = 1
         timed_out = False
+        infra_failure = False
+        result = {}
         watchdog = None
+        hard_timeout = timeout if timeout is not None else EXEC_HARD_TIMEOUT_S
         try:
             with open(self.LOG_FILE, "w") as log:
                 log.write(f"[{datetime.now().isoformat()}] EXEC SESSION START\n\n")
@@ -124,50 +126,17 @@ class ExecRunner(BaseRunner):
                 log.flush()
                 self.manager.t_cmd_start()
                 terminal = Terminal(verbose=False)
-                from ..utils.watchdog import Watchdog, write_sentinel_health
-                def _exec_unresp():
+                from ..utils.watchdog import Watchdog
+                def _exec_stop():
                     setattr(self, '_stall_killed', True)
                     terminal.terminate_process()
-                    hint = (
-                        " — dispatch with --disablewd to prevent the "
-                        "watchdog from killing this task."
-                    )
-                    if url:
-                        from ..utils.pool import record_unresponsive
-                        if record_unresponsive(url):
-                            print(
-                                f"[watchdog] executor not responsive "
-                                f"(no output in {NO_OUTPUT_EXEC_S}s) "
-                                f"— server {url} unresponsive too many "
-                                f"times, marked for graceful eviction — "
-                                f"will respawn on next dispatch{hint}",
-                                flush=True,
-                            )
-                        else:
-                            print(
-                                f"[watchdog] executor not responsive "
-                                f"(no output in {NO_OUTPUT_EXEC_S}s) "
-                                f"— use owrap f as fallback{hint}",
-                                flush=True,
-                            )
-                    else:
-                        print(
-                            f"[watchdog] executor not responsive "
-                            f"(no output in {NO_OUTPUT_EXEC_S}s) "
-                            f"— use owrap f as fallback{hint}",
-                            flush=True,
-                        )
                 if not disablewd:
                     watchdog = Watchdog(
                         log_path=self.LOG_FILE,
-                        kill_callback=lambda: (
-                            setattr(self, '_stall_killed', True),
-                            terminal.terminate_process(),
-                        ),
-                        notify_callback=lambda state: (
-                            write_sentinel_health(sentinel, state),
-                            print(f"[watchdog] exec {state}", flush=True),
-                        ),
+                        kind="exec",
+                        sentinel_path=sentinel,
+                        url=url,
+                        kill_callback=_exec_stop,
                         kill_after_s=float(
                             _read_config().get("exec_kill_s", EXEC_KILL_S),
                         ),
@@ -176,50 +145,26 @@ class ExecRunner(BaseRunner):
                                 "no_output_exec_s", NO_OUTPUT_EXEC_S,
                             ),
                         ),
-                        unresponsive_callback=_exec_unresp,
+                        unresponsive_callback=_exec_stop,
                     )
                     watchdog.start()
                 else:
                     watchdog = None
-                hard_timeout = timeout if timeout is not None else EXEC_HARD_TIMEOUT_S
                 result = terminal.run(
                     " ".join(cmd), capture_output=True, print_output=True,
                     tee_file=log, cwd=str(get_workspace_path()),
-                    timeout=hard_timeout,
+                    timeout=hard_timeout, use_pty=True,
                 )
                 self.manager.t_cmd_end()
-                rc = result.get("returncode", 1)
-                if rc == 0 and OutputParser.is_infra_failure(result.get("stdout") or ""):
-                    rc = 1
-                    print(
-                        "[owrap] detected infra failure (opencode errored "
-                        "before any work) — forcing rc=1",
-                        flush=True,
-                    )
-                    print(format_failure_pointer("INFRA_UNAVAILABLE", session_id))
-                if result.get("timed_out"):
-                    timed_out = True
-                    partial = (result.get("stdout") or "").strip()
-                    chars = len(partial)
-                    print(flush=True)
-                    print(
-                        f"[oexec] timed out after {hard_timeout}s "
-                        f"({chars} chars captured)",
-                        flush=True,
-                    )
-                    print(
-                        f"  rerun with -t <seconds> to extend "
-                        f"(default: {EXEC_HARD_TIMEOUT_S}s)",
-                        flush=True,
-                    )
-                    print(format_failure_pointer("TIMED_OUT", session_id))
         finally:
             if watchdog:
                 watchdog.stop()
-            self._complete_sentinel(
-                sentinel, rc, stalled=getattr(self, '_stall_killed', False),
-                timed_out=timed_out,
+            rc = self._finish_dispatch(
+                "oexec", result, watchdog, sentinel, self.LOG_FILE,
+                session_id, hard_timeout, EXEC_HARD_TIMEOUT_S,
             )
+            timed_out = bool(result.get("timed_out"))
+            infra_failure = rc == 1
             self.manager.complete_task(task_id)
 
         t = ""

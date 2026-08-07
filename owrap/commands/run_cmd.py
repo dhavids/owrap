@@ -9,7 +9,6 @@ from datetime import datetime
 from pathlib import Path
 
 from ..utils.terminal import Terminal
-from ..utils.output_parser import OutputParser
 from ..manager import Manager
 from ..base import BaseRunner
 from ..constants import (
@@ -119,6 +118,25 @@ class RunRunner(BaseRunner):
             session_msg_output_dir(self.manager.session_id)
             / f"msg_{_msg_sentinel_id}.log"
         )
+        if '\n' in msg:
+            if self.logger:
+                self.logger.error(
+                    "run msg rejected: newlines not allowed in --msg session=%s",
+                    self.manager.session_id or "none",
+                )
+            err = (
+                "Error: --msg must not contain newlines — "
+                "use a file task (write input.md, then `orun`)."
+            )
+            print(err)
+            with open(msg_log, "w") as _lf:
+                _lf.write(
+                    f"[{datetime.now().isoformat()}] MSG START\n\n"
+                    f"{err}\n\n"
+                    f"[{datetime.now().isoformat()}] rc=1 crashed (rc=1)\n"
+                )
+            self._write_run_log(msg[:80], tag=f"[m:{msg_id}]" if msg_id else "")
+            sys.exit(1)
         if len(msg) > MSG_MAX_CHARS:
             if self.logger:
                 self.logger.error(
@@ -181,6 +199,8 @@ class RunRunner(BaseRunner):
         MSG_TIMEOUT = timeout if timeout is not None else 180
         rc = 1
         timed_out = False
+        infra_failure = False
+        result = {}
         print(f"log: {msg_log}", flush=True)
         watchdog = None
         try:
@@ -196,57 +216,24 @@ class RunRunner(BaseRunner):
                 tee.write(f"[server: {url or 'direct'}]\n\n")
                 tee.flush()
                 terminal = Terminal(verbose=False)
-                from ..utils.watchdog import Watchdog, write_sentinel_health
-                def _msg_unresp():
+                from ..utils.watchdog import Watchdog
+                def _msg_stop():
                     setattr(self, '_stall_killed', True)
                     terminal.terminate_process()
-                    hint = (
-                        " — dispatch with --disablewd to prevent the "
-                        "watchdog from killing this task."
-                    )
-                    if url:
-                        from ..utils.pool import record_unresponsive
-                        if record_unresponsive(url):
-                            print(
-                                f"[watchdog] executor not responsive "
-                                f"(no output in {NO_OUTPUT_MSG_S}s) "
-                                f"— server {url} unresponsive too many "
-                                f"times, marked for graceful eviction "
-                                f"— will respawn on next dispatch{hint}",
-                                flush=True,
-                            )
-                        else:
-                            print(
-                                f"[watchdog] executor not responsive "
-                                f"(no output in {NO_OUTPUT_MSG_S}s) "
-                                f"— use owrap f as fallback{hint}",
-                                flush=True,
-                            )
-                    else:
-                        print(
-                            f"[watchdog] executor not responsive "
-                            f"(no output in {NO_OUTPUT_MSG_S}s) "
-                            f"— use owrap f as fallback{hint}",
-                            flush=True,
-                        )
                 if not disablewd:
                     watchdog = Watchdog(
                         log_path=msg_log,
-                        kill_callback=lambda: (
-                            setattr(self, '_stall_killed', True),
-                            terminal.terminate_process(),
-                        ),
-                        notify_callback=lambda state: (
-                            write_sentinel_health(sentinel, state),
-                            print(f"[watchdog] msg {state}", flush=True),
-                        ),
+                        kind="msg",
+                        sentinel_path=sentinel,
+                        url=url,
+                        kill_callback=_msg_stop,
                         kill_after_s=float(
                             _read_config().get("msg_kill_s", MSG_KILL_S),
                         ),
                         no_output_s=float(
                             _read_config().get("no_output_msg_s", NO_OUTPUT_MSG_S),
                         ),
-                        unresponsive_callback=_msg_unresp,
+                        unresponsive_callback=_msg_stop,
                     )
                     watchdog.start()
                 else:
@@ -258,28 +245,6 @@ class RunRunner(BaseRunner):
                 )
 
             self.manager.t_cmd_end()
-            if result.get("timed_out"):
-                timed_out = True
-                partial = (result.get("stdout") or "").strip()
-                chars = len(partial)
-                print(flush=True)
-                print(
-                    f"[orun --msg] timed out after {MSG_TIMEOUT}s "
-                    f"({chars} chars captured)",
-                    flush=True,
-                )
-                print(f"  rerun with -t <seconds> to extend (default: 180s)", flush=True)
-                print(format_failure_pointer("TIMED_OUT", self.manager.session_id))
-                rc = 2
-            else:
-                rc = result.get("returncode", 1)
-                if rc == 0 and OutputParser.is_infra_failure(result.get("stdout") or ""):
-                    rc = 1
-                    print("[owrap] detected infra failure (opencode errored before any "
-                          "work) — forcing rc=1", flush=True)
-                    print(format_failure_pointer(
-                        "INFRA_UNAVAILABLE", self.manager.session_id,
-                    ))
         except Exception as exc:
             self.manager.t_cmd_end()
             if self.logger:
@@ -287,23 +252,12 @@ class RunRunner(BaseRunner):
         finally:
             if watchdog:
                 watchdog.stop()
-            try:
-                _reason = (
-                    "timeout" if timed_out
-                    else "watchdog (no output)" if getattr(self, '_stall_killed', False)
-                    else ("ok" if rc == 0 else f"crashed (rc={rc})")
-                )
-                with open(msg_log, "a") as _lf:
-                    _lf.write(
-                        f"\n{divider('RESULT')}\n"
-                        f"[{datetime.now().isoformat()}] rc={rc} {_reason}\n"
-                    )
-            except Exception:
-                pass
-            self._complete_sentinel(
-                sentinel, rc, timed_out=timed_out,
-                stalled=getattr(self, '_stall_killed', False),
+            rc = self._finish_dispatch(
+                "orun --msg", result, watchdog, sentinel, msg_log,
+                self.manager.session_id, MSG_TIMEOUT, 180,
             )
+            timed_out = bool(result.get("timed_out"))
+            infra_failure = rc == 1
             if self.logger:
                 self.logger.info(
                     "run msg done msg=%.80r rc=%d%s", msg, rc,
@@ -323,19 +277,6 @@ class RunRunner(BaseRunner):
                     self.manager.update_frequent_files()
                 except Exception:
                     pass
-                if rc != 0:
-                    try:
-                        n_fail = self.manager.consecutive_msg_failures()
-                        if n_fail >= 2:
-                            print(
-                                f"[owrap] {n_fail} consecutive orun --msg failures "
-                                f"this session — stop retrying this msg as-is. "
-                                f"Switch to a file task (write input.md, then "
-                                f"`orun`) or `owrap f`.",
-                                flush=True,
-                            )
-                    except Exception:
-                        pass
             self.manager.log_time(log_time)
             if url:
                 try:
@@ -490,7 +431,10 @@ class RunRunner(BaseRunner):
 
             rc = 1
             timed_out = False
+            infra_failure = False
+            result = {}
             watchdog = None
+            hard_timeout = timeout if timeout is not None else TASK_HARD_TIMEOUT_S
             try:
                 with open(log_path, "w") as log:
                     log.write(
@@ -502,50 +446,17 @@ class RunRunner(BaseRunner):
                     log.flush()
                     self.manager.t_cmd_start()
                     terminal = Terminal(verbose=False)
-                    from ..utils.watchdog import Watchdog, write_sentinel_health
-                    def _task_unresp():
+                    from ..utils.watchdog import Watchdog
+                    def _task_stop():
                         setattr(self, '_stall_killed', True)
                         terminal.terminate_process()
-                        hint = (
-                            " — dispatch with --disablewd to prevent the "
-                            "watchdog from killing this task."
-                        )
-                        if url:
-                            from ..utils.pool import record_unresponsive
-                            if record_unresponsive(url):
-                                print(
-                                    f"[watchdog] executor not responsive "
-                                    f"(no output in {NO_OUTPUT_TASK_S}s) "
-                                    f"— server {url} unresponsive too many "
-                                    f"times, marked for graceful eviction "
-                                    f"— will respawn on next dispatch{hint}",
-                                    flush=True,
-                                )
-                            else:
-                                print(
-                                    f"[watchdog] executor not responsive "
-                                    f"(no output in {NO_OUTPUT_TASK_S}s) "
-                                    f"— use owrap f as fallback{hint}",
-                                    flush=True,
-                                )
-                        else:
-                            print(
-                                f"[watchdog] executor not responsive "
-                                f"(no output in {NO_OUTPUT_TASK_S}s) "
-                                f"— use owrap f as fallback{hint}",
-                                flush=True,
-                            )
                     if not disablewd:
                         watchdog = Watchdog(
                             log_path=log_path,
-                            kill_callback=lambda: (
-                                setattr(self, '_stall_killed', True),
-                                terminal.terminate_process(),
-                            ),
-                            notify_callback=lambda state: (
-                                write_sentinel_health(sentinel, state),
-                                print(f"[watchdog] task {state}", flush=True),
-                            ),
+                            kind="task",
+                            sentinel_path=sentinel,
+                            url=url,
+                            kill_callback=_task_stop,
                             kill_after_s=float(
                                 _read_config().get("task_kill_s", TASK_KILL_S),
                             ),
@@ -554,48 +465,17 @@ class RunRunner(BaseRunner):
                                     "no_output_task_s", NO_OUTPUT_TASK_S,
                                 ),
                             ),
-                            unresponsive_callback=_task_unresp,
+                            unresponsive_callback=_task_stop,
                         )
                         watchdog.start()
                     else:
                         watchdog = None
-                    hard_timeout = timeout if timeout is not None else TASK_HARD_TIMEOUT_S
                     result = terminal.run(
                         " ".join(cmd), capture_output=True, print_output=True,
                         tee_file=log, cwd=str(get_workspace_path()),
-                        timeout=hard_timeout,
+                        timeout=hard_timeout, use_pty=True,
                     )
                     self.manager.t_cmd_end()
-                    if result.get("timed_out"):
-                        timed_out = True
-                        partial = (result.get("stdout") or "").strip()
-                        chars = len(partial)
-                        print(flush=True)
-                        print(
-                            f"[orun --input] timed out after {hard_timeout}s "
-                            f"({chars} chars captured)",
-                            flush=True,
-                        )
-                        print(
-                            f"  rerun with -t <seconds> to extend "
-                            f"(default: {TASK_HARD_TIMEOUT_S}s)",
-                            flush=True,
-                        )
-                        print(
-                            format_failure_pointer(
-                                "TIMED_OUT", self.manager.session_id,
-                            ),
-                        )
-                    rc = result.get("returncode", 1)
-                    if rc == 0 and OutputParser.is_infra_failure(
-                        result.get("stdout") or "",
-                    ):
-                        rc = 1
-                        print("[owrap] detected infra failure (opencode errored before "
-                              "any work) — forcing rc=1", flush=True)
-                        print(format_failure_pointer(
-                            "INFRA_UNAVAILABLE", self.manager.session_id,
-                        ))
             except Exception as exc:
                 self.manager.t_cmd_end()
                 if self.logger:
@@ -603,10 +483,12 @@ class RunRunner(BaseRunner):
             finally:
                 if watchdog:
                     watchdog.stop()
-                self._complete_sentinel(
-                    sentinel, rc, timed_out=timed_out,
-                    stalled=getattr(self, '_stall_killed', False),
+                rc = self._finish_dispatch(
+                    "orun --input", result, watchdog, sentinel, log_path,
+                    self.manager.session_id, hard_timeout, TASK_HARD_TIMEOUT_S,
                 )
+                timed_out = bool(result.get("timed_out"))
+                infra_failure = rc == 1
                 self.manager.complete_task(task_name)
                 task_file.unlink(missing_ok=True)
                 if self.logger:
@@ -681,7 +563,7 @@ class RunRunner(BaseRunner):
                         release_server(url)
                     except Exception:
                         pass
-                if rc != 0:
+                if rc == 3:
                     print(
                         f"TASK_FAILED (rc={rc}) — rewrite input.md (get its path via "
                         f"`owrap get input`) before redispatching via orun."

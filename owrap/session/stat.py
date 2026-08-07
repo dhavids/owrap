@@ -28,6 +28,10 @@ def _print_running(tasks, show_session=True, indent="  "):
         health = t.get("health", "healthy") if alive else None
         if not alive:
             status = "stale/crashed"
+        elif health == "infra_failure":
+            status = "INFRA FAILURE"
+        elif health == "unresponsive":
+            status = "UNRESPONSIVE"
         elif health == "stalled":
             status = "STALLED"
         else:
@@ -47,12 +51,18 @@ def _print_done(tasks, show_session=True, indent="  "):
         rc = t.get("rc", "?")
         if rc == 0:
             result = "ok"
-        elif t.get("timed_out"):
-            result = "timeout"
-        elif t.get("crashed"):
-            result = "crashed"
         else:
-            result = f"rc={rc}"
+            kind = t.get("failure_kind")
+            if kind == "crashed":
+                result = f"crashed (exit {t.get('raw_rc', rc)})"
+            elif kind:
+                result = kind.replace("_", " ")
+            elif t.get("timed_out"):
+                result = "timeout"
+            elif t.get("crashed"):
+                result = "crashed"
+            else:
+                result = f"rc={rc}"
         kind = t.get("kind", "task")
         sess = f"  [{t.get('session_id','?')}]" if show_session else ""
         status = f"done({result})"

@@ -41,6 +41,28 @@ FAILURE_POINTERS = {
     ),
 }
 
+WATCHDOG_UNRESPONSIVE_MSG = (
+    "[watchdog] no response from executor (no output at all) — "
+    "{retry_hint}"
+)
+WATCHDOG_RETRY_HINT_FILE_TASK = (
+    "retry as a file task (write input.md, then `orun`)."
+)
+WATCHDOG_RETRY_HINT_OWRAP_F = "retry via `owrap f`."
+WATCHDOG_UNRESPONSIVE_EVICT_SUFFIX = (
+    " Server {url} unresponsive too many times, marked for graceful "
+    "eviction — will respawn on next dispatch."
+)
+WATCHDOG_INFRA_FAILURE_MSG = (
+    "[watchdog] infra failure — executor did not produce any real "
+    "output. Report this to the user and do not retry unless told to "
+    "do so."
+)
+WATCHDOG_KILL_STALL_MSG = (
+    "[watchdog] {kind} killed after stalling — dispatch with "
+    "--disablewd to prevent the watchdog from killing this task."
+)
+
 OREAD_DISABLED_MSG = (
     "#DO NOW\n"
     "oread is disabled for this workspace (oread=false) — read files "

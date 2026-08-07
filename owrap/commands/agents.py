@@ -211,6 +211,7 @@ class AgentsRunner(BaseRunner):
             self.logger.debug("run agent cmd=%s", " ".join(cmd))
         rc = 1
         timed_out = False
+        infra_failure = False
         result = {}
         session_agent_full_log_dir(self.manager.session_id).mkdir(
             parents=True, exist_ok=True)
@@ -234,50 +235,17 @@ class AgentsRunner(BaseRunner):
                 tee.write(f"[server: {url or 'direct'}]\n\n")
                 tee.flush()
                 terminal = Terminal(verbose=False)
-                from ..utils.watchdog import Watchdog, write_sentinel_health
-                def _agent_unresp():
+                from ..utils.watchdog import Watchdog
+                def _agent_stop():
                     setattr(self, '_stall_killed', True)
                     terminal.terminate_process()
-                    hint = (
-                        " — dispatch with --disablewd to prevent the "
-                        "watchdog from killing this task."
-                    )
-                    if url:
-                        from ..utils.pool import record_unresponsive
-                        if record_unresponsive(url):
-                            msg = (
-                                f"[watchdog] executor not responsive "
-                                f"(no output in {NO_OUTPUT_AGENT_S}s) "
-                                f"— server {url} unresponsive too many times, "
-                                f"marked for graceful eviction — will respawn "
-                                f"on next dispatch{hint}"
-                            )
-                            print(msg, flush=True)
-                        else:
-                            msg = (
-                                f"[watchdog] executor not responsive "
-                                f"(no output in {NO_OUTPUT_AGENT_S}s) "
-                                f"— use owrap f as fallback{hint}"
-                            )
-                            print(msg, flush=True)
-                    else:
-                        msg = (
-                            f"[watchdog] executor not responsive "
-                            f"(no output in {NO_OUTPUT_AGENT_S}s) "
-                            f"— use owrap f as fallback{hint}"
-                        )
-                        print(msg, flush=True)
                 if not disablewd:
                     watchdog = Watchdog(
                         log_path=agent_log,
-                        kill_callback=lambda: (
-                            setattr(self, '_stall_killed', True),
-                            terminal.terminate_process(),
-                        ),
-                        notify_callback=lambda state: (
-                            write_sentinel_health(sentinel, state),
-                            print(f"[watchdog] agent {state}", flush=True),
-                        ),
+                        kind="agent",
+                        sentinel_path=sentinel,
+                        url=url,
+                        kill_callback=_agent_stop,
                         kill_after_s=float(
                             _read_config().get("agent_kill_s", AGENT_KILL_S)),
                         no_output_s=float(
@@ -285,7 +253,7 @@ class AgentsRunner(BaseRunner):
                                 "no_output_agent_s", NO_OUTPUT_AGENT_S,
                             ),
                         ),
-                        unresponsive_callback=_agent_unresp,
+                        unresponsive_callback=_agent_stop,
                     )
                     watchdog.start()
                 else:
@@ -297,33 +265,6 @@ class AgentsRunner(BaseRunner):
                 )
 
             self.manager.t_cmd_end()
-            if result.get("timed_out"):
-                timed_out = True
-                partial = (result.get("stdout") or "").strip()
-                chars = len(partial)
-                print(flush=True)
-                print(
-                    f"[orun agent] timed out after {AGENT_KILL_TIMEOUT}s "
-                    f"(budget was {AGENT_TIMEOUT}s + {AGENT_GRACE}s grace, "
-                    f"{chars} chars captured)",
-                    flush=True,
-                )
-                print(
-                    f"  rerun with -t <seconds> to extend "
-                    f"(default: {AGENT_TIMEOUT_DEFAULT}s)",
-                    flush=True,
-                )
-                print(format_failure_pointer("TIMED_OUT", self.manager.session_id))
-                rc = 2
-            else:
-                rc = result.get("returncode", 1)
-                if rc == 0 and OutputParser.is_infra_failure(result.get("stdout") or ""):
-                    rc = 1
-                    print("[owrap] detected infra failure (opencode errored before any "
-                          "work) — forcing rc=1", flush=True)
-                    print(format_failure_pointer(
-                        "INFRA_UNAVAILABLE", self.manager.session_id,
-                    ))
         except Exception as exc:
             self.manager.t_cmd_end()
             if self.logger:
@@ -331,27 +272,17 @@ class AgentsRunner(BaseRunner):
         finally:
             if watchdog:
                 watchdog.stop()
-            try:
-                _reason = (
-                    "timeout" if timed_out
-                    else "watchdog (no output)" if getattr(self, '_stall_killed', False)
-                    else ("ok" if rc == 0 else f"crashed (rc={rc})")
-                )
-                with open(agent_log, "a") as _lf:
-                    _lf.write(
-                        f"\n{divider('RESULT')}\n"
-                        f"[{datetime.now().isoformat()}] rc={rc} {_reason}\n"
-                    )
-            except Exception:
-                pass
+            rc = self._finish_dispatch(
+                "orun agent", result, watchdog, sentinel, agent_log,
+                self.manager.session_id, AGENT_KILL_TIMEOUT,
+                AGENT_TIMEOUT_DEFAULT,
+            )
+            timed_out = bool(result.get("timed_out"))
+            infra_failure = rc == 1
             if input_file is not None:
                 input_file.unlink(missing_ok=True)
             summary = _extract_agent_summary(result.get("stdout") or "")
             self._write_agent_log(agent_id, data, _agent_output_path, summary)
-            self._complete_sentinel(
-                sentinel, rc, timed_out=timed_out,
-                stalled=getattr(self, '_stall_killed', False),
-            )
             if self.logger:
                 _timeout_tag = " (timeout)" if timed_out else ""
                 self.logger.info(

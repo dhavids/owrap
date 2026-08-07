@@ -15,7 +15,7 @@ _EXEC_OUTPUT_MAX_LINES = 15
 class GetRunner:
     """Retrieve owrap session data, files, and configuration."""
 
-    def run(self, what, session_id=None):
+    def run(self, what, session_id=None, dispatch_id=None):
         """Print the requested resource to stdout."""
         if what == "home":
             print(RUNTIME_HOME)
@@ -66,7 +66,23 @@ class GetRunner:
                 print(f"No agent output for session {sid}")
                 sys.exit(1)
             content = fpath.read_text().strip()
-            print("(empty)" if not content else content)
+            if not content:
+                print("(empty)")
+                return
+            if dispatch_id:
+                marker = f"[a:{dispatch_id}]"
+                blocks = self._split_agent_blocks(content)
+                matched = None
+                for block in reversed(blocks):
+                    if marker in block.splitlines()[0]:
+                        matched = block
+                        break
+                if matched is None:
+                    print(f"No agent output for id '{dispatch_id}'")
+                    sys.exit(1)
+                print(matched.rstrip())
+            else:
+                print(content)
             return
 
         if what in ("memory", "project"):
@@ -359,6 +375,19 @@ class GetRunner:
             print(f"No agent output in {agent_dir}")
             sys.exit(1)
         return result
+
+    def _split_agent_blocks(self, content):
+        """Split agent log content into blocks at ``## [a:...]`` headers."""
+        import re
+        pattern = re.compile(r'^## \[a:', re.MULTILINE)
+        parts = pattern.split(content)
+        # parts[0] is text before first header (usually empty); skip it
+        blocks = []
+        for part in parts[1:]:
+            # Reconstruct the header prefix that split removed
+            block = "## [a:" + part
+            blocks.append(block)
+        return blocks
 
     def _extract_log_path_from_line(self, line):
         """Extract the path after ``**Log:**`` from a summary line, or

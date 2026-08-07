@@ -717,7 +717,8 @@ def main():
                 )
                 or 0
             )
-        sys.exit(runner.run(args.what, session_id=args.session) or 0)
+        sys.exit(runner.run(args.what, session_id=args.session,
+                            dispatch_id=args.id) or 0)
     else:
         parser.print_help()
 

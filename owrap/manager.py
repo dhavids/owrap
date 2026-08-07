@@ -490,40 +490,6 @@ class Manager:
         except Exception:
             pass
 
-    def consecutive_msg_failures(self) -> int:
-        """Count consecutive most-recent `[msg]` entries in context.md's ## Recent
-        section with rc != 0, starting from the top. Stops at the first non-msg
-        entry or rc=0 entry."""
-        cp = self.context_path
-        if not cp.exists():
-            return 0
-        try:
-            text = cp.read_text()
-            lines = text.splitlines()
-            recent_idx = None
-            for i, line in enumerate(lines):
-                if line.startswith("## Recent"):
-                    recent_idx = i
-                    break
-            if recent_idx is None:
-                return 0
-            count = 0
-            for line in lines[recent_idx + 1:]:
-                if line.startswith("## "):
-                    break
-                if not line.strip():
-                    continue
-                m = re.match(r"^- \d{2}:\d{2} \[(\w+)\] .*\(rc=(-?\d+),", line)
-                if not m:
-                    break
-                kind, rc_str = m.group(1), m.group(2)
-                if kind != "msg" or int(rc_str) == 0:
-                    break
-                count += 1
-            return count
-        except Exception:
-            return 0
-
     def update_frequent_files(self):
         """Update the Frequent Files section from read log."""
         cp = self.context_path

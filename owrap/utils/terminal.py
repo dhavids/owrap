@@ -323,6 +323,7 @@ class Terminal:
                 stdout=subprocess.PIPE if (capture_output or print_output) else None,
                 stderr=subprocess.PIPE if (capture_output or print_output) else None,
                 cwd=cwd,
+                start_new_session=True,
             )
         self._process = proc
         if isinstance(stdin, str) and not use_pty:
