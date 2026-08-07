@@ -395,9 +395,14 @@ If `{{BIN_DIR}}/orun` or `{{BIN_DIR}}/oexec` is unavailable (binary missing, ser
 | rc | Meaning |
 |---|---|
 | `0` | Success |
-| `1` | Watchdog: no output — server produced zero output within the no-output window |
-| `2` | Timeout (rerun with `-t` to extend) |
-| `143` | Crashed |
+| `1` | Infra failure — the model responded (banner logged) but produced no real work. Recorded as `failure_kind: infra_failure`. Report to the user; do not retry unless told to. |
+| `2` | Timeout (rerun with `-t` to extend). Recorded as `failure_kind: timeout`. |
+| `3` | Crashed — genuine process failure unrelated to our categories. Recorded as `failure_kind: crashed`. |
+| `4` | Unresponsive — no output at all, not even the model banner. Recorded as `failure_kind: unresponsive`. A connectivity/availability problem — retry-worthy (msg → file task, task/exec → `owrap f`). |
+| `-15` | Killed by watchdog after real output appeared, then stalled (genuine stall — not infra; Python's raw SIGTERM-kill value). Recorded as `failure_kind: stalled`. |
+| `143` | Stale/orphaned sentinel reaped (process died without any cleanup). Recorded as `failure_kind: reaped`. |
+
+Categories with `failure_kind` are tracked explicitly rather than inferred from rc.
 
 On any non-zero exit (`status: FAILED`), the previously-dispatched `input.md` content is not safe to redispatch unchanged — rewrite the task file (get its path via `owrap get input`) with corrected content before redispatching via `orun`.
 
