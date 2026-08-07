@@ -5,7 +5,12 @@ import time
 import threading
 from pathlib import Path
 
-from ..constants import STALL_NOTIFY_S, WATCHDOG_POLL_S, SCRIPT_STALL_MULTIPLIER
+from ..constants import (
+    STALL_NOTIFY_S, WATCHDOG_POLL_S, SCRIPT_STALL_MULTIPLIER,
+    WATCHDOG_UNRESPONSIVE_MSG, WATCHDOG_RETRY_HINT_FILE_TASK,
+    WATCHDOG_RETRY_HINT_OWRAP_F, WATCHDOG_UNRESPONSIVE_EVICT_SUFFIX,
+    WATCHDOG_INFRA_FAILURE_MSG, WATCHDOG_KILL_STALL_MSG,
+)
 from .paths import _read_config
 
 
@@ -19,6 +24,8 @@ _WRITE_TARGET_RE = re.compile(
     r'(?i)\b(notebook|entire\s+(file|notebook)|full\s+file|whole\s+file)\b'
 )
 
+_TASKLIKE_KINDS = ("task", "exec")
+
 
 def write_sentinel_health(sentinel_path, health_state):
     """Update the health field in a sentinel JSON file."""
@@ -31,13 +38,44 @@ def write_sentinel_health(sentinel_path, health_state):
         pass
 
 
-class Watchdog:
-    """Monitor a log file for staleness and invoke callbacks on stall/kill."""
+def strip_boilerplate(text: str) -> str:
+    """Remove model:/[server: banner lines and blank lines; return the rest."""
+    lines = []
+    for line in text.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if s.startswith("model:"):
+            continue
+        if s.startswith("[server:"):
+            continue
+        lines.append(s)
+    return "\n".join(lines)
 
-    def __init__(self, log_path, kill_callback, notify_callback, kill_after_s,
-                 stall_s=None, poll_s=None, no_output_s=None, unresponsive_callback=None):
+
+def _retry_hint(kind):
+    return (
+        WATCHDOG_RETRY_HINT_OWRAP_F if kind in _TASKLIKE_KINDS
+        else WATCHDOG_RETRY_HINT_FILE_TASK
+    )
+
+
+class Watchdog:
+    """Monitor a log file for staleness and invoke callbacks on stall/kill.
+
+    Owns kind/sentinel_path/url and its own has_output/model_logged state,
+    so it can classify and report a stall/kill/unresponsive event itself —
+    callers only need to supply the mechanics of stopping the process.
+    """
+
+    def __init__(self, log_path, kind, sentinel_path, url, kill_callback,
+                 kill_after_s, notify_callback=None, stall_s=None,
+                 poll_s=None, no_output_s=None, unresponsive_callback=None):
         _cfg = _read_config()
         self._log_path = Path(log_path)
+        self._kind = kind
+        self._sentinel_path = sentinel_path
+        self._url = url
         self._kill_callback = kill_callback
         self._notify_callback = notify_callback
         self._kill_after_s = kill_after_s
@@ -61,11 +99,8 @@ class Watchdog:
         self._unresponsive_callback = unresponsive_callback
         self._no_output_fired = False
         self._has_output = False
+        self._model_logged = False
         self._start_time = time.time()
-        try:
-            self._initial_size = os.path.getsize(log_path)
-        except OSError:
-            self._initial_size = 0
 
     def start(self):
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -75,6 +110,42 @@ class Watchdog:
         self._stop_event.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=self._poll_s + 1)
+
+    def _notify(self, state):
+        write_sentinel_health(self._sentinel_path, state)
+        if self._notify_callback:
+            self._notify_callback(state)
+        else:
+            print(f"[watchdog] {self._kind} {state}", flush=True)
+
+    def report_unresponsive(self):
+        """No output at all (not even the model banner) — write health and
+        print a kind-aware retry hint. Falls through to report_infra_failure
+        if the model banner did appear."""
+        if self._model_logged:
+            self.report_infra_failure()
+            return
+        write_sentinel_health(self._sentinel_path, "unresponsive")
+        msg = WATCHDOG_UNRESPONSIVE_MSG.format(retry_hint=_retry_hint(self._kind))
+        if self._url:
+            from .pool import record_unresponsive
+            if record_unresponsive(self._url):
+                msg += WATCHDOG_UNRESPONSIVE_EVICT_SUFFIX.format(url=self._url)
+        print(msg, flush=True)
+
+    def report_infra_failure(self):
+        """Model banner appeared but nothing real followed — tell the
+        caller to report this to the user and stop retrying."""
+        write_sentinel_health(self._sentinel_path, "infra_failure")
+        print(WATCHDOG_INFRA_FAILURE_MSG, flush=True)
+
+    def report_kill(self):
+        """Generic stall/kill path — classify as a real stall, an infra
+        failure, or unresponsive, using this watchdog's own state."""
+        if self._has_output:
+            print(WATCHDOG_KILL_STALL_MSG.format(kind=self._kind), flush=True)
+        else:
+            self.report_unresponsive()
 
     def _check_file_changed(self):
         try:
@@ -124,6 +195,27 @@ class Watchdog:
             and bool(_WRITE_TARGET_RE.search(last))
         )
 
+    def check_output(self):
+        """Read the log, update _has_output/_model_logged if not already
+        set. Safe to call multiple times — a no-op once _has_output is
+        True."""
+        if self._has_output:
+            return
+        try:
+            content = self._log_path.read_text()
+        except OSError:
+            content = ""
+        idx = content.find("EXECUTOR OUTPUT")
+        if idx != -1:
+            nl = content.find("\n", idx)
+            content = content[nl + 1:] if nl != -1 else ""
+        else:
+            content = ""
+        if not self._model_logged and re.search(r'(?m)^model:', content):
+            self._model_logged = True
+        if strip_boilerplate(content):
+            self._has_output = True
+
     def _run(self):
         while not self._stop_event.is_set():
             self._stop_event.wait(self._poll_s)
@@ -136,7 +228,7 @@ class Watchdog:
                 if self._state == "stalled":
                     self._state = "healthy"
                     self._stall_since = None
-                    self._notify_callback("healthy")
+                    self._notify("healthy")
             else:
                 elapsed = now - self._last_change_time
                 _scale = (
@@ -147,24 +239,22 @@ class Watchdog:
                 if self._state == "healthy" and elapsed >= self._stall_s * _scale:
                     self._state = "stalled"
                     self._stall_since = now
-                    self._notify_callback("stalled")
+                    self._notify("stalled")
                 elif (
                     self._state == "stalled"
                     and self._stall_since
                     and now - self._stall_since >= self._kill_after_s * _scale
                 ):
+                    self.report_kill()
                     self._kill_callback()
                     break
 
+            self.check_output()
+
             if self._no_output_s and not self._no_output_fired:
-                if not self._has_output:
-                    try:
-                        if os.path.getsize(self._log_path) > self._initial_size:
-                            self._has_output = True
-                    except OSError:
-                        pass
                 if not self._has_output and (now - self._start_time) >= self._no_output_s:
                     self._no_output_fired = True
+                    self.report_unresponsive()
                     if self._unresponsive_callback:
                         self._unresponsive_callback()
                     break
