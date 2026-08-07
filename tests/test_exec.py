@@ -20,7 +20,7 @@ def test_exec_runner_calls_opencode_with_exec(tmp_path, mock_manager):
         runner.LOG_FILE = log_file
 
         with pytest.raises(SystemExit) as exc_info:
-            runner.run()
+            runner.run(disablewd=True)
 
         assert exc_info.value.code == 0
 

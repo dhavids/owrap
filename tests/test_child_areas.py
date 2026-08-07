@@ -46,14 +46,18 @@ def _read_session(sessions_dir, sid):
 
 # ---------------- StartRunner: child-area concatenation ----------------
 
-def test_start_child_without_area_errors(session_resolver_dir, mock_manager, capsys):
+def test_start_child_without_area_errors(
+    session_resolver_dir, mock_manager, capsys,
+):
     with pytest.raises(SystemExit) as exc:
         StartRunner(mock_manager).run(session_id="sid1", research="myres", child="kid")
     assert exc.value.code == 1
     assert "requires an area to be given too" in capsys.readouterr().err
 
 
-def test_start_child_with_area_concatenates(tmp_path, session_resolver_dir, mock_manager, monkeypatch):
+def test_start_child_with_area_concatenates(
+    tmp_path, session_resolver_dir, mock_manager, monkeypatch,
+):
     monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
     mock_manager.create_context = MagicMock()
     mock_manager._housekeeping = MagicMock()
@@ -62,14 +66,20 @@ def test_start_child_with_area_concatenates(tmp_path, session_resolver_dir, mock
 
     with patch("owrap.session.start.SESSION_DIR", tmp_path), \
           patch("owrap.session.start._read_config",
-               return_value={"research_root": str(tmp_path / "research"), "max_servers": 1}), \
+                return_value={
+                    "research_root": str(tmp_path / "research"),
+                    "max_servers": 1,
+                }), \
          patch("owrap.session.start.get_workspace_config", return_value={}), \
          patch("owrap.session.start.print_orientation"), \
          patch("owrap.utils.pool._pool_active", return_value=True), \
          patch("owrap.utils.pool.ensure_min_servers"), \
          patch("owrap.utils.pool._ensure_keepalive"):
         with pytest.raises(SystemExit) as exc:
-            StartRunner(mock_manager).run(session_id="sid2", research="myres", area="parent", child="kid")
+            StartRunner(mock_manager).run(
+                session_id="sid2", research="myres",
+                area="parent", child="kid",
+            )
 
     assert exc.value.code == 0
     assert _read_session(session_resolver_dir, "sid2")["area"] == "parent-kid"
@@ -94,7 +104,9 @@ def test_spawn_without_area_errors(session_resolver_dir, mock_manager, capsys):
     assert "no research/area set" in capsys.readouterr().err
 
 
-def test_spawn_success_concatenates_and_prints(tmp_path, session_resolver_dir, mock_manager, capsys):
+def test_spawn_success_concatenates_and_prints(
+    tmp_path, session_resolver_dir, mock_manager, capsys,
+):
     _write_session(session_resolver_dir, "spawnsid", research="myres", area="parent")
     with patch.dict("os.environ", {"SESSION_ID": "spawnsid"}, clear=True), \
          patch("owrap.session.start._read_config",
@@ -104,5 +116,16 @@ def test_spawn_success_concatenates_and_prints(tmp_path, session_resolver_dir, m
             SpawnRunner(mock_manager).run("kid")
     assert exc.value.code == 0
     out = capsys.readouterr().out
-    assert "Spawned child area 'parent-kid' (parent: parent) under research 'myres'" in out
-    assert _read_session(session_resolver_dir, "spawnsid")["area"] == "parent-kid"
+    msg = "Spawned child area 'parent-kid' (parent: parent) under research 'myres'"
+    assert msg in out
+    # Parent session must remain untouched
+    assert _read_session(session_resolver_dir, "spawnsid")["area"] == "parent"
+    # Find the newly minted child session (the .session file that is not spawnsid)
+    child_files = [
+        f for f in session_resolver_dir.glob("*.session")
+        if f.stem != "spawnsid"
+    ]
+    assert len(child_files) == 1
+    child_data = _read_session(session_resolver_dir, child_files[0].stem)
+    assert child_data["area"] == "parent-kid"
+    assert child_data.get("parent_session_id") == "spawnsid"

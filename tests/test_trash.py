@@ -32,6 +32,7 @@ def test_move_to_trash_moves_all_pieces(tmp_path):
 
     with patch.object(trash_mod, "TRASH_DIR", trash_dir), \
          patch.object(trash_mod, "SESSIONS_DIR", sessions_dir), \
+         patch.object(trash_mod, "SESSION_DIR", tmp_path), \
          patch.object(trash_mod, "RUNTIME_DIR", runtime_dir), \
          patch.object(trash_mod, "DOCS_DIR", docs_dir), \
          patch.object(trash_mod, "session_dir", lambda s: docs_dir / "sessions" / s):
@@ -63,6 +64,7 @@ def test_restore_from_trash_round_trips(tmp_path):
 
     with patch.object(trash_mod, "TRASH_DIR", trash_dir), \
          patch.object(trash_mod, "SESSIONS_DIR", sessions_dir), \
+         patch.object(trash_mod, "SESSION_DIR", tmp_path), \
          patch.object(trash_mod, "RUNTIME_DIR", runtime_dir), \
          patch.object(trash_mod, "DOCS_DIR", docs_dir), \
          patch.object(trash_mod, "session_dir", lambda s: docs_dir / "sessions" / s):

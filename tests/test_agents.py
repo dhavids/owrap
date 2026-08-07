@@ -103,6 +103,7 @@ def test_agents_run_agent_dispatch_path(tmp_path, mock_manager):
         mock_terminal_cls.return_value = mock_terminal
 
         runner = AgentsRunner(mock_manager)
+        runner.disablewd = True
         with pytest.raises(SystemExit) as exc_info:
             runner.run_agent(data="test agent instruction", agent_id="test1")
 

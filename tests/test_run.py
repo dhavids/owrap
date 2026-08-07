@@ -33,6 +33,7 @@ def test_run_runner_msg_mode_calls_opencode(mock_manager):
         from owrap.commands.run_cmd import RunRunner
 
         runner = RunRunner(mock_manager)
+        runner.disablewd = True
         with pytest.raises(SystemExit) as exc_info:
             runner.run(msg="test task")
         assert exc_info.value.code == 0
@@ -95,6 +96,7 @@ def test_run_runner_task_mode_creates_task_file(tmp_path, mock_manager):
 
         runner = RunRunner(mock_manager)
         runner.INPUT_FILE = input_file
+        runner.disablewd = True
 
         with pytest.raises(SystemExit) as exc_info:
             runner.run(input_path=input_file)
@@ -191,7 +193,7 @@ def test_run_runner_task_mode_prints_donow_on_failure(tmp_path, mock_manager, ca
         with pytest.raises(SystemExit) as exc_info:
             runner.run(input_path=input_file)
 
-        assert exc_info.value.code == 1
+        assert exc_info.value.code == 3
 
     captured = capsys.readouterr()
     assert "TASK_FAILED" in captured.out

@@ -13,8 +13,9 @@ def test_watchdog_notifies_stall_on_no_growth(tmp_path):
     notify_calls = []
     kill_mock = MagicMock()
 
-    wd = Watchdog(log_file, kill_mock, lambda s: notify_calls.append(s),
-                  kill_after_s=10, stall_s=0.05, poll_s=0.02)
+    wd = Watchdog(log_file, "test", None, None, kill_mock,
+                  kill_after_s=10, stall_s=0.05, poll_s=0.02,
+                  notify_callback=lambda s: notify_calls.append(s))
     wd.start()
     time.sleep(0.25)
     wd.stop()
@@ -30,8 +31,9 @@ def test_watchdog_resets_on_file_growth(tmp_path):
 
     notify_calls = []
 
-    wd = Watchdog(log_file, MagicMock(), lambda s: notify_calls.append(s),
-                  kill_after_s=10, stall_s=0.05, poll_s=0.02)
+    wd = Watchdog(log_file, "test", None, None, MagicMock(),
+                  kill_after_s=10, stall_s=0.05, poll_s=0.02,
+                  notify_callback=lambda s: notify_calls.append(s))
     wd.start()
     time.sleep(0.15)
     log_file.write_text("updated content after stall")
@@ -50,7 +52,7 @@ def test_watchdog_kills_after_kill_delay(tmp_path):
 
     kill_mock = MagicMock()
 
-    wd = Watchdog(log_file, kill_mock, MagicMock(),
+    wd = Watchdog(log_file, "test", None, None, kill_mock,
                   kill_after_s=0.05, stall_s=0.02, poll_s=0.01)
     wd.start()
     time.sleep(0.4)
@@ -67,7 +69,7 @@ def test_watchdog_stop_cancels_kill(tmp_path):
 
     kill_mock = MagicMock()
 
-    wd = Watchdog(log_file, kill_mock, MagicMock(),
+    wd = Watchdog(log_file, "test", None, None, kill_mock,
                   kill_after_s=5.0, stall_s=0.02, poll_s=0.01)
     wd.start()
     time.sleep(0.1)
@@ -96,7 +98,7 @@ def test_watchdog_fires_unresponsive_callback_on_no_output(tmp_path):
 
     unresp_mock = MagicMock()
 
-    wd = Watchdog(log_file, MagicMock(), MagicMock(),
+    wd = Watchdog(log_file, "test", None, None, MagicMock(),
                   kill_after_s=10, stall_s=5, poll_s=0.01,
                   no_output_s=0.05, unresponsive_callback=unresp_mock)
     wd.start()
@@ -114,7 +116,7 @@ def test_watchdog_unresponsive_fires_only_once(tmp_path):
 
     unresp_mock = MagicMock()
 
-    wd = Watchdog(log_file, MagicMock(), MagicMock(),
+    wd = Watchdog(log_file, "test", None, None, MagicMock(),
                   kill_after_s=10, stall_s=5, poll_s=0.01,
                   no_output_s=0.02, unresponsive_callback=unresp_mock)
     wd.start()
