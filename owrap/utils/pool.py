@@ -12,7 +12,9 @@ from pathlib import Path
 from .paths import (
     _read_config, SERVERS_DIR, RUNNING_DIR,
     KEEPALIVE_PID_FILE, POOL_FILE, POOL_LOCK_FILE,
+    SERVER_LOGS_DIR,
 )
+from . import rtlog
 
 MIN_SERVERS = 2
 
@@ -62,6 +64,20 @@ def _is_alive(pid) -> bool:
         return False
 
 
+def _read_exit_code(pid) -> int | None:
+    try:
+        log_path = SERVER_LOGS_DIR / f"owrap_{pid}.log"
+        tail = log_path.read_bytes()[-2000:]
+        m = re.search(
+            r"OWRAP_EXIT=(\d+)", 
+            tail.decode(errors="replace"))
+        if m:
+            return int(m.group(1))
+    except Exception:
+        pass
+    return None
+
+
 def _is_responsive(url) -> bool:
     import socket
     try:
@@ -83,11 +99,18 @@ def _start_server(port: int) -> dict:
     pid = state.get("pid")
     if pid is None:
         raise RuntimeError("server started but pid not found in state")
-    return {"port": port, "url": url, "pid": pid, "last_used": time.time()}
+    entry = {"port": port, "url": url, "pid": pid, "started": time.time(),
+             "last_used": time.time()}
+    age_s = round(time.time() - entry["started"])
+    rtlog.log(
+        "server.spawn", pid=pid, port=port, url=url, age_s=age_s,
+    )
+    return entry
 
 
 def _next_port(pool: list) -> int:
-    """Scan the current pool for used ports and return the next free port
+    """
+    Scan the current pool for used ports and return the next free port
     in the configured range.
     """
     config = _read_config()
@@ -100,7 +123,9 @@ def _next_port(pool: list) -> int:
 
 
 def _pool_active() -> bool:
-    """Return True when pool mode is active (max_servers >= min_servers)."""
+    """
+    Return True when pool mode is active (max_servers >= min_servers).
+    """
     config = _read_config()
     max_servers = int(config.get("max_servers", 1))
     min_servers = int(config.get("min_servers", MIN_SERVERS))
@@ -108,7 +133,9 @@ def _pool_active() -> bool:
 
 
 def get_pool() -> list[dict]:
-    """Remove unreachable or stale pool entries whose PID is no longer alive."""
+    """
+    Remove unreachable or stale pool entries whose PID is no longer alive.
+    """
     with _pool_lock():
         pool = _read_pool()
         live = []
@@ -116,13 +143,26 @@ def get_pool() -> list[dict]:
             pid = entry.get("pid")
             if pid and _is_alive(pid) and _is_responsive(entry.get("url", "")):
                 live.append(entry)
+            else:
+                age_s = None
+                if "started" in entry:
+                    age_s = round(time.time() - entry["started"])
+                kw = dict(pid=entry.get("pid"), port=entry.get("port"),
+                          url=entry.get("url"), reason="dead_pid")
+                if age_s is not None:
+                    kw["age_s"] = age_s
+                exit_code = _read_exit_code(entry.get("pid"))
+                if exit_code is not None:
+                    kw["exit_code"] = exit_code
+                rtlog.log("server.reap", **kw)
         if len(live) != len(pool):
             _write_pool(live)
         return live
 
 
 def ensure_min_servers():
-    """Start servers until pool reaches min_servers; no-op if already
+    """
+    Start servers until pool reaches min_servers; no-op if already
     at or above minimum.
     """
     with _pool_lock():
@@ -148,14 +188,17 @@ def ensure_min_servers():
 
 
 def _wait_responsive(url: str, timeout: float = 5.0):
-    """Block until the server at url is accepting connections (or timeout)."""
+    """
+    Block until the server at url is accepting connections (or timeout).
+    """
     deadline = time.time() + timeout
     while not _is_responsive(url) and time.time() < deadline:
         time.sleep(0.1)
 
 
 def pick_server(call_type: str) -> str:
-    """Select the best available server from the pool for the given call type.
+    """
+    Select the best available server from the pool for the given call type.
 
     Routes work to the least-loaded live server, starts new servers when
     needed, and reaps draining or unresponsive entries.
@@ -183,17 +226,26 @@ def pick_server(call_type: str) -> str:
             for e in live:
                 if e.get("request_count", 0) >= max_req:
                     e["draining"] = True
+                    rtlog.log(
+                        "server.drain", url=e["url"], reason="max_requests",
+                    )
 
         # Reap draining servers once they've gone idle.
         exhausted = [
             e for e in live
-            if e.get("draining") and _active_load(e.get("url", "")) == 0 and e.get("reserved", 0) == 0
+            if e.get("draining")
+            and _active_load(e.get("url", "")) == 0
+            and e.get("reserved", 0) == 0
         ]
         for e in exhausted:
             pid = e.get("pid")
             if pid:
                 try:
                     os.kill(pid, 15)
+                    rtlog.log(
+                        "server.drain_kill", pid=pid, port=e.get("port"),
+                        url=e.get("url"), reason="max_requests_drained",
+                    )
                 except OSError:
                     pass
         live = [e for e in live if e not in exhausted]
@@ -218,6 +270,14 @@ def pick_server(call_type: str) -> str:
                         os.kill(pid, 9)
                     except OSError:
                         pass
+                age_s = None
+                if "started" in stale:
+                    age_s = round(time.time() - stale["started"])
+                kw = dict(pid=pid, port=stale.get("port"),
+                          url=stale.get("url"), reason="stale")
+                if age_s is not None:
+                    kw["age_s"] = age_s
+                rtlog.log("server.reap", **kw)
             port = _next_port(exhausted)
             entry = _start_server(port)
             _wait_responsive(entry["url"])
@@ -270,12 +330,18 @@ def pick_server(call_type: str) -> str:
         best["last_used"] = time.time()
         best["reserved"] = best.get("reserved", 0) + 1
         best["request_count"] = best.get("request_count", 0) + 1
+        rtlog.log(
+            "server.pick", url=best["url"], pool_size=len(live),
+            load=loads.get(best["url"], 0), reserved=best["reserved"],
+            request_count=best["request_count"],
+        )
         _write_pool(live)
         return best["url"]
 
 
 def update_last_used(url: str):
-    """Update last_used timestamp for a pool entry; used by load balancer
+    """
+    Update last_used timestamp for a pool entry; used by load balancer
     warm-server preference.
     """
     with _pool_lock():
@@ -288,7 +354,8 @@ def update_last_used(url: str):
 
 
 def release_server(url: str):
-    """Decrement the in-flight task counter for a pool entry after a
+    """
+    Decrement the in-flight task counter for a pool entry after a
     dispatch completes.
     """
     with _pool_lock():
@@ -296,12 +363,14 @@ def release_server(url: str):
         for entry in pool:
             if entry.get("url") == url:
                 entry["reserved"] = max(0, entry.get("reserved", 0) - 1)
+                rtlog.log("server.release", url=url, reserved=entry["reserved"])
                 break
         _write_pool(pool)
 
 
 def record_unresponsive(url: str, threshold: int | None = None) -> bool:
-    """Increment a server's consecutive-unresponsive counter. Once it
+    """
+    Increment a server's consecutive-unresponsive counter. Once it
     reaches `threshold` (config key 'unresponsive_kill_threshold',
     default UNRESPONSIVE_KILL_THRESHOLD), mark that server as draining
     so pick_server() stops routing new work to it — actual eviction
@@ -322,16 +391,28 @@ def record_unresponsive(url: str, threshold: int | None = None) -> bool:
         for entry in pool:
             if entry.get("url") == url:
                 entry["unresponsive_count"] = entry.get("unresponsive_count", 0) + 1
-                if entry["unresponsive_count"] >= threshold and not entry.get("draining"):
-                    entry["draining"] = True
-                    marked = True
+                if entry["unresponsive_count"] >= threshold:
+                    if not entry.get("draining"):
+                        entry["draining"] = True
+                        age_s = None
+                        if "started" in entry:
+                            age_s = round(time.time() - entry["started"])
+                        kw = dict(
+                            pid=entry.get("pid"), port=entry.get("port"),
+                            url=entry.get("url"), reason="unresponsive",
+                        )
+                        if age_s is not None:
+                            kw["age_s"] = age_s
+                        rtlog.log("server.evict", **kw)
+                        marked = True
                 break
         _write_pool(pool)
         return marked
 
 
 def record_responsive(url: str):
-    """Reset a server's unresponsive counter after a dispatch that
+    """
+    Reset a server's unresponsive counter after a dispatch that
     actually produced output.
     """
     with _pool_lock():
@@ -344,10 +425,12 @@ def record_responsive(url: str):
 
 
 def shutdown_idle(idle_s: float | None = None, min_n: int | None = None):
-    """Kill servers idle beyond idle_s seconds, keeping at least min_n alive."""
+    """
+    Kill servers idle beyond idle_s seconds, keeping at least min_n alive.
+    """
     config = _read_config()
     if idle_s is None:
-        idle_s = float(config.get("idle_shutdown_s", 600))
+        idle_s = float(config.get("idle_shutdown_s", 300))
     if min_n is None:
         min_n = int(config.get("min_servers", MIN_SERVERS))
     with _pool_lock():
@@ -369,7 +452,13 @@ def shutdown_idle(idle_s: float | None = None, min_n: int | None = None):
             if (entry.get("reserved", 0) > 0
                     and _active_load(entry["url"]) == 0
                     and (now - entry.get("last_used", now)) > _RESERVED_HEAL_GRACE):
+                was = entry["reserved"]
+                idle_secs = round(now - entry.get("last_used", now))
                 entry["reserved"] = 0
+                rtlog.log(
+                    "server.reserve_heal", url=entry["url"],
+                    was_reserved=was, idle_s=idle_secs,
+                )
         _write_pool(live)
         to_keep = []
         killed = 0
@@ -378,11 +467,23 @@ def shutdown_idle(idle_s: float | None = None, min_n: int | None = None):
                 to_keep.append(entry)
                 continue
             elapsed = now - entry.get("last_used", 0)
-            should_kill = elapsed > idle_s and (len(live) - killed) > min_n
+            should_kill = (
+                elapsed > idle_s
+                and _active_load(entry.get("url", "")) == 0
+                and (len(live) - killed) > min_n
+            )
             if should_kill:
                 try:
                     pid = entry["pid"]
                     os.kill(pid, 15)
+                    age_s = None
+                    if "started" in entry:
+                        age_s = round(time.time() - entry["started"])
+                    kw = dict(pid=pid, port=entry.get("port"),
+                              url=entry.get("url"), reason="idle")
+                    if age_s is not None:
+                        kw["age_s"] = age_s
+                    rtlog.log("server.evict", **kw)
                     port = entry.get("port")
                     if port:
                         state_file = SERVERS_DIR / f"{port}.json"
@@ -399,7 +500,8 @@ def shutdown_idle(idle_s: float | None = None, min_n: int | None = None):
 
 
 def _active_load(url: str) -> int:
-    """Count currently active (alive PID) tasks routed to the given
+    """
+    Count currently active (alive PID) tasks routed to the given
     server URL by call type.
     """
     count = 0
@@ -443,7 +545,9 @@ def _active_tasks_by_type(url: str) -> dict[str, int]:
 
 
 def _estimate_remaining(url: str, now: float | None = None) -> float:
-    """Sum estimated remaining seconds across all active tasks on the given server URL."""
+    """
+    Sum estimated remaining seconds across all active tasks on the given server URL.
+    """
     if now is None:
         now = time.time()
     from ..constants import EXPECTED_DURATION_S

@@ -37,7 +37,9 @@ def main():
 
 
 class FallbackRunner:
-    """Execute opencode plans or tasks via a direct fallback invocation."""
+    """
+    Execute opencode plans or tasks via a direct fallback invocation.
+    """
 
     EXEC_OUTPUT = FALLBACK_EXEC_OUTPUT
     EXEC_LOG = FALLBACK_EXEC_LOG
@@ -51,7 +53,9 @@ class FallbackRunner:
     STOP_MODES = {"tstop": "task", "estop": "exec"}
 
     def run(self, path):
-        """Run a fallback opencode invocation or stop a running fallback."""
+        """
+        Run a fallback opencode invocation or stop a running fallback.
+        """
         if path in self.STOP_MODES:
             self.stop(self.STOP_MODES[path])
             return

@@ -83,8 +83,10 @@ def check_donow(
     kind: str,
     input_path=None,
 ) -> str | None:
-    """Validate that context and area sections exist before proceeding.
-    Returns an error message string or None if all checks pass."""
+    """
+    Validate that context and area sections exist before proceeding.
+    Returns an error message string or None if all checks pass.
+    """
     if not area:
         return None
 

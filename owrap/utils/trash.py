@@ -11,9 +11,11 @@ from .paths import (
 
 
 def move_to_trash(session_id: str) -> Path:
-    """Move a session's .session file, docs tree, runtime tree, and context files into
+    """
+    Move a session's .session file, docs tree, runtime tree, and context files into
     .trash/[session_id]/ instead of deleting them. Returns the trash directory path.
-    Safe to call even if some/all pieces don't exist (moves whichever are present)."""
+    Safe to call even if some/all pieces don't exist (moves whichever are present).
+    """
     trash_dir = TRASH_DIR / session_id
     trash_dir.mkdir(parents=True, exist_ok=True)
 
@@ -41,8 +43,10 @@ def move_to_trash(session_id: str) -> Path:
 
 
 def restore_from_trash(session_id: str) -> None:
-    """Move a trashed session's files back to their live locations.
-    Raises FileNotFoundError if no such trashed session exists."""
+    """
+    Move a trashed session's files back to their live locations.
+    Raises FileNotFoundError if no such trashed session exists.
+    """
     trash_dir = TRASH_DIR / session_id
     if not trash_dir.exists():
         raise FileNotFoundError(f"no trashed session '{session_id}' found in {TRASH_DIR}")
@@ -69,8 +73,10 @@ def restore_from_trash(session_id: str) -> None:
 
 
 def sweep_trash(retention_days: float | None = None) -> int:
-    """Permanently delete trashed sessions older than retention_days (config key
-    'trash_retention_days', default TRASH_RETENTION_DAYS). Returns count removed."""
+    """
+    Permanently delete trashed sessions older than retention_days (config key
+    'trash_retention_days', default TRASH_RETENTION_DAYS). Returns count removed.
+    """
     if not TRASH_DIR.exists():
         return 0
     if retention_days is None:

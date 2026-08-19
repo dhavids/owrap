@@ -7,11 +7,15 @@ from ..base import BaseRunner
 
 
 class WaitRunner(BaseRunner):
-    """Wait for session events: run, exec, read markers,
-    messages, agents, or input clear."""
+    """
+    Wait for session events: run, exec, read markers,
+    messages, agents, or input clear.
+    """
 
     def run(self, wait_type, wait_id=None, session_id=None, timeout=None):
-        """Wait for the specified event type, optionally scoped by id and session."""
+        """
+        Wait for the specified event type, optionally scoped by id and session.
+        """
         if session_id is None:
             session_id = os.environ.get("OWRAP_SESSION", "")
         if wait_type == "run":

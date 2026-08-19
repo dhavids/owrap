@@ -43,7 +43,7 @@ class SetupRunner:
         bin_dst = Path.home() / "bin"
         bin_dst.mkdir(parents=True, exist_ok=True)
 
-        for name in ("orun", "oexec", "oread", "owait", "owrap"):
+        for name in ("orun", "oexec", "oread", "owait", "owrap", "oagent"):
             src = bin_src / name
             if not src.exists():
                 print(f"Error: shim source {src} not found")

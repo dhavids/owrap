@@ -10,7 +10,7 @@ from ..manager import Manager
 from ..base import BaseRunner
 from ..constants import (
     ANTI_SUMMARY_SUFFIX, EXEC_KILL_S, EXEC_HARD_TIMEOUT_S,
-    NO_OUTPUT_EXEC_S,
+    NO_OUTPUT_EXEC_S, INFRA_FAILURE_EXEC_S,
 )
 from ..utils.pool import _pool_active, pick_server, update_last_used
 from ..utils.paths import (
@@ -22,7 +22,9 @@ from ..utils.snippet import extract_snippet, divider
 
 
 class ExecRunner(BaseRunner):
-    """Execute the active plan via opencode."""
+    """
+    Execute the active plan via opencode.
+    """
 
     def __init__(
         self, manager, logger=None, allow_all=False, model=None, disablewd=False,
@@ -32,7 +34,9 @@ class ExecRunner(BaseRunner):
         self.disablewd = disablewd
 
     def run(self, log_time=False, timeout=None, disablewd=None):
-        """Run the exec session, sending the plan to opencode."""
+        """
+        Run the exec session, sending the plan to opencode.
+        """
         if disablewd is None:
             disablewd = self.disablewd
         sid = self.manager.session_id or "exec"
@@ -145,6 +149,11 @@ class ExecRunner(BaseRunner):
                                 "no_output_exec_s", NO_OUTPUT_EXEC_S,
                             ),
                         ),
+                        infra_failure_s=float(
+                            _read_config().get(
+                                "infra_failure_exec_s", INFRA_FAILURE_EXEC_S,
+                            ),
+                        ),
                         unresponsive_callback=_exec_stop,
                     )
                     watchdog.start()
@@ -161,7 +170,7 @@ class ExecRunner(BaseRunner):
                 watchdog.stop()
             rc = self._finish_dispatch(
                 "oexec", result, watchdog, sentinel, self.LOG_FILE,
-                session_id, hard_timeout, EXEC_HARD_TIMEOUT_S,
+                hard_timeout, EXEC_HARD_TIMEOUT_S,
             )
             timed_out = bool(result.get("timed_out"))
             infra_failure = rc == 1

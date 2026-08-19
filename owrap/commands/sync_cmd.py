@@ -8,7 +8,9 @@ from ..utils.session_resolver import resolve, _parse
 
 
 class SyncRunner:
-    """Re-stage templates and write planner files directly."""
+    """
+    Re-stage templates and write planner files directly.
+    """
 
     def run(self):
         workspace_name, sid = self._active_workspace()
@@ -57,7 +59,9 @@ class SyncRunner:
         sys.exit(0)
 
     def _active_workspace(self):
-        """Read active workspace name from current session file."""
+        """
+        Read active workspace name from current session file.
+        """
         session_id, session_path, source = resolve(mode="refresh")
         if session_id is None:
             return (None, None)
@@ -70,7 +74,8 @@ class SyncRunner:
         return workspace_name, session_id
 
     def _sync_global_read_permission(self, oread: bool):
-        """Keep ~/.claude/settings.json (global, user-level) Read(//**)
+        """
+        Keep ~/.claude/settings.json (global, user-level) Read(//**)
         rule in sync with oread.
 
         Claude Code's project-level settings.local.json/settings.json permission

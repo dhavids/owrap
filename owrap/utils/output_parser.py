@@ -2,6 +2,10 @@ import re
 
 
 class OutputParser:
+    """
+    Incrementally strips ANSI escape sequences from streamed subprocess output.
+    """
+
     ANSI_RE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]')
     MODEL_RE = re.compile(r'^> build\s+\S\s+(\S+)', re.MULTILINE)
 
@@ -10,7 +14,9 @@ class OutputParser:
         self.model: str | None = None
 
     def feed(self, chunk: str) -> str:
-        """Append chunk to buffer, return cleaned printable portion."""
+        """
+        Append chunk to buffer, return cleaned printable portion.
+        """
         self._buf += chunk
         idx = self._buf.rfind('\x1b')
         if idx != -1:

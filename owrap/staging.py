@@ -23,7 +23,9 @@ def _tilde_relative(path: str) -> str:
 
 
 def resolve_placeholders(config: dict, workspace_name: str) -> dict:
-    """Build the full placeholder → value map from workspace config + derived values."""
+    """
+    Build the full placeholder → value map from workspace config + derived values.
+    """
     workspace = config.get("workspace", "")
     research_root = config.get("research_root") or (
         f"{workspace}/docs/research" if workspace else ""
@@ -54,9 +56,11 @@ def substitute(text: str, placeholders: dict) -> str:
 
 
 def process_conditionals(text: str, flags: dict) -> str:
-    """Strip {{IF:FLAG}}...{{ENDIF}} blocks where flags[FLAG] is falsy.
+    """
+    Strip {{IF:FLAG}}...{{ENDIF}} blocks where flags[FLAG] is falsy.
     Keep block contents otherwise. Supports nesting: repeatedly resolves
-    innermost blocks until none remain."""
+    innermost blocks until none remain.
+    """
     def _r(m):
         flag = m.group(1)
         content = m.group(2)
@@ -69,7 +73,9 @@ def process_conditionals(text: str, flags: dict) -> str:
 
 
 def resolve_flags(config: dict) -> dict:
-    """Build the boolean flag map for conditional template blocks."""
+    """
+    Build the boolean flag map for conditional template blocks.
+    """
     oread = bool(config.get("oread", True))
     owrap_enabled = bool(config.get("owrap_enabled", True))
     return {
@@ -87,7 +93,9 @@ def _group_active(group: dict, flags: dict) -> bool:
 
 
 def load_permission_groups(filename: str) -> list:
-    """Load groups from templates/<filename> (allow.json or deny.json)."""
+    """
+    Load groups from templates/<filename> (allow.json or deny.json).
+    """
     path = TEMPLATES_DIR / filename
     if not path.exists():
         return []
@@ -98,8 +106,10 @@ def render_rule_array(
     groups: list, flags: dict, placeholders: dict,
     indent: int = 6, exclude_tools: set = None,
 ) -> str:
-    """Render the flat list of permission rules (filtered by flags,
-    placeholders resolved) as a JSON array literal."""
+    """
+    Render the flat list of permission rules (filtered by flags,
+    placeholders resolved) as a JSON array literal.
+    """
     rules = []
     for group in groups:
         if not _group_active(group, flags):
@@ -121,8 +131,10 @@ def render_rule_array(
 def render_allowed_section(
     groups: list, flags: dict, placeholders: dict, section: str,
 ) -> str:
-    """Render the '## Allowed' markdown bullet list for `section`
-    ('commands' or 'files')."""
+    """
+    Render the '## Allowed' markdown bullet list for `section`
+    ('commands' or 'files').
+    """
     lines = []
     for group in groups:
         display = group.get("display")
@@ -169,7 +181,9 @@ def merge_into_workspace_file(dest_path: Path, content: str, marker: str):
 
 
 def _strip_marker_block(dest_path: Path, marker: str):
-    """Remove an existing owrap marker block from dest_path if present."""
+    """
+    Remove an existing owrap marker block from dest_path if present.
+    """
     if not dest_path.exists():
         return
     open_marker = f"<!-- owrap:{marker} -->"
@@ -187,10 +201,12 @@ def _strip_marker_block(dest_path: Path, marker: str):
 
 
 def stage_all(workspace_name: str) -> Path:
-    """Read workspace config, copy all templates to staged dir with
+    """
+    Read workspace config, copy all templates to staged dir with
     conditionals processed and placeholders substituted. Then merge
     planner into CLAUDE.md and executor into AGENTS.md in the workspace.
-    Returns staged dir."""
+    Returns staged dir.
+    """
     config = get_workspace_config(workspace_name)
     placeholders = resolve_placeholders(config, workspace_name)
     flags = resolve_flags(config)

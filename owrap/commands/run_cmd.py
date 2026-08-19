@@ -14,6 +14,7 @@ from ..base import BaseRunner
 from ..constants import (
     ANTI_SUMMARY_SUFFIX, MSG_KILL_S, TASK_KILL_S, TASK_HARD_TIMEOUT_S,
     LOG_WRAP_WIDTH, NO_OUTPUT_MSG_S, NO_OUTPUT_TASK_S, MSG_MAX_CHARS,
+    INFRA_FAILURE_MSG_S, INFRA_FAILURE_TASK_S,
 )
 from ..utils.pool import _pool_active, pick_server, update_last_used
 from ..utils.paths import (
@@ -39,8 +40,45 @@ def _sanitize_placeholder_tags(text: str) -> str:
     return _PLACEHOLDER_TAG_RE.sub(r'[\1]', text)
 
 
+def main():
+    parser = argparse.ArgumentParser(description="Run a task via opencode task")
+    parser.add_argument(
+        "--msg", type=str, default=None,
+        help="Single-line message for task mode",
+    )
+    parser.add_argument(
+        "--id", "-i", type=str, default=None,
+        help="Msg ID for parallel tracking",
+    )
+    parser.add_argument(
+        "--input", type=str, default=None,
+        help="Input file path (default: owrap/docs/run/input_<session_id>.md)",
+    )
+    parser.add_argument(
+        "--log-time", action="store_true",
+        help="Show the [timing] block (debugging/tests only)",
+    )
+    parser.add_argument(
+        "--add-context", action="store_true",
+        help="Tell the msg task to read context.md before responding",
+    )
+    parser.add_argument("--model", "-m", type=str, default=None, help="Model override")
+    args = parser.parse_args()
+    manager = Manager()
+    runner = RunRunner(
+        manager, add_context=args.add_context, model=args.model,
+    )
+    runner.run(
+        msg=args.msg, msg_id=args.id,
+        input_path=Path(args.input) if args.input else None,
+        log_time=args.log_time,
+    )
+
+
 class RunRunner(BaseRunner):
-    """Runner for executing tasks and messages via opencode."""
+    """
+    Runner for executing tasks and messages via opencode.
+    """
     TASKS_DIR = TASKS_DIR
     FALLBACK_TASK = FALLBACK_TASK
 
@@ -54,7 +92,9 @@ class RunRunner(BaseRunner):
         self.disablewd = disablewd
 
     def run(self, msg=None, msg_id=None, input_path=None, log_time=False, timeout=None):
-        """Run a task or message, dispatching to the appropriate handler."""
+        """
+        Run a task or message, dispatching to the appropriate handler.
+        """
         self._cleanup_recently_done()
         if self.logger:
             if msg is not None:
@@ -233,6 +273,11 @@ class RunRunner(BaseRunner):
                         no_output_s=float(
                             _read_config().get("no_output_msg_s", NO_OUTPUT_MSG_S),
                         ),
+                        infra_failure_s=float(
+                            _read_config().get(
+                                "infra_failure_msg_s", INFRA_FAILURE_MSG_S,
+                            ),
+                        ),
                         unresponsive_callback=_msg_stop,
                     )
                     watchdog.start()
@@ -254,7 +299,7 @@ class RunRunner(BaseRunner):
                 watchdog.stop()
             rc = self._finish_dispatch(
                 "orun --msg", result, watchdog, sentinel, msg_log,
-                self.manager.session_id, MSG_TIMEOUT, 180,
+                MSG_TIMEOUT, 180,
             )
             timed_out = bool(result.get("timed_out"))
             infra_failure = rc == 1
@@ -465,6 +510,11 @@ class RunRunner(BaseRunner):
                                     "no_output_task_s", NO_OUTPUT_TASK_S,
                                 ),
                             ),
+                            infra_failure_s=float(
+                                _read_config().get(
+                                    "infra_failure_task_s", INFRA_FAILURE_TASK_S,
+                                ),
+                            ),
                             unresponsive_callback=_task_stop,
                         )
                         watchdog.start()
@@ -485,7 +535,7 @@ class RunRunner(BaseRunner):
                     watchdog.stop()
                 rc = self._finish_dispatch(
                     "orun --input", result, watchdog, sentinel, log_path,
-                    self.manager.session_id, hard_timeout, TASK_HARD_TIMEOUT_S,
+                    hard_timeout, TASK_HARD_TIMEOUT_S,
                 )
                 timed_out = bool(result.get("timed_out"))
                 infra_failure = rc == 1
@@ -622,42 +672,6 @@ class RunRunner(BaseRunner):
                 pass
 
         sys.exit(rc)
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Run a task via opencode task")
-    parser.add_argument(
-        "--msg", type=str, default=None,
-        help="Single-line message for task mode",
-    )
-    parser.add_argument(
-        "--id", "-i", type=str, default=None,
-        help="Msg ID for parallel tracking",
-    )
-    parser.add_argument(
-        "--input", type=str, default=None,
-        help="Input file path (default: owrap/docs/run/input_<session_id>.md)",
-    )
-    parser.add_argument(
-        "--log-time", action="store_true",
-        help="Show the [timing] block (debugging/tests only)",
-    )
-    parser.add_argument(
-        "--add-context", action="store_true",
-        help="Tell the msg task to read context.md before responding",
-    )
-    parser.add_argument("--model", "-m", type=str, default=None, help="Model override")
-    args = parser.parse_args()
-    manager = Manager()
-    runner = RunRunner(
-        manager, add_context=args.add_context, model=args.model,
-    )
-    runner.run(
-        msg=args.msg, msg_id=args.id,
-        input_path=Path(args.input) if args.input else None,
-        log_time=args.log_time,
-    )
-
 
 if __name__ == "__main__":
     main()

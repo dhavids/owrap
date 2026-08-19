@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 from ..utils.paths import (
-    RUNTIME_HOME, get_plan_path, session_input, context_path,
+    RUNTIME_HOME, RUNTIME_LOG, get_plan_path, session_input, context_path,
     FALLBACK_PLAN, FALLBACK_TASK,
     FALLBACK_EXEC_OUTPUT, FALLBACK_TASK_OUTPUT,
     session_msg_output_dir, session_task_output_dir,
@@ -13,10 +13,14 @@ from ..utils.paths import (
 _EXEC_OUTPUT_MAX_LINES = 15
 
 class GetRunner:
-    """Retrieve owrap session data, files, and configuration."""
+    """
+    Retrieve owrap session data, files, and configuration.
+    """
 
     def run(self, what, session_id=None, dispatch_id=None):
-        """Print the requested resource to stdout."""
+        """
+        Print the requested resource to stdout.
+        """
         if what == "home":
             print(RUNTIME_HOME)
             return
@@ -212,6 +216,45 @@ class GetRunner:
 
         print(f"path: {fpath}")
         self._print_head_tail(fpath, head, tail)
+
+    def run_runtime(self, tail=50, ev_prefix=None, sid=None):
+        """
+        Read and display the runtime log.
+        """
+        import json
+        if not RUNTIME_LOG.exists():
+            print(f"log: {RUNTIME_LOG} (not found)")
+            print("no events")
+            return
+        size = RUNTIME_LOG.stat().st_size
+        size_str = f"{size / 1024:.1f}K" if size >= 1024 else f"{size}B"
+        print(f"log: {RUNTIME_LOG} ({size_str})")
+        lines = RUNTIME_LOG.read_text().splitlines()
+        events = []
+        for line in lines:
+            try:
+                obj = json.loads(line)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if ev_prefix and not obj.get("ev", "").startswith(ev_prefix):
+                continue
+            if sid and obj.get("sid") != sid:
+                continue
+            events.append(obj)
+        if not events:
+            print("no events")
+            return
+        for ev in events[-tail:]:
+            ts = ev.get("ts", "")
+            if ts:
+                ts = ts[11:19]  # HH:MM:SS
+            ev_name = ev.get("ev", "")
+            parts = [ts, ev_name]
+            for k, v in ev.items():
+                if k in ("ts", "pid", "sid", "ev"):
+                    continue
+                parts.append(f"{k}={v}")
+            print("  ".join(parts))
 
     def _resolve_session_id(self, session_id):
         if session_id:

@@ -2,9 +2,12 @@ import json
 import os
 import signal
 import sys
+import tempfile
 import time
 from abc import ABC, abstractmethod
 from typing import Optional
+
+from .utils import rtlog
 
 
 def _increment_stat(key: str):
@@ -44,7 +47,6 @@ class BaseRunner(ABC):
         ...
 
     def _get_server_url(self) -> Optional[str]:
-        """Return the server URL from the manager, or None."""
         return self.manager.get_server_url()
 
     def _write_sentinel(
@@ -69,7 +71,23 @@ class BaseRunner(ABC):
             "output_path": str(output_path) if output_path else "",
         }
         path = RUNNING_DIR / name
-        path.write_text(json.dumps(data))
+        fd, tmp_path = tempfile.mkstemp(
+            dir=str(RUNNING_DIR), prefix=f".{name}.", suffix=".tmp",
+        )
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write(json.dumps(data))
+            os.replace(tmp_path, path)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+        rtlog.log(
+            "dispatch.start", kind=kind, label=title, url=data["server_url"],
+            task_id=str(task_id),
+        )
         return path
 
     def _complete_sentinel(
@@ -92,7 +110,22 @@ class BaseRunner(ABC):
                 data["failure_kind"] = failure_kind
             if raw_rc is not None and raw_rc != rc:
                 data["raw_rc"] = raw_rc
-            (RECENTLY_DONE_DIR / sentinel_path.name).write_text(json.dumps(data))
+            done_name = sentinel_path.name
+            done_path = RECENTLY_DONE_DIR / done_name
+            fd, tmp_path = tempfile.mkstemp(
+                dir=str(RECENTLY_DONE_DIR), prefix=f".{done_name}.",
+                suffix=".tmp",
+            )
+            try:
+                with os.fdopen(fd, "w") as f:
+                    f.write(json.dumps(data))
+                os.replace(tmp_path, done_path)
+            except Exception:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
             sentinel_path.unlink()
         except Exception:
             pass
@@ -108,14 +141,14 @@ class BaseRunner(ABC):
             _increment_stat("failed")
 
     def _finish_dispatch(
-        self, label, result, watchdog, sentinel_path, log_path, session_id,
+        self, label, result, watchdog, sentinel_path, log_path,
         timeout_s, default_timeout_s,
     ):
-        """Normalize timeout/infra-failure/rc handling, write RESULT +
-        sentinel. rc: 0=ok, 1=infra_failure, 2=timeout, 3=crashed,
-        4=unresponsive, -15=stalled, 143=reaped. Returns final rc."""
+        """
+        Normalize timeout, infra-failure, and rc handling, then write the
+        RESULT footer and completion sentinel. Returns the final rc.
+        """
         from datetime import datetime
-        from .utils.paths import format_failure_pointer
         from .utils.snippet import divider
 
         timed_out = bool(result.get("timed_out"))
@@ -127,7 +160,7 @@ class BaseRunner(ABC):
             partial = (result.get("stdout") or "").strip()
             print(flush=True)
             print(
-                f"[{label}] timed out after {timeout_s}s "
+                f"[{label}] timed out after {timeout_s:.0f}s "
                 f"({len(partial)} chars captured)",
                 flush=True,
             )
@@ -136,7 +169,6 @@ class BaseRunner(ABC):
                 f"(default: {default_timeout_s}s)",
                 flush=True,
             )
-            print(format_failure_pointer("TIMED_OUT", session_id))
             rc = 2
             failure_kind = "timeout"
         elif stall_killed:
@@ -163,7 +195,6 @@ class BaseRunner(ABC):
                         rc = 4
                         failure_kind = "unresponsive"
                         watchdog.report_unresponsive()
-                    print(format_failure_pointer("INFRA_UNAVAILABLE", session_id))
             elif rc != 0:
                 rc = 3
                 failure_kind = "crashed"
@@ -188,6 +219,10 @@ class BaseRunner(ABC):
         self._complete_sentinel(
             sentinel_path, rc, timed_out=timed_out, stalled=stall_killed,
             failure_kind=failure_kind, raw_rc=raw_rc,
+        )
+        rtlog.log(
+            "dispatch.end", label=label, rc=rc, raw_rc=raw_rc,
+            failure_kind=failure_kind, timed_out=timed_out,
         )
         return rc
 
@@ -230,6 +265,11 @@ class BaseRunner(ABC):
                         data["failure_kind"] = "reaped"
                         done_path.write_text(json.dumps(data))
                         f.unlink()
+                        age_s = round(time.time() - data.get("started", time.time()))
+                        rtlog.log(
+                            "dispatch.reap", task_id=data.get("task_id"),
+                            age_s=age_s,
+                        )
                 except Exception:
                     pass
 

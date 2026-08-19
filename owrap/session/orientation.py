@@ -1,15 +1,21 @@
+import io as _io
+import re as _re
+import shutil as _shutil
+import sys as _sys
+import textwrap as _tw
+from pathlib import Path as _Path
+
+
 def print_orientation(
     session_id, research, url=None, plan_path=None,
     todo_path=None, input_path=None, context_path=None,
     area=None, memory_path=None, project_path=None,
     attach=False,
 ):
-    import shutil as _shutil
-    import io as _io
-    import re as _re
-    import sys as _sys
-    import textwrap as _tw
-    from pathlib import Path as _Path
+    """
+    Print the session orientation banner: server URL, plan/todo/context
+    paths, and area/memory/project links.
+    """
     _in_path = bool(_shutil.which("oread"))
     _buf = _io.StringIO()
     _orig_out = _sys.stdout

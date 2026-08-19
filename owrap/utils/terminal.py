@@ -83,11 +83,15 @@ class Terminal:
         self._original_handlers = {}
 
     def is_running(self):
-        """Check if the managed process is currently running."""
+        """
+        Check if the managed process is currently running.
+        """
         return self._process is not None and self._process.poll() is None
 
     def terminate_process(self, timeout=3):
-        """Terminate the managed process and its process group."""
+        """
+        Terminate the managed process and its process group.
+        """
         if self._process is None:
             return False
         proc = self._process
@@ -128,7 +132,9 @@ class Terminal:
         cwd=None,
         use_pty=False,
     ):
-        """Execute a command in the managed subprocess."""
+        """
+        Execute a command in the managed subprocess.
+        """
         if silent:
             print_output = False
         if register_signals:
@@ -151,7 +157,9 @@ class Terminal:
                 self.unregister_signal_handlers()
 
     def send_stdin(self, data: str) -> bool:
-        """Send data to the subprocess standard input."""
+        """
+        Send data to the subprocess standard input.
+        """
         if not self.is_running():
             return False
         try:
@@ -167,7 +175,9 @@ class Terminal:
         return False
 
     def get_output(self):
-        """Retrieve the current output of a detached subprocess."""
+        """
+        Retrieve the current output of a detached subprocess.
+        """
         if self._process is None:
             return {"stdout": None, "stderr": None, "returncode": None, "running": False}
         running = self._process.poll() is None
@@ -182,21 +192,27 @@ class Terminal:
         }
 
     def pop_output(self) -> str:
-        """Retrieve and clear the raw output buffer of a detached subprocess."""
+        """
+        Retrieve and clear the raw output buffer of a detached subprocess.
+        """
         with self._stdout_lock:
             out = "".join(self._detached_stdout)
             self._detached_stdout.clear()
         return out
 
     def pop_clean_output(self) -> str:
-        """Retrieve and clear the parsed/clean output buffer of a detached subprocess."""
+        """
+        Retrieve and clear the parsed/clean output buffer of a detached subprocess.
+        """
         with self._stdout_lock:
             out = "".join(self._detached_stdout_clean)
             self._detached_stdout_clean.clear()
         return out
 
     def close(self):
-        """Terminate the subprocess and unregister signal handlers."""
+        """
+        Terminate the subprocess and unregister signal handlers.
+        """
         self.terminate_process()
         self.unregister_signal_handlers()
 

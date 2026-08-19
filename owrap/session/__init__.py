@@ -1,4 +1,6 @@
-"""Session management runners and orientation printing."""
+"""
+Session management runners and orientation printing.
+"""
 
 from .start import (
     StartRunner, RefreshRunner, AttachRunner,

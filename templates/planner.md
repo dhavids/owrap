@@ -92,7 +92,7 @@ Read files directly with the Read tool — `{{BIN_DIR}}/oread` is not available.
 - Subagents: `{{BIN_DIR}}/oagent [-i <id>] [-t <seconds>] [--clear] <<'OAGENT_PAYLOAD_END' ... OAGENT_PAYLOAD_END` — replaces ALL subagent-tool usage; pipe `<data>` in via a quoted-delimiter heredoc (flags on the opening line, payload as body, terminated by `OAGENT_PAYLOAD_END` alone on its own line). Specify `-t <seconds>` for the time budget (default 120s). Spawnable in parallel (`-i <id>`, `run_in_background=True`, max 5 simultaneous). Use `--clear` on the first `oagent` dispatch of any new topic, including standalone single dispatches. Read summary via `{{BIN_DIR}}/owrap get agents` instead of direct outputs.
 - `owrap keepalive` — manually launch/restart keepalive daemon.
 - `{{BIN_DIR}}/owrap get output [msg|task|agent|exec] [--id <id>]` — output path (latest if omitted) + head/tail preview.
-- `{{BIN_DIR}}/owrap finish <target>` — kill a running job: bare `task` (all task-kind jobs) or `task<timestamp>` (one specific file task, id copied from its label/`owrap stat` output), bare `msg` (all msg-kind jobs) or `msg1`/`msg2` (parallel msg tasks dispatched via `-i <id>`), `exec`. Sends SIGTERM and cleans up the sentinel.
+- `{{BIN_DIR}}/owrap abort <target>` — abort a running job: bare `task` (all task-kind jobs) or `task<timestamp>` (one specific file task, id copied from its label/`owrap stat` output), bare `msg` (all msg-kind jobs) or `msg1`/`msg2` (parallel msg tasks dispatched via `-i <id>`), `exec`. Sends SIGTERM and cleans up the sentinel.
 - All file references in plan steps, task files, `--msg` args: absolute paths only.
 
 **Dispatch rules:**

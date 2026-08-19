@@ -2,13 +2,16 @@ import json
 import os
 import signal
 import sys
+import time
 
 from ..base import BaseRunner
-from ..utils.paths import RUNNING_DIR
+from ..utils.paths import RUNNING_DIR, RECENTLY_DONE_DIR
 
 
 def _target_matches(target, kind, task_id):
-    """Check if a target string matches a job kind and task_id."""
+    """
+    Check if a target string matches a job kind and task_id.
+    """
     t = target.lower()
     if t == "exec":
         return kind == "exec"
@@ -24,16 +27,20 @@ def _target_matches(target, kind, task_id):
     return kind == t
 
 
-class FinishRunner(BaseRunner):
-    """Terminate running jobs matching a target identifier."""
+class AbortRunner(BaseRunner):
+    """
+    Terminate running jobs matching a target identifier.
+    """
 
     def run(self, target, session_id=None):
-        """Find and terminate running jobs matching the given target."""
+        """
+        Find and terminate running jobs matching the given target.
+        """
         if session_id is None:
             session_id = self.manager.session_id or os.environ.get("OWRAP_SESSION", "")
 
         if not RUNNING_DIR.exists():
-            print(f"owrap finish: no running jobs found")
+            print(f"owrap abort: no running jobs found")
             sys.exit(1)
 
         matched = []
@@ -53,7 +60,7 @@ class FinishRunner(BaseRunner):
 
         if not matched:
             print(
-                f"owrap finish: no running job matching '{target}' "
+                f"owrap abort: no running job matching '{target}' "
                 f"for session {session_id}"
             )
             sys.exit(1)
@@ -82,12 +89,23 @@ class FinishRunner(BaseRunner):
 
             try:
                 os.kill(pid, signal.SIGTERM)
-                print(f"  sent SIGTERM to {label} (pid={pid})  \"{title}\"")
-                killed += 1
             except ProcessLookupError:
                 print(f"  {label} (pid={pid}): process not found")
+                continue
             except PermissionError:
                 print(f"  {label} (pid={pid}): permission denied")
+                continue
+            print(f"  sent SIGTERM to {label} (pid={pid})  \"{title}\"")
+            killed += 1
+            try:
+                data["finished"] = time.time()
+                data["rc"] = 143
+                data["failure_kind"] = "aborted"
+                RECENTLY_DONE_DIR.mkdir(parents=True, exist_ok=True)
+                (RECENTLY_DONE_DIR / sentinel_path.name).write_text(json.dumps(data))
+                sentinel_path.unlink()
+            except Exception:
+                pass
 
         if killed == 0:
             sys.exit(1)

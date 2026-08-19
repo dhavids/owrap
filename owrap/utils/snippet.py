@@ -6,7 +6,9 @@ from ..constants import LOG_DIVIDER_WIDTH
 
 
 def extract_snippet(path: Path, default: str = "") -> str:
-    """Extract a short descriptive snippet from a plan/task file."""
+    """
+    Extract a short descriptive snippet from a plan/task file.
+    """
     try:
         content = path.read_text()
     except Exception:
@@ -37,7 +39,9 @@ def extract_snippet(path: Path, default: str = "") -> str:
 
 
 def wrap_log_text(text: str, width: int = 120) -> str:
-    """Wrap each line of text to the given width."""
+    """
+    Wrap each line of text to the given width.
+    """
     return "\n".join(
         textwrap.fill(line, width=width) if line else ""
         for line in text.split("\n")
@@ -45,5 +49,7 @@ def wrap_log_text(text: str, width: int = 120) -> str:
 
 
 def divider(label: str, width: int = LOG_DIVIDER_WIDTH) -> str:
-    """Return a centered label surrounded by '=' dividers."""
+    """
+    Return a centered label surrounded by '=' dividers.
+    """
     return f" {label} ".center(width, "=")

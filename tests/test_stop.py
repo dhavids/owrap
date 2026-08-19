@@ -1,6 +1,7 @@
+import os
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -31,3 +32,75 @@ def test_trim_command_removed():
         with pytest.raises(SystemExit) as exc_info:
             runner_main()
         assert exc_info.value.code != 0
+
+
+def test_kill_servers_logs_via_rtlog(tmp_path, monkeypatch):
+    from owrap.session.stop import KillServersRunner
+    alive_pid = os.getpid()
+    fake_pool = [{"pid": alive_pid, "port": 4096, "url": "http://127.0.0.1:4096"}]
+
+    with patch("owrap.utils.pool._read_pool", return_value=fake_pool), \
+         patch("owrap.session.stop._pid_alive", return_value=True), \
+         patch("owrap.session.stop._kill_pid", return_value=True), \
+         patch("owrap.session.stop._wait_dead", return_value=None), \
+         patch("owrap.utils.rtlog.log") as mock_log, \
+         patch("owrap.session.stop.RUNNING_DIR", tmp_path / "running"), \
+         patch("owrap.session.stop.RECENTLY_DONE_DIR", tmp_path / "done"), \
+         patch("owrap.session.stop.SERVERS_DIR", tmp_path / "servers"), \
+         patch("owrap.session.stop.KEEPALIVE_PID_FILE", tmp_path / "ka.pid"), \
+         patch("owrap.utils.paths.STATS_FILE", tmp_path / "stats.json"):
+        KillServersRunner().run()
+
+    mock_log.assert_called_once()
+    call = mock_log.call_args
+    assert call[0][0] == "server.kill"
+    assert call[1].get("reason") == "killservers"
+
+
+def test_kill_servers_stops_keepalive(tmp_path, monkeypatch):
+    from owrap.session.stop import KillServersRunner
+    alive_pid = os.getpid()
+    ka_pid_file = tmp_path / "keepalive.pid"
+    ka_pid_file.write_text(str(alive_pid))
+
+    with patch("owrap.utils.pool._read_pool", return_value=[]), \
+         patch("owrap.session.stop._pid_alive", return_value=True), \
+         patch("owrap.session.stop._kill_pid", return_value=True) as mock_kill, \
+         patch("owrap.session.stop._wait_dead", return_value=None), \
+         patch("owrap.session.stop.RUNNING_DIR", tmp_path / "running"), \
+         patch("owrap.session.stop.RECENTLY_DONE_DIR", tmp_path / "done"), \
+         patch("owrap.session.stop.SERVERS_DIR", tmp_path / "servers"), \
+         patch("owrap.session.stop.KEEPALIVE_PID_FILE", ka_pid_file), \
+         patch("owrap.utils.paths.STATS_FILE", tmp_path / "stats.json"):
+        KillServersRunner().run()
+
+    mock_kill.assert_called_with(alive_pid)
+    assert not ka_pid_file.exists()
+
+
+def test_kill_servers_resets_stats(tmp_path, monkeypatch):
+    import json
+    from owrap.session.stop import KillServersRunner
+    stats_file = tmp_path / "stats.json"
+    stats_file.write_text(json.dumps({
+        "dispatched": 5, "succeeded": 3, "failed": 1,
+        "stalled": 1, "timed_out": 2,
+    }))
+
+    with patch("owrap.utils.pool._read_pool", return_value=[]), \
+         patch("owrap.session.stop._pid_alive", return_value=False), \
+         patch("owrap.session.stop._kill_pid", return_value=True), \
+         patch("owrap.session.stop._wait_dead", return_value=None), \
+         patch("owrap.session.stop.RUNNING_DIR", tmp_path / "running"), \
+         patch("owrap.session.stop.RECENTLY_DONE_DIR", tmp_path / "done"), \
+         patch("owrap.session.stop.SERVERS_DIR", tmp_path / "servers"), \
+         patch("owrap.session.stop.KEEPALIVE_PID_FILE", tmp_path / "ka.pid"), \
+         patch("owrap.utils.paths.STATS_FILE", stats_file):
+        KillServersRunner().run()
+
+    data = json.loads(stats_file.read_text())
+    assert data["dispatched"] == 0
+    assert data["succeeded"] == 0
+    assert data["failed"] == 0
+    assert data["stalled"] == 0
+    assert data["timed_out"] == 0

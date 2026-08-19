@@ -14,7 +14,7 @@ from ..base import BaseRunner
 from ..constants import (
     AGENT_KILL_S, NO_OUTPUT_AGENT_S, AGENT_INLINE_MAX_CHARS, AGENT_TIMEOUT_DEFAULT,
     LOG_WRAP_WIDTH, AGENT_GRACE_MIN_S, AGENT_GRACE_MAX_S, AGENT_GRACE_LOW_ANCHOR_S,
-    AGENT_GRACE_HIGH_ANCHOR_S,
+    AGENT_GRACE_HIGH_ANCHOR_S, INFRA_FAILURE_AGENT_S,
 )
 from ..utils.pool import _pool_active, pick_server, update_last_used
 from ..utils.paths import (
@@ -28,7 +28,9 @@ _AGENT_SUMMARY_HEADER_RE = re.compile(r'^\+?#{1,6}\s*Summary\s*$', re.MULTILINE)
 
 
 def _count_running_agent_jobs(session_id: str) -> int:
-    """Count still-running agent-kind sentinel files for the given session."""
+    """
+    Count still-running agent-kind sentinel files for the given session.
+    """
     if not RUNNING_DIR.exists():
         return 0
     count = 0
@@ -92,7 +94,9 @@ _AGENT_INSTRUCTIONS_SUFFIX = (
 
 
 class AgentsRunner(BaseRunner):
-    """Runner for dispatching and managing sub-agent tasks."""
+    """
+    Runner for dispatching and managing sub-agent tasks.
+    """
 
     def __init__(
         self, manager, logger=None, allow_all=False, model=None, disablewd=False,
@@ -110,7 +114,9 @@ class AgentsRunner(BaseRunner):
         self, data, agent_id=None, log_time=False, timeout=None,
         model_override=None, clear=False,
     ):
-        """Dispatch a sub-agent task and wait for completion."""
+        """
+        Dispatch a sub-agent task and wait for completion.
+        """
         self._cleanup_recently_done()
         if clear:
             self._clear_agent_output()
@@ -253,6 +259,11 @@ class AgentsRunner(BaseRunner):
                                 "no_output_agent_s", NO_OUTPUT_AGENT_S,
                             ),
                         ),
+                        infra_failure_s=float(
+                            _read_config().get(
+                                "infra_failure_agent_s", INFRA_FAILURE_AGENT_S,
+                            ),
+                        ),
                         unresponsive_callback=_agent_stop,
                     )
                     watchdog.start()
@@ -274,8 +285,7 @@ class AgentsRunner(BaseRunner):
                 watchdog.stop()
             rc = self._finish_dispatch(
                 "orun agent", result, watchdog, sentinel, agent_log,
-                self.manager.session_id, AGENT_KILL_TIMEOUT,
-                AGENT_TIMEOUT_DEFAULT,
+                AGENT_KILL_TIMEOUT, AGENT_TIMEOUT_DEFAULT,
             )
             timed_out = bool(result.get("timed_out"))
             infra_failure = rc == 1

@@ -1,6 +1,7 @@
 import argparse
 import shutil
 import sys
+import time
 from pathlib import Path
 
 from .session import (
@@ -9,7 +10,7 @@ from .session import (
     RestoreRunner,
 )
 from .commands import (
-    ExecRunner, FinishRunner, ReadRunner, RunRunner,
+    AbortRunner, ExecRunner, ReadRunner, RunRunner,
     SetupRunner, WaitRunner,
 )
 from .commands.sync_cmd import SyncRunner
@@ -17,6 +18,9 @@ from .commands.keepalive import KeepaliveRunner
 from .manager import Manager
 from .utils.paths import _read_config, get_workspace_config
 from .utils.arg_parser import OwrapArgumentParser
+from .utils import rtlog
+
+_UNLOGGED_CMDS = {"stat", "get", "permit", "wait"}
 
 
 def main():
@@ -338,18 +342,18 @@ def main():
         help="Disable stall/no-output watchdog; hard timeout still applies",
     )
 
-    finish_parser = subparsers.add_parser(
-        "finish",
+    abort_parser = subparsers.add_parser(
+        "abort",
         help=(
-            "Kill a running orun/oexec job by target (exec, task1, task2, "
+            "Abort (SIGTERM) a running orun/oexec job by target (exec, task1, task2, "
             "..., agent1, agent2, ...)"
         ),
     )
-    finish_parser.add_argument(
+    abort_parser.add_argument(
         "target",
-        help="Job to kill: 'exec', 'task', 'task1', 'task2', 'msg1', ..., 'agent1', ...",
+        help="Job to abort: 'exec', 'task', 'task1', 'task2', 'msg1', ..., 'agent1', ...",
     )
-    finish_parser.add_argument(
+    abort_parser.add_argument(
         "--session", type=str, default=None,
         help="Session ID override",
     )
@@ -448,7 +452,7 @@ def main():
         choices=[
             "plan", "input", "context", "session", "memory",
             "project", "area", "research", "config", "home", "agents",
-            "output",
+            "output", "runtime",
         ],
     )
     get_parser.add_argument(
@@ -459,6 +463,8 @@ def main():
     get_parser.add_argument("--id", default=None)
     get_parser.add_argument("--head", type=int, default=5)
     get_parser.add_argument("--tail", type=int, default=5)
+    get_parser.add_argument("--ev", default=None, help="Filter events by prefix")
+    get_parser.add_argument("--sid", default=None, help="Filter by session ID")
 
     keepalive_parser = subparsers.add_parser("keepalive", help="Run the keepalive daemon")
 
@@ -518,209 +524,233 @@ def main():
         or _ws_cfg.get("allow_all", False)
     )
 
-    if args.command == "start":
-        StartRunner(manager, logger, allow_all=allow_all).run(
-            shell_pid=args.shell_pid,
-            session_file=args.session_file,
-            research=args.research,
-            session_id=getattr(args, 'session_id', None),
-            area=getattr(args, 'area', None),
-            child=getattr(args, 'child', None),
-        )
-    elif args.command == "stop":
-        target = getattr(args, 'session_id', None) or getattr(args, 'target', None)
-        StopRunner(manager, logger, allow_all=allow_all).run(
-            session_file=args.session_file,
-            force=args.force,
-            target=target,
-        )
-    elif args.command == "end":
-        target = getattr(args, 'session_id', None) or getattr(args, 'target', None)
-        EndRunner(manager, logger, allow_all=allow_all).run(
-            session_file=args.session_file,
-            target=target,
-        )
-    elif args.command == "refresh":
-        RefreshRunner(manager, logger, allow_all=allow_all).run(
-            shell_pid=args.shell_pid,
-            session_file=args.session_file,
-            research=args.research,
-            session_id=getattr(args, 'session_id', None),
-            area=getattr(args, 'area', None),
-        )
-    elif args.command == "attach":
-        AttachRunner(manager, logger, allow_all=allow_all).run(
-            target_session_id=args.target_session_id,
-        )
-    elif args.command == "restart":
-        RestartRunner(manager, logger, allow_all=allow_all).run(
-            shell_pid=args.shell_pid,
-            session_file=args.session_file,
-            research=args.research,
-            force=args.force,
-            session_id=getattr(args, 'session_id', None),
-        )
-    elif args.command == "setup":
-        SetupRunner().run(
-            path=args.path,
-            project_name=args.name,
-            workspace=args.workspace,
-            research_root=args.research_root,
-            allow_all=args.allow_all,
-            oread=args.oread,
-        )
-    elif args.command == "sync":
-        SyncRunner().run()
-    elif args.command == "read":
-        if getattr(args, 'list_styles', False):
-            ReadRunner(manager, logger, allow_all=allow_all).list_styles()
-            sys.exit(0)
-        if args.files is None and args.grep is None:
-            import sys as _sys
-            print(
-                "error: -f/--file required unless using -g/--grep",
-                file=_sys.stderr,
-            )
-            _sys.exit(1)
-        ReadRunner(manager, logger, allow_all=allow_all).run(
-            (
-                args.files[0]
-                if args.files and len(args.files) == 1
-                else args.files
-            ),
-            summarise=args.summarise,
-            details=args.details,
-            log_time=args.log_time,
-            grep=args.grep,
-            read_id=getattr(args, 'id', None),
-            timeout=getattr(args, 'timeout', None),
-            verbose=args.verbose,
-            prompt_style=getattr(args, 'prompt_style', None),
-        )
-    elif args.command in ("run",):
-        RunRunner(
-            manager, logger, allow_all=allow_all,
-            add_context=args.add_context,
-            model=args.model,
-            disablewd=args.disablewd,
-        ).run(
-            msg=args.msg,
-            msg_id=getattr(args, 'id', None),
-            input_path=Path(args.input) if args.input else None,
-            log_time=args.log_time,
-            timeout=getattr(args, 'timeout', None),
-        )
-    elif args.command == "agent":
-        from .commands.agents import AgentsRunner
-        agent_data = args.data
-        if agent_data is None or agent_data == "-":
-            import sys as _sys
-            agent_data = _sys.stdin.read()
-        AgentsRunner(
-            manager, logger, allow_all=allow_all,
-            model=args.model,
-            disablewd=args.disablewd,
-        ).run_agent(
-            data=agent_data,
-            agent_id=getattr(args, 'id', None),
-            log_time=args.log_time,
-            timeout=getattr(args, 'timeout', None),
-            clear=args.clear,
-        )
-    elif args.command in ("exec", "work"):
-        ExecRunner(
-            manager, logger, allow_all=allow_all,
-            model=args.model,
-            disablewd=args.disablewd,
-        ).run(
-            log_time=args.log_time,
-            timeout=getattr(args, 'timeout', None),
-        )
-    elif args.command == "finish":
-        FinishRunner(manager, logger, allow_all=allow_all).run(
-            target=args.target,
-            session_id=getattr(args, "session", None),
-        )
-    elif args.command == "agents":
-        from .commands.agents import AgentsRunner
-        AgentsRunner(manager, logger, allow_all=allow_all).run(action=args.action)
-    elif args.command == "killservers":
-        from .session.stop import KillServersRunner
-        KillServersRunner().run(session_id=getattr(args, "session", None))
-    elif args.command == "keepalive":
-        KeepaliveRunner(manager, logger, allow_all=allow_all).run()
-    elif args.command == "update-area":
-        UpdateAreaRunner(
-            manager, logger, allow_all=allow_all,
-        ).run(
-            research=args.research,
-            area=args.area,
-            child=args.child,
-        )
-    elif args.command == "spawn":
-        from .session.start import SpawnRunner
-        SpawnRunner(manager, logger, allow_all=allow_all).run(child=args.child)
-    elif args.command == "update-home":
-        from .commands.update_home import UpdateHomeRunner
-        UpdateHomeRunner(
-            manager, logger, allow_all=allow_all,
-        ).run(
-            new_path=args.path,
-            dry_run=args.dry_run,
-            migrate=args.migrate,
-        )
-    elif args.command == "wait":
-        WaitRunner(manager, logger, allow_all=allow_all).run(
-            wait_type=args.type,
-            wait_id=args.id,
-            session_id=args.session,
-            timeout=args.timeout,
-        )
-    elif args.command == "stat":
-        from .session.stat import StatRunner
-        sys.exit(StatRunner(manager, logger, allow_all).run(args))
-    elif args.command == "cleanup":
-        if getattr(args, "session_id", None) == "trash":
-            from .utils.trash import sweep_trash
-            removed = sweep_trash()
-            if removed:
-                print(
-                    f"Trash sweep: {removed} session(s) permanently removed "
-                    f"(past retention)."
+    cmd = args.command or ""
+    if cmd not in _UNLOGGED_CMDS:
+        rtlog.log("cmd.start", cmd=cmd, argv=" ".join(sys.argv[1:])[:300])
+    _cmd_start = time.time()
+    _cmd_rc = 0
+    try:
+        try:
+            if args.command == "start":
+                StartRunner(manager, logger, allow_all=allow_all).run(
+                    shell_pid=args.shell_pid,
+                    session_file=args.session_file,
+                    research=args.research,
+                    session_id=getattr(args, 'session_id', None),
+                    area=getattr(args, 'area', None),
+                    child=getattr(args, 'child', None),
                 )
-            else:
-                print("Trash sweep: nothing past retention.")
-            sys.exit(0)
-        sys.exit(CleanupRunner(manager, logger, allow_all).run(args))
-    elif args.command == "restore":
-        sys.exit(RestoreRunner(manager, logger, allow_all).run(args))
-    elif args.command == "f":
-        from .commands.fallback import FallbackRunner
-        FallbackRunner().run(args.path)
-    elif args.command == "precompact":
-        from .commands.precompact import PrecompactRunner
-        PrecompactRunner().run()
-    elif args.command == "precompact-worker":
-        from .commands.precompact import PrecompactWorkerRunner
-        PrecompactWorkerRunner().run(input_path=Path(args.input))
-    elif args.command == "get":
-        from .commands.get_cmd import GetRunner
-        runner = GetRunner()
-        if args.what == "output":
-            sys.exit(
-                runner.run_output(
-                    kind=args.kind,
-                    dispatch_id=args.id,
-                    head=args.head,
-                    tail=args.tail,
+            elif args.command == "stop":
+                target = (
+                    getattr(args, 'session_id', None)
+                    or getattr(args, 'target', None)
+                )
+                StopRunner(manager, logger, allow_all=allow_all).run(
+                    session_file=args.session_file,
+                    force=args.force,
+                    target=target,
+                )
+            elif args.command == "end":
+                target = (
+                    getattr(args, 'session_id', None)
+                    or getattr(args, 'target', None)
+                )
+                EndRunner(manager, logger, allow_all=allow_all).run(
+                    session_file=args.session_file,
+                    target=target,
+                )
+            elif args.command == "refresh":
+                RefreshRunner(manager, logger, allow_all=allow_all).run(
+                    shell_pid=args.shell_pid,
+                    session_file=args.session_file,
+                    research=args.research,
+                    session_id=getattr(args, 'session_id', None),
+                    area=getattr(args, 'area', None),
+                )
+            elif args.command == "attach":
+                AttachRunner(manager, logger, allow_all=allow_all).run(
+                    target_session_id=args.target_session_id,
+                )
+            elif args.command == "restart":
+                RestartRunner(manager, logger, allow_all=allow_all).run(
+                    shell_pid=args.shell_pid,
+                    session_file=args.session_file,
+                    research=args.research,
+                    force=args.force,
+                    session_id=getattr(args, 'session_id', None),
+                )
+            elif args.command == "setup":
+                SetupRunner().run(
+                    path=args.path,
+                    project_name=args.name,
+                    workspace=args.workspace,
+                    research_root=args.research_root,
+                    allow_all=args.allow_all,
+                    oread=args.oread,
+                )
+            elif args.command == "sync":
+                SyncRunner().run()
+            elif args.command == "read":
+                if getattr(args, 'list_styles', False):
+                    ReadRunner(manager, logger, allow_all=allow_all).list_styles()
+                    sys.exit(0)
+                if args.files is None and args.grep is None:
+                    import sys as _sys
+                    print(
+                        "error: -f/--file required unless using -g/--grep",
+                        file=_sys.stderr,
+                    )
+                    _sys.exit(1)
+                ReadRunner(manager, logger, allow_all=allow_all).run(
+                    (
+                        args.files[0]
+                        if args.files and len(args.files) == 1
+                        else args.files
+                    ),
+                    summarise=args.summarise,
+                    details=args.details,
+                    log_time=args.log_time,
+                    grep=args.grep,
+                    read_id=getattr(args, 'id', None),
+                    timeout=getattr(args, 'timeout', None),
+                    verbose=args.verbose,
+                    prompt_style=getattr(args, 'prompt_style', None),
+                )
+            elif args.command in ("run",):
+                RunRunner(
+                    manager, logger, allow_all=allow_all,
+                    add_context=args.add_context,
+                    model=args.model,
+                    disablewd=args.disablewd,
+                ).run(
+                    msg=args.msg,
+                    msg_id=getattr(args, 'id', None),
+                    input_path=Path(args.input) if args.input else None,
+                    log_time=args.log_time,
+                    timeout=getattr(args, 'timeout', None),
+                )
+            elif args.command == "agent":
+                from .commands.agents import AgentsRunner
+                agent_data = args.data
+                if agent_data is None or agent_data == "-":
+                    import sys as _sys
+                    agent_data = _sys.stdin.read()
+                AgentsRunner(
+                    manager, logger, allow_all=allow_all,
+                    model=args.model,
+                    disablewd=args.disablewd,
+                ).run_agent(
+                    data=agent_data,
+                    agent_id=getattr(args, 'id', None),
+                    log_time=args.log_time,
+                    timeout=getattr(args, 'timeout', None),
+                    clear=args.clear,
+                )
+            elif args.command in ("exec", "work"):
+                ExecRunner(
+                    manager, logger, allow_all=allow_all,
+                    model=args.model,
+                    disablewd=args.disablewd,
+                ).run(
+                    log_time=args.log_time,
+                    timeout=getattr(args, 'timeout', None),
+                )
+            elif args.command == "abort":
+                AbortRunner(manager, logger, allow_all=allow_all).run(
+                    target=args.target,
+                    session_id=getattr(args, "session", None),
+                )
+            elif args.command == "agents":
+                from .commands.agents import AgentsRunner
+                AgentsRunner(manager, logger, allow_all=allow_all).run(action=args.action)
+            elif args.command == "killservers":
+                from .session.stop import KillServersRunner
+                KillServersRunner().run(session_id=getattr(args, "session", None))
+            elif args.command == "keepalive":
+                KeepaliveRunner(manager, logger, allow_all=allow_all).run()
+            elif args.command == "update-area":
+                UpdateAreaRunner(
+                    manager, logger, allow_all=allow_all,
+                ).run(
+                    research=args.research,
+                    area=args.area,
+                    child=args.child,
+                )
+            elif args.command == "spawn":
+                from .session.start import SpawnRunner
+                SpawnRunner(manager, logger, allow_all=allow_all).run(child=args.child)
+            elif args.command == "update-home":
+                from .commands.update_home import UpdateHomeRunner
+                UpdateHomeRunner(
+                    manager, logger, allow_all=allow_all,
+                ).run(
+                    new_path=args.path,
+                    dry_run=args.dry_run,
+                    migrate=args.migrate,
+                )
+            elif args.command == "wait":
+                WaitRunner(manager, logger, allow_all=allow_all).run(
+                    wait_type=args.type,
+                    wait_id=args.id,
                     session_id=args.session,
+                    timeout=args.timeout,
                 )
-                or 0
-            )
-        sys.exit(runner.run(args.what, session_id=args.session,
-                            dispatch_id=args.id) or 0)
-    else:
-        parser.print_help()
+            elif args.command == "stat":
+                from .session.stat import StatRunner
+                sys.exit(StatRunner(manager, logger, allow_all).run(args))
+            elif args.command == "cleanup":
+                if getattr(args, "session_id", None) == "trash":
+                    from .utils.trash import sweep_trash
+                    removed = sweep_trash()
+                    if removed:
+                        print(
+                            f"Trash sweep: {removed} session(s) permanently removed "
+                            f"(past retention)."
+                        )
+                    else:
+                        print("Trash sweep: nothing past retention.")
+                    sys.exit(0)
+                sys.exit(CleanupRunner(manager, logger, allow_all).run(args))
+            elif args.command == "restore":
+                sys.exit(RestoreRunner(manager, logger, allow_all).run(args))
+            elif args.command == "f":
+                from .commands.fallback import FallbackRunner
+                FallbackRunner().run(args.path)
+            elif args.command == "precompact":
+                from .commands.precompact import PrecompactRunner
+                PrecompactRunner().run()
+            elif args.command == "precompact-worker":
+                from .commands.precompact import PrecompactWorkerRunner
+                PrecompactWorkerRunner().run(input_path=Path(args.input))
+            elif args.command == "get":
+                from .commands.get_cmd import GetRunner
+                runner = GetRunner()
+                if args.what == "output":
+                    sys.exit(
+                        runner.run_output(
+                            kind=args.kind,
+                            dispatch_id=args.id,
+                            head=args.head,
+                            tail=args.tail,
+                            session_id=args.session,
+                        )
+                        or 0
+                    )
+                if args.what == "runtime":
+                    sys.exit(runner.run_runtime(
+                        tail=args.tail, ev_prefix=args.ev, sid=args.sid,
+                    ) or 0)
+                sys.exit(runner.run(args.what, session_id=args.session,
+                                    dispatch_id=args.id) or 0)
+            else:
+                parser.print_help()
+        except SystemExit as _e:
+            _cmd_rc = _e.code if isinstance(_e.code, int) else (1 if _e.code else 0)
+            raise
+    finally:
+        if cmd not in _UNLOGGED_CMDS:
+            dur_s = round(time.time() - _cmd_start, 2)
+            rtlog.log("cmd.end", cmd=cmd, rc=_cmd_rc, dur_s=dur_s)
 
 
 if __name__ == "__main__":

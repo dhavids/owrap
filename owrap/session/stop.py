@@ -10,6 +10,7 @@ from ..utils.paths import (
     _read_config, DOCS_DIR, RUNTIME_DIR, get_plan_path, session_input,
     context_path, context_lock_path, SERVER_LOGS_DIR, SERVERS_DIR,
     RUNNING_DIR, RECENTLY_DONE_DIR, SESSION_DIR, session_dir,
+    KEEPALIVE_PID_FILE,
 )
 from ..utils.session_resolver import (
     resolve, remove_session, BY_CCSID_DIR, list_sessions, _parse,
@@ -300,6 +301,11 @@ class KillServersRunner:
                 _kill_pid(pid)
                 server_pids.append(pid)
                 killed_servers += 1
+                from ..utils import rtlog
+                rtlog.log(
+                    "server.kill", pid=pid, port=entry.get("port"),
+                    url=entry.get("url"), reason="killservers",
+                )
 
         if server_pids:
             _wait_dead(server_pids)
@@ -316,11 +322,38 @@ class KillServersRunner:
                 except Exception:
                     pass
 
+        killed_keepalive = False
+        if KEEPALIVE_PID_FILE.exists():
+            try:
+                ka_pid = int(KEEPALIVE_PID_FILE.read_text().strip())
+                if _pid_alive(ka_pid):
+                    _kill_pid(ka_pid)
+                    _wait_dead([ka_pid])
+                    killed_keepalive = True
+            except (ValueError, OSError):
+                pass
+            try:
+                KEEPALIVE_PID_FILE.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+        from ..utils.paths import STATS_FILE
+        try:
+            STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            STATS_FILE.write_text(json.dumps({
+                "dispatched": 0, "succeeded": 0, "failed": 0,
+                "stalled": 0, "timed_out": 0,
+            }))
+        except Exception:
+            pass
+
         parts = []
         if killed_tasks:
             parts.append(f"{killed_tasks} task{'s' if killed_tasks != 1 else ''}")
         if killed_servers:
             parts.append(f"{killed_servers} server{'s' if killed_servers != 1 else ''}")
+        if killed_keepalive:
+            parts.append("keepalive")
         if parts:
             print(f"killed {' and '.join(parts)}")
         else:

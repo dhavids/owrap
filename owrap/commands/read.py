@@ -77,12 +77,16 @@ def _scale_timeout(size: int, base: int = 55) -> int:
 
 
 class ReadRunner(BaseRunner):
-    """Runner for the ``oread`` command — reads files with style-aware prompting."""
+    """
+    Runner for the ``oread`` command — reads files with style-aware prompting.
+    """
     TASKS_DIR = TASKS_DIR
     FALLBACK_TASK = FALLBACK_TASK
 
     def list_styles(self):
-        """List available prompt styles and their file-type auto-detection mappings."""
+        """
+        List available prompt styles and their file-type auto-detection mappings.
+        """
         print("oread prompt styles:")
         print()
         for name, suffix in PROMPT_STYLES.items():
@@ -103,7 +107,9 @@ class ReadRunner(BaseRunner):
         grep=None, read_id=None, timeout=None, verbose=False,
         prompt_style=None,
     ):
-        """Read a file, optionally summarising or grepping, with style-aware prompting."""
+        """
+        Read a file, optionally summarising or grepping, with style-aware prompting.
+        """
         if grep is not None:
             self._run_grep(grep, file_path)
             return

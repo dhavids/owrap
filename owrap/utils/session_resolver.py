@@ -45,8 +45,10 @@ def mint_session_id() -> str:
 
 
 def list_sessions() -> list:
-    """Return list of {session_id, claude_session_id, opencode_run_id,
-    research, started, last_refresh, owned_by_current}."""
+    """
+    Return list of {session_id, claude_session_id, opencode_run_id,
+    research, started, last_refresh, owned_by_current}.
+    """
     out = []
     cur_ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
     cur_oid = os.environ.get("OPENCODE_RUN_ID", "")
@@ -126,7 +128,8 @@ def _bind_anchor(
     pointer_path: Path,
     session_key: str,
 ) -> str | None:
-    """Bind target_sid to a single environment anchor (CCSID or
+    """
+    Bind target_sid to a single environment anchor (CCSID or
     OPENCODE_RUN_ID), enforcing 1-1.
 
     Returns the previous session id pointed at by this anchor, if any.
@@ -162,7 +165,9 @@ def _bind_anchor(
 
 
 def _clear_anchor(target_sid: str, pointer_dir: Path):
-    """Remove any pointer under pointer_dir that currently references target_sid."""
+    """
+    Remove any pointer under pointer_dir that currently references target_sid.
+    """
     if not pointer_dir.exists():
         return
     for ptr in pointer_dir.iterdir():
@@ -178,9 +183,7 @@ def attach(target_sid: str) -> tuple:
     Whichever anchor type wins, any existing pointer of the OTHER type that
     references this session is cleared, and its field in the session file is
     cleared too — a session is owned by exactly one anchor at a time, never
-    both, which is what made a session's ccsid binding vulnerable to being
-    silently dropped by unrelated oid churn (a fresh OPENCODE_RUN_ID is
-    minted on every dispatched opencode subprocess).
+    both.
 
     Returns (target_sid, target_session_file, prev_sid_for_the_winning_anchor).
     Raises FileNotFoundError if target session file missing.
@@ -223,7 +226,9 @@ def attach(target_sid: str) -> tuple:
 
 
 def update_session_field(session_id: str, key: str, value: str):
-    """Set/update a single field in a session file."""
+    """
+    Set/update a single field in a session file.
+    """
     sf = session_file(session_id)
     if not sf.exists():
         return
@@ -233,8 +238,10 @@ def update_session_field(session_id: str, key: str, value: str):
 
 
 def remove_session(session_id: str):
-    """Delete session file and any by_ccsid or by_opencode_run_id pointers
-    referencing it. Caller handles plan/context/input cleanup."""
+    """
+    Delete session file and any by_ccsid or by_opencode_run_id pointers
+    referencing it. Caller handles plan/context/input cleanup.
+    """
     sf = session_file(session_id)
     if sf.exists():
         sf.unlink(missing_ok=True)

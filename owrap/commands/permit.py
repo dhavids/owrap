@@ -5,7 +5,9 @@ from pathlib import Path
 
 
 class PermitRunner:
-    """PreToolUse hook: reads staged permit.json and returns allow/deny decision."""
+    """
+    PreToolUse hook: reads staged permit.json and returns allow/deny decision.
+    """
 
     def run(self):
         try:
@@ -38,7 +40,6 @@ class PermitRunner:
             permit.get("orun_cmd", "~/bin/orun")
             if isinstance(permit, dict) else "~/bin/orun"
         )
-
 
         def matches(rule):
             if "(" not in rule:

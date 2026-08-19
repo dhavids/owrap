@@ -32,6 +32,7 @@ def isolate_owrap_dirs(tmp_path, monkeypatch):
     """Redirect all owrap output dirs to tmp_path so tests don't pollute live state."""
     monkeypatch.delenv("OWRAP_SESSION", raising=False)
     monkeypatch.delenv("OWRAP_RESEARCH", raising=False)
+    monkeypatch.setenv("OWRAP_TEST_MODE", "1")
     dirs = {
         "RUNNING_DIR":      tmp_path / "running",
         "RECENTLY_DONE_DIR": tmp_path / "recently_done",
@@ -42,10 +43,26 @@ def isolate_owrap_dirs(tmp_path, monkeypatch):
         "READ_LOG":         tmp_path / "docs" / "read" / "log.md",
         "EXEC_LOG":         tmp_path / "docs" / "exec" / "log.md",
         "TASKS_DIR":        tmp_path / "docs" / "run" / "tasks",
+        "FALLBACK_DIR":     tmp_path / "docs" / "f",
+        "FALLBACK_EXEC_DIR": tmp_path / "docs" / "f" / "exec",
+        "FALLBACK_TASK_DIR": tmp_path / "docs" / "f" / "task",
+        "FALLBACK_TASK":    tmp_path / "docs" / "f" / "task" / "task.md",
+        "FALLBACK_EXEC_OUTPUT": tmp_path / "docs" / "f" / "exec" / "output.log",
+        "FALLBACK_EXEC_LOG":    tmp_path / "docs" / "f" / "exec" / "log.md",
+        "FALLBACK_TASK_OUTPUT": tmp_path / "docs" / "f" / "task" / "output.log",
+        "FALLBACK_TASK_LOG":    tmp_path / "docs" / "f" / "task" / "log.md",
+        "FALLBACK_EXEC_STATUS": tmp_path / "docs" / "f" / "exec" / "status.json",
+        "FALLBACK_TASK_STATUS": tmp_path / "docs" / "f" / "task" / "status.json",
+        "FALLBACK_PLAN":    tmp_path / "docs" / "f" / "exec" / "plan.md",
     }
-    _log_keys = {"RUN_LOG", "READ_LOG", "EXEC_LOG", "TASKS_DIR"}
+    _leaf_file_keys = {
+        "RUN_LOG", "READ_LOG", "EXEC_LOG", "TASKS_DIR",
+        "FALLBACK_TASK", "FALLBACK_EXEC_OUTPUT", "FALLBACK_EXEC_LOG",
+        "FALLBACK_TASK_OUTPUT", "FALLBACK_TASK_LOG", "FALLBACK_EXEC_STATUS",
+        "FALLBACK_TASK_STATUS", "FALLBACK_PLAN",
+    }
     for k, d in dirs.items():
-        if k not in _log_keys:
+        if k not in _leaf_file_keys:
             d.mkdir(parents=True, exist_ok=True)
 
     patches = [patch(f"owrap.utils.paths.{k}", v) for k, v in dirs.items()]
@@ -55,6 +72,48 @@ def isolate_owrap_dirs(tmp_path, monkeypatch):
         patch("owrap.manager.READ_LOG", dirs["READ_LOG"]),
         patch("owrap.manager.TASKS_DIR", dirs["TASKS_DIR"]),
         patch("owrap.manager.Manager.TASKS_DIR", dirs["TASKS_DIR"]),
+    ]
+    patches += [
+        patch("owrap.commands.fallback.FALLBACK_EXEC_OUTPUT",
+              dirs["FALLBACK_EXEC_OUTPUT"]),
+        patch("owrap.commands.fallback.FALLBACK_EXEC_LOG",
+              dirs["FALLBACK_EXEC_LOG"]),
+        patch("owrap.commands.fallback.FALLBACK_EXEC_STATUS",
+              dirs["FALLBACK_EXEC_STATUS"]),
+        patch("owrap.commands.fallback.FALLBACK_TASK_OUTPUT",
+              dirs["FALLBACK_TASK_OUTPUT"]),
+        patch("owrap.commands.fallback.FALLBACK_TASK_LOG",
+              dirs["FALLBACK_TASK_LOG"]),
+        patch("owrap.commands.fallback.FALLBACK_TASK_STATUS",
+              dirs["FALLBACK_TASK_STATUS"]),
+        patch("owrap.commands.fallback.FallbackRunner.EXEC_OUTPUT",
+              dirs["FALLBACK_EXEC_OUTPUT"]),
+        patch("owrap.commands.fallback.FallbackRunner.EXEC_LOG",
+              dirs["FALLBACK_EXEC_LOG"]),
+        patch("owrap.commands.fallback.FallbackRunner.EXEC_STATUS",
+              dirs["FALLBACK_EXEC_STATUS"]),
+        patch("owrap.commands.fallback.FallbackRunner.TASK_OUTPUT",
+              dirs["FALLBACK_TASK_OUTPUT"]),
+        patch("owrap.commands.fallback.FallbackRunner.TASK_LOG",
+              dirs["FALLBACK_TASK_LOG"]),
+        patch("owrap.commands.fallback.FallbackRunner.TASK_STATUS",
+              dirs["FALLBACK_TASK_STATUS"]),
+        patch("owrap.commands.run_cmd.FALLBACK_TASK",
+              dirs["FALLBACK_TASK"]),
+        patch("owrap.commands.run_cmd.RunRunner.FALLBACK_TASK",
+              dirs["FALLBACK_TASK"]),
+        patch("owrap.commands.read.FALLBACK_TASK",
+              dirs["FALLBACK_TASK"]),
+        patch("owrap.commands.read.ReadRunner.FALLBACK_TASK",
+              dirs["FALLBACK_TASK"]),
+        patch("owrap.commands.get_cmd.FALLBACK_PLAN",
+              dirs["FALLBACK_PLAN"]),
+        patch("owrap.commands.get_cmd.FALLBACK_TASK",
+              dirs["FALLBACK_TASK"]),
+        patch("owrap.commands.get_cmd.FALLBACK_EXEC_OUTPUT",
+              dirs["FALLBACK_EXEC_OUTPUT"]),
+        patch("owrap.commands.get_cmd.FALLBACK_TASK_OUTPUT",
+              dirs["FALLBACK_TASK_OUTPUT"]),
     ]
 
     for p in patches:

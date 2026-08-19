@@ -1,4 +1,6 @@
-"""Session status and task monitoring."""
+"""
+Session status and task monitoring.
+"""
 
 import json
 import os
@@ -10,7 +12,7 @@ from ..base import BaseRunner
 from ..utils.paths import (
     RUNNING_DIR, RECENTLY_DONE_DIR, session_input,
     _read_config, SERVER_LOGS_DIR, SESSION_DIR, STATS_FILE,
-    KEEPALIVE_PID_FILE, KEEPALIVE_STATE_FILE,
+    KEEPALIVE_PID_FILE, KEEPALIVE_STATE_FILE, RUNTIME_LOG,
 )
 
 
@@ -149,8 +151,7 @@ class StatRunner(BaseRunner):
                 ka_extra = ""
                 if keepalive_state_file.exists():
                     try:
-                        import json as _json
-                        ks = _json.loads(keepalive_state_file.read_text())
+                        ks = json.loads(keepalive_state_file.read_text())
                         idle_since = ks.get("idle_since")
                         idle_exit_s = ks.get("idle_exit_s", 300)
                         if idle_since is not None:
@@ -162,11 +163,17 @@ class StatRunner(BaseRunner):
                             ka_extra = "  active"
                     except Exception:
                         pass
-                print(f"  keepalive: pid={kpid} running{ka_extra}\n")
+                print(f"  keepalive: pid={kpid} running{ka_extra}")
             except (ValueError, OSError):
-                print("  keepalive: stopped\n")
+                print("  keepalive: stopped")
         else:
-            print("  keepalive: stopped\n")
+            print("  keepalive: stopped")
+        if RUNTIME_LOG.exists():
+            sz = RUNTIME_LOG.stat().st_size
+            print(f"  rtlog: {RUNTIME_LOG} ({sz // 1024} KB)")
+        else:
+            print(f"  rtlog: {RUNTIME_LOG} (empty)")
+        print()
 
         from ..utils.pool import get_pool, _active_load, _estimate_remaining
         pool = get_pool()
@@ -179,7 +186,7 @@ class StatRunner(BaseRunner):
             label = "server:" if n == 1 else f"servers ({n}):"
             print(f"  {label}")
             cfg = _read_config()
-            idle_shutdown_s = float(cfg.get("idle_shutdown_s", 600))
+            idle_shutdown_s = float(cfg.get("idle_shutdown_s", 300))
             now = time.time()
             for i, entry in enumerate(pool):
                 if i > 0:

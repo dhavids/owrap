@@ -15,7 +15,8 @@ from ..utils.paths import (
 
 
 class UpdateHomeRunner(BaseRunner):
-    """Point OWRAP_HOME at a new path.
+    """
+    Point OWRAP_HOME at a new path.
 
     Default: lightweight repoint — just updates the pointer file. Use this when the
     target already has valid content (e.g. a synced mount from another machine) or is
@@ -34,10 +35,13 @@ class UpdateHomeRunner(BaseRunner):
         else:
             self._run_repoint(current_home, target, dry_run)
 
+
     # Lightweight repoint (default)
 
     def _validate_repoint(self, current_home: Path, target: Path) -> str | None:
-        """Validate inputs for a lightweight repoint; return error string or None."""
+        """
+        Validate inputs for a lightweight repoint; return error string or None.
+        """
         if target == current_home:
             return "target path is the same as the current OWRAP_HOME"
         if target.exists() and target.is_file():
@@ -78,6 +82,7 @@ class UpdateHomeRunner(BaseRunner):
             "Note: any shell with OWRAP_HOME already exported will keep "
             "overriding the pointer file until updated/unset there."
         )
+
 
     # Full migration (--migrate)
 

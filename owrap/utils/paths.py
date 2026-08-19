@@ -29,12 +29,14 @@ TEMPLATES_DIR = OWRAP_ROOT / "templates"
 CONFIGS_DIR = RUNTIME_HOME / "configs"
 BASE_CONFIG_FILE = CONFIGS_DIR / "base.json"
 
+
 # Session-scoped paths
 SESSION_DIR = OWRAP_HOME
 RUNNING_DIR = SESSION_DIR / "running"
 RECENTLY_DONE_DIR = SESSION_DIR / "recently_done"
 SERVERS_DIR = SESSION_DIR / "servers"
 TRASH_DIR = OWRAP_HOME / ".trash"
+
 
 # Runtime output paths (all under DOCS_DIR)
 RUN_DIR = DOCS_DIR / "run"
@@ -43,6 +45,9 @@ INPUT_FILE = TASKS_DIR / "input.md"
 RUN_LOG = RUN_DIR / "log.md"
 
 SERVER_LOGS_DIR = RUNTIME_HOME / "logs"
+RUNTIME_LOG = RUNTIME_DIR / "runtime.log"
+RUNTIME_LOG_MAX_BYTES = 5 * 1024 * 1024
+RUNTIME_LOG_GENERATIONS = 3
 
 SERVER_LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -77,13 +82,13 @@ _config_cache_stat: tuple | None = None
 
 
 def _resolve_owrap_home() -> Path:
-    """Resolve the OWRAP_HOME directory: $OWRAP_HOME env var >
+    """
+    Resolve the OWRAP_HOME directory: $OWRAP_HOME env var >
     ~/.owrap_home pointer file > ~/.owrap default.
 
     The pointer file lives at a fixed location outside the relocatable
-    directory itself (so it can always be found regardless of where
-    OWRAP_HOME currently points), and is what `owrap update-home`
-    rewrites when relocating.
+    directory itself, and is what `owrap update-home` rewrites when
+    relocating.
     """
     env_val = os.environ.get("OWRAP_HOME", "").strip()
     if env_val:
@@ -103,14 +108,18 @@ def session_dir(session_id: str) -> Path:
 
 
 def session_log(base_log: Path, session_id: str) -> Path:
-    """Return session-scoped log path, or base_log if no session."""
+    """
+    Return session-scoped log path, or base_log if no session.
+    """
     if session_id:
         return session_dir(session_id) / base_log.parent.name / base_log.name
     return base_log
 
 
 def session_input(session_id: str) -> Path:
-    """Return session-scoped input path, or INPUT_FILE if no session."""
+    """
+    Return session-scoped input path, or INPUT_FILE if no session.
+    """
     if session_id:
         return session_dir(session_id) / "run" / "input.md"
     return INPUT_FILE
@@ -153,7 +162,8 @@ def session_agent_full_log_dir(session_id: str) -> Path:
 
 
 def _read_config() -> dict:
-    """Read base config merged with the default workspace config.
+    """
+    Read base config merged with the default workspace config.
 
     Base keys are overridden by workspace keys.
     """
@@ -178,7 +188,8 @@ def _read_config() -> dict:
 
 
 def get_workspace_config(workspace_name: str) -> dict:
-    """Read workspace-scoped config from
+    """
+    Read workspace-scoped config from
     ~/.owrap/configs/<workspace_name>.json.
 
     Returns {} if missing.
@@ -193,7 +204,8 @@ def get_workspace_config(workspace_name: str) -> dict:
 
 
 def get_project_config(project_name: str) -> dict:
-    """Read per-project config from ~/.owrap/configs/<project_name>.json.
+    """
+    Read per-project config from ~/.owrap/configs/<project_name>.json.
 
     Returns {} if missing.
     """
@@ -215,7 +227,8 @@ def get_dispatch_model(
     override: str | None = None,
     default_to_fast: bool = False,
 ) -> str | None:
-    """Resolve the model to pass to `opencode run` for an owrap dispatch.
+    """
+    Resolve the model to pass to `opencode run` for an owrap dispatch.
 
     Resolution order:
     1. override argument (e.g. CLI --model)
@@ -237,7 +250,8 @@ def staged_dir(project_name: str):
 
 
 def get_plan_path(session_id: str) -> Path:
-    """Return session-scoped plan path.
+    """
+    Return session-scoped plan path.
 
     session_id is required (always set after owrap start).
     """
@@ -245,7 +259,8 @@ def get_plan_path(session_id: str) -> Path:
 
 
 def get_self_path() -> Path:
-    """Return self.md path: research_root/self.md if configured,
+    """
+    Return self.md path: research_root/self.md if configured,
     else DOCS_DIR/self.md fallback.
     """
     config = _read_config()
@@ -262,7 +277,9 @@ def get_self_path() -> Path:
 
 
 def get_agents_md_path() -> Path | None:
-    """Return AGENTS.md path from workspace config, or None if not configured."""
+    """
+    Return AGENTS.md path from workspace config, or None if not configured.
+    """
     config = _read_config()
     default_ws = config.get("default_workspace")
     if default_ws:
@@ -276,7 +293,9 @@ def get_agents_md_path() -> Path | None:
 
 
 def get_claude_md_path() -> Path | None:
-    """Return CLAUDE.md path from workspace config, or None if not configured."""
+    """
+    Return CLAUDE.md path from workspace config, or None if not configured.
+    """
     config = _read_config()
     default_ws = config.get("default_workspace")
     if default_ws:
@@ -290,7 +309,9 @@ def get_claude_md_path() -> Path | None:
 
 
 def resolve_general_instruction_path(session_id: str | None) -> Path | None:
-    """Return CLAUDE.md if session has a claude_session_id, else AGENTS.md."""
+    """
+    Return CLAUDE.md if session has a claude_session_id, else AGENTS.md.
+    """
     if session_id:
         from .session_resolver import _parse, session_file as _sf
         try:
@@ -303,7 +324,8 @@ def resolve_general_instruction_path(session_id: str | None) -> Path | None:
 
 
 def get_workspace_path() -> Path:
-    """Return workspace from workspace config, else fall back to
+    """
+    Return workspace from workspace config, else fall back to
     research_root parent or DOCS_DIR parent.
     """
     config = _read_config()
@@ -339,12 +361,16 @@ def server_state_file(port: int) -> Path:
 
 
 def context_path(session_id: str) -> Path:
-    """Return session-scoped context file path."""
+    """
+    Return session-scoped context file path.
+    """
     return session_dir(session_id) / "context.md"
 
 
 def format_failure_pointer(failure_code: str, session_id: str | None = None) -> str:
-    """Format #DO NOW failure message with resolved instruction path and section."""
+    """
+    Format #DO NOW failure message with resolved instruction path and section.
+    """
     from ..constants import FAILURE_POINTERS
     target, section = FAILURE_POINTERS.get(failure_code, ("self", "Update Context"))
     if target == "self":
@@ -357,5 +383,7 @@ def format_failure_pointer(failure_code: str, session_id: str | None = None) -> 
 
 
 def context_lock_path(session_id: str) -> Path:
-    """Return session-scoped context lock file path."""
+    """
+    Return session-scoped context lock file path.
+    """
     return session_dir(session_id) / "context.lock"

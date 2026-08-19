@@ -1,4 +1,5 @@
 import json
+import os
 import time
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -180,3 +181,72 @@ def test_legacy_dirs_created_without_session(monkeypatch, isolate_owrap_dirs):
     from owrap.manager import Manager
     m = Manager()
     assert isolate_owrap_dirs["TASKS_DIR"].exists()
+
+
+def test_start_resolves_pid_from_marker(tmp_path, monkeypatch):
+    from owrap.manager import Manager
+    manager = _make_manager()
+    manager._state_file = str(tmp_path / "state.json")
+    manager._logger = None
+    monkeypatch.setattr("owrap.manager.SESSION_DIR", tmp_path)
+    monkeypatch.setattr("owrap.manager.SERVER_LOGS_DIR", tmp_path / "logs")
+    (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+    def fake_popen(*args, **kwargs):
+        kwargs["stdout"].write(
+            "OWRAP_PID=22222\n"
+            "opencode server listening on http://127.0.0.1:4096\n"
+        )
+        kwargs["stdout"].flush()
+        m = MagicMock()
+        m.pid = 11111
+        m.poll.return_value = None
+        return m
+
+    with patch("subprocess.Popen", side_effect=fake_popen), \
+         patch("time.sleep", return_value=None):
+        url = manager.start(port=4096)
+
+    assert url == "http://127.0.0.1:4096"
+    state = manager._read_state()
+    assert state["pid"] == 22222
+
+
+def test_start_falls_back_to_popen_pid_without_marker(tmp_path, monkeypatch):
+    from owrap.manager import Manager
+    manager = _make_manager()
+    manager._state_file = str(tmp_path / "state.json")
+    manager._logger = None
+    monkeypatch.setattr("owrap.manager.SESSION_DIR", tmp_path)
+    monkeypatch.setattr("owrap.manager.SERVER_LOGS_DIR", tmp_path / "logs")
+    (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+    def fake_popen(*args, **kwargs):
+        kwargs["stdout"].write(
+            "opencode server listening on http://127.0.0.1:4097\n"
+        )
+        kwargs["stdout"].flush()
+        m = MagicMock()
+        m.pid = 11111
+        m.poll.return_value = None
+        return m
+
+    with patch("subprocess.Popen", side_effect=fake_popen), \
+         patch("time.sleep", return_value=None):
+        url = manager.start(port=4097)
+
+    assert url == "http://127.0.0.1:4097"
+    state = manager._read_state()
+    assert state["pid"] == 11111
+
+
+def test_resolve_log_file_always_none(tmp_path):
+    from owrap.manager import Manager
+    manager = _make_manager()
+    manager._state_file = str(tmp_path / "state.json")
+    manager._resolve_log_file()
+    assert manager._log_file is None
+
+    manager._write_state({"pid": os.getpid(), "url": "http://x", "port": 1})
+    manager._resolve_log_file()
+    assert manager._log_file is None

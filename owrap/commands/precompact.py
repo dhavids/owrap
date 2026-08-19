@@ -16,10 +16,14 @@ MAX_EXCERPT_CHARS = 4000
 
 
 class PrecompactWorkerRunner:
-    """Process precompact worker tasks by summarizing assistant transcript text."""
+    """
+    Process precompact worker tasks by summarizing assistant transcript text.
+    """
 
     def run(self, input_path: Path = None):
-        """Execute a precompact worker run from the given input path."""
+        """
+        Execute a precompact worker run from the given input path.
+        """
         if input_path is None:
             print("precompact-worker: --input required", file=sys.stderr)
             sys.exit(1)
@@ -179,10 +183,14 @@ class PrecompactWorkerRunner:
 
 
 class PrecompactRunner:
-    """Receive precompact hook data and dispatch a background worker."""
+    """
+    Receive precompact hook data and dispatch a background worker.
+    """
 
     def run(self):
-        """Read hook data from stdin and spawn a precompact worker process."""
+        """
+        Read hook data from stdin and spawn a precompact worker process.
+        """
         try:
             hook_data = json.load(sys.stdin)
         except (json.JSONDecodeError, EOFError):

@@ -27,7 +27,34 @@ def _print_scoped_help(sub, subcmd):
 
 
 class OwrapArgumentParser(argparse.ArgumentParser):
-    """ArgumentParser that shows the failing subcommand's own help on error."""
+    """
+    ArgumentParser that shows the failing subcommand's own help on error.
+    """
+
+    def error(self, message):
+        subcmd = None
+        sub = None
+        if self._subparsers is not None:
+            for action in self._subparsers._actions:
+                choices = getattr(action, "choices", None)
+                if choices:
+                    for arg in sys.argv[1:]:
+                        if arg in choices:
+                            subcmd = arg
+                            sub = choices[arg]
+                            break
+                if subcmd:
+                    break
+        if subcmd is None:
+            self.print_usage(sys.stderr)
+        print(f"{self.prog}: error: {message}", file=sys.stderr)
+        if "unrecognized arguments" in message and sub is not None:
+            hint = self._reconstruct_hint(sub, subcmd)
+            if hint:
+                print(f"\nTip: {hint}.", file=sys.stderr)
+        if subcmd and sub:
+            _print_scoped_help(sub, subcmd)
+        sys.exit(2)
 
     def _reconstruct_hint(self, sub, subcmd):
         flag_map = {}
@@ -93,28 +120,3 @@ class OwrapArgumentParser(argparse.ArgumentParser):
         if pos_str and flag_str:
             return f"put '{pos_str}' before '{flag_str.split()[0]}'"
         return None
-
-    def error(self, message):
-        subcmd = None
-        sub = None
-        if self._subparsers is not None:
-            for action in self._subparsers._actions:
-                choices = getattr(action, "choices", None)
-                if choices:
-                    for arg in sys.argv[1:]:
-                        if arg in choices:
-                            subcmd = arg
-                            sub = choices[arg]
-                            break
-                if subcmd:
-                    break
-        if subcmd is None:
-            self.print_usage(sys.stderr)
-        print(f"{self.prog}: error: {message}", file=sys.stderr)
-        if "unrecognized arguments" in message and sub is not None:
-            hint = self._reconstruct_hint(sub, subcmd)
-            if hint:
-                print(f"\nTip: {hint}.", file=sys.stderr)
-        if subcmd and sub:
-            _print_scoped_help(sub, subcmd)
-        sys.exit(2)

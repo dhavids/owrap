@@ -49,8 +49,8 @@ def test_input_empty_prints_donow(mock_manager, capsys, tmp_path):
     assert "INPUT_EMPTY" in captured.err or "INPUT_EMPTY" in captured.out
 
 
-def test_timed_out_prints_donow(mock_manager, capsys):
-    """TIMED_OUT: timeout prints #DO NOW."""
+def test_timed_out_prints_timeout_message(mock_manager, capsys):
+    """Timeout prints the timeout message, no #DO NOW pointer."""
     mock_manager.ensure_running.return_value = "http://localhost:4096"
 
     with patch("owrap.commands.run_cmd.Terminal") as mock_terminal_cls, \
@@ -68,8 +68,9 @@ def test_timed_out_prints_donow(mock_manager, capsys):
                 runner.run(msg="hello")
 
     captured = capsys.readouterr()
-    assert "#DO NOW" in captured.out
-    assert "TIMED_OUT" in captured.out
+    assert "timed out after" in captured.out
+    assert "rerun with -t" in captured.out
+    assert "#DO NOW" not in captured.out
 
 
 def test_no_server_prints_donow(mock_manager, capsys):

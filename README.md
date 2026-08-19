@@ -1,6 +1,6 @@
 # owrap
 
-Session-aware bridge between the planner (currently Claude Code) and opencode (executor). A planner instance designs plans and dispatches work; an opencode-backed executor does the actual reading, writing, and running. owrap provides background task dispatch, parallel session isolation, and graceful server lifecycle management.
+Session-aware bridge between the planner (currently Claude Code) and opencode (executor). A planner instance designs plans and dispatches work; an opencode-backed executor does the actual reading, writing, and running. owrap provides background agents and task dispatch, parallel session isolation, and graceful server lifecycle management.
 
 ## Requirements
 
@@ -30,7 +30,9 @@ owrap start <research> [area] [child]  # generate session ID, start server, prin
 
 ## OWRAP_HOME
 
-`OWRAP_HOME` resolves in this order: `$OWRAP_HOME` env var (if set) > contents of `~/.owrap_home` pointer file (if it exists) > default `~/.owrap`. Both the Python package and every bash shim (`owrap`, `orun`, `oexec`, `owait`, `oread`) resolve it the same way. For relocation, use `owrap update-home <path>` (pointer-only) or `--migrate` (full atomic move with backup) — see `self.md` § OWRAP_HOME for the full behavior.
+`OWRAP_HOME` resolves in this order: `$OWRAP_HOME` env var (if set) > contents of `~/.owrap_home` pointer file (if it exists) > default `~/.owrap`. Both the Python package and every bash shim (`owrap`, `orun`, `oexec`, `owait`, `oread`) resolve it the same way. 
+
+For relocation, use `owrap update-home <path>` to move only the pointer or `--migrate` to perform a full atomic relocation of the owrap runtime directory. See [self.md § OWRAP_HOME](templates/self.md#owrap_home) for the full behavior.
 
 ## Configuration
 
@@ -38,7 +40,7 @@ Base config: `templates/config.json` → copy to `OWRAP_HOME/configs/base.json`.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `owrap_enabled` | bool | `true` | Master on/off switch. When `false`, dispatch tooling is disabled and all commands pass through directly. |
+| `owrap_enabled` | bool | `true` | Master on/off switch. When `false`, dispatch tooling is disabled and planner is unrestricted. |
 | `allow_all` | bool | `false` | Always pass `--dangerously-skip-permissions` to opencode. |
 | `oread` | bool | `true` | Require file reads through `oread` (enables Read in permission matcher). |
 | `context_enabled` | bool | `true` | Inject session context file into task/msg prompts. |
@@ -49,13 +51,13 @@ Base config: `templates/config.json` → copy to `OWRAP_HOME/configs/base.json`.
 | `max_servers` | int | `1` | Maximum concurrent opencode servers. |
 | `min_servers` | int | `1` | Minimum live servers the keepalive maintains. |
 | `max_requests_per_server` | int | `10` | Request quota per server before graceful eviction. |
-| `idle_shutdown_s` | float | `240` | Idle seconds before server shutdown. |
+| `idle_shutdown_s` | float | `300` | Idle seconds before server shutdown. |
 | `keepalive_interval_s` | float | `10` | Seconds between keepalive ping cycles. |
 | `keepalive_idle_exit_s` | float | `1800` | Seconds with empty pool before keepalive exits. |
 | `keepalive_ping_model` | string | — | Model used for keepalive pings. |
 | `exec_model` | string | — | Default model for exec dispatches. |
-| `msg_kill_s` / `task_kill_s` / `exec_kill_s` | int | `30`/`60`/`120` | Kill timeouts for msg, task, exec jobs. |
-| `stall_notify_s` | int | `120` | Seconds before stalling job notification. |
+| `msg_kill_s` / `task_kill_s` / `exec_kill_s` | int | `30`/`60`/`120` | No output kill timeouts for msg, task, exec jobs. |
+| `stall_notify_s` | int | `120` | Seconds before notification for a stalled job. |
 | `watchdog_poll_s` | int | `10` | Watchdog polling interval. |
 | `expected_duration_*` | int | varies | Expected duration thresholds for msg/read/task/exec. |
 
@@ -63,41 +65,40 @@ Base config: `templates/config.json` → copy to `OWRAP_HOME/configs/base.json`.
 
 ### Task dispatch (`orun`)
 
-Dispatches inline messages, file tasks, and parallel jobs to the executor. Most common: `orun --msg "..."` (foreground) or `orun` (file task from `input.md`, auto-background). See `self.md` § orun for the full flag reference.
+Dispatches inline messages, file tasks, and parallel jobs to the executor. Most common: `orun --msg "..."` (foreground) or `orun` (file task from `input.md`, auto-background). See [self.md § orun](templates/self.md#orun-task-dispatch-opencode) for the full flag reference.
 
 ### Plan execution (`oexec`)
 
-Executes the active `[ACTIVE]` plan block. Most common: `oexec` (auto-background). See `self.md` § oexec for the full flag reference.
+Executes the active `[ACTIVE]` plan block. Most common: `oexec` (auto-background). See [self.md § oexec](templates/self.md#oexec-plan-execution-opencode) for the full flag reference.
 
 ### Sub-agent dispatch (`oagent`)
 
-Dispatches sub-agent payloads via heredoc with configurable timeout and model override. Most common: `oagent <<'OAGENT_PAYLOAD_END' ... OAGENT_PAYLOAD_END`. See `self.md` § oagent for the full flag reference.
+Dispatches sub-agent payloads via heredoc with configurable timeout and model override. Most common: `oagent <<'OAGENT_PAYLOAD_END' ... OAGENT_PAYLOAD_END`. See [self.md § oagent](templates/self.md#oagent-subagent-dispatch-opencode) for the full flag reference.
 
 ### Fallback dispatch (`owrap f`)
 
-Runs `--execf` or `--taskf` directly without the server pool; mode inferred from filename. See `self.md` § Fallbacks for the full behavior including stall detection and status fields.
+Runs `--execf` or `--taskf` directly without the server pool; mode inferred from filename. See [self.md § Fallbacks](templates/self.md#fallbacks) for the full behavior including stall detection and status fields.
 
 ### File reading (`oread`)
 
-Reads files, directories, grep patterns, summaries, and targeted queries through the executor. Most common: `oread -f <file>`. See `self.md` § oread for the full flag reference.
+Reads files, directories, grep patterns, summaries, and targeted queries through the executor. Most common: `oread -f <file>`. See [self.md § oread](templates/self.md#oread-file-reading-opencode) for the full flag reference.
 
 ### Notebook reading (`nbread`)
 
-Lists and displays Jupyter notebook cells. Most common: `nbread <nb.ipynb>` (list cells) or `nbread <nb.ipynb> <N>` (show cell N). See `self.md` § nbread for the full flag reference.
+Lists and displays Jupyter notebook cells. Most common: `nbread <nb.ipynb>` (list cells) or `nbread <nb.ipynb> <N>` (show cell N). See [self.md § nbread](templates/self.md#nbread-notebook-reading) for the full flag reference.
 
 ### Session lifecycle
 
-Manages sessions, servers, templates, and research areas. Key commands: `owrap start <research>` (begin session), `owrap refresh` (re-validate), `owrap stop` / `owrap end` (end session), `owrap sync` (re-stage templates), `owrap stat` (inspect state), `owrap get <what>` (read session files). See `self.md` § owrap for the full flag reference.
+Manages sessions, servers, templates, and research areas. Key commands: `owrap start <research>` (begin session), `owrap refresh` (re-validate), `owrap stop` / `owrap end` (end session), `owrap sync` (re-stage templates), `owrap stat` (inspect state), `owrap get <what>` (read session files). See [self.md § owrap](templates/self.md#owrap-session-management) for the full flag reference.
 
 ### Wait (`owait`)
 
-Blocks until dispatched jobs complete. Most common: `owait input` (between parallel dispatches) or `owait run` (next task completion). See `self.md` § owait for the full flag reference.
+Blocks until dispatched jobs complete. Most common: `owait input` (between parallel dispatches) or `owait run` (next task completion). See [self.md § owait](templates/self.md#owait-dispatch-coordinator) for the full flag reference.
 
 ## Server Management
 
-- **Graceful draining**: Unresponsive servers or those hitting their request quota are marked *draining* — no new work is routed to them, but in-flight requests complete. They are reaped once idle, not killed outright.
+- **Graceful draining**: Unresponsive servers or those hitting their request quota are marked *draining*. In this state, no new work is routed to them, but in-flight requests are allowed to finish. The servers are then reaped once idle, not killed outright.
 - **Keepalive**: Pings servers periodically, shuts down idle ones. Runs automatically when pool is active.
-- `owrap trim` — Kill pool servers with no active sessions.
 - `owrap killservers [--session <id>]` — Kill all servers and running tasks.
 
 ## Timeouts
@@ -113,27 +114,27 @@ The 600s hard wall-clock timeout on task/exec dispatches can be overridden per-i
 
 ## Duration defaults
 
-Expected-duration thresholds used by the watchdog to judge stalls (e.g. `expected_duration_msg`, `expected_duration_task`, kill timeouts). See `self.md` § Duration defaults for the full table.
+Expected-duration thresholds used by the watchdog to judge stalls (e.g. `expected_duration_msg`, `expected_duration_task`, kill timeouts). See [self.md § Duration defaults](templates/self.md#duration-defaults) for the full table.
 
 ## Exit codes
 
-See `self.md` § Exit codes for the full table and redispatch guidance.
+See [self.md § Exit codes](templates/self.md#exit-codes) for the full table and redispatch guidance.
 
 ## Parallel Task Dispatch
 
-Write a task to the session `input.md`, dispatch with `orun`, then `owait input` before writing the next — up to 5 tasks can run simultaneously. Collect results with `owait run` per completion. See `self.md` § orun for the full dispatch pattern and flag reference.
+Write a task to the session `input.md`, dispatch with `orun`, then `owait input` before writing the next — up to 5 tasks can run simultaneously. Collect results with `owait run` per completion. See [self.md § orun](templates/self.md#orun-task-dispatch-opencode) for the full dispatch pattern and flag reference.
 
 ## Troubleshooting
 
 **No server available / NO_SERVER error**: Run `owrap stat` to check pool status. Servers hitting `max_requests_per_server` are gracefully drained and replaced. Use `owrap f <path>` as a fallback that bypasses the pool entirely.
 
-**Task/exec times out**: Default ceilings are 600s. Extend with `-t <secs>`. If the job is stuck, `owrap finish <target>` sends SIGTERM.
+**Task/exec times out**: Default ceilings are 600s. Extend with `-t <secs>`. If the job is stuck, `owrap abort <target>` sends SIGTERM.
 
 **Stalled job notification**: After `stall_notify_s` (default 120s) with no output, a watchdog notification fires. If the server is unresponsive, it is marked draining and will be reaped when idle.
 
 **Template changes not picked up**: Run `owrap sync`, then dispatch the sync task it prints via `orun`.
 
-**owrap_enabled = false**: All dispatch tooling is disabled; commands pass through directly to opencode. Useful for debugging or when you want raw opencode behavior.
+**owrap_enabled = false**: All dispatch tooling is disabled; planner is unrestricted and can directly run commands.
 
 ## Tests
 
@@ -141,4 +142,4 @@ Write a task to the session `input.md`, dispatch with `orun`, then `owait input`
 cd owrap && python3 -m pytest tests/ -v
 ```
 
-All output is isolated to `tmp_path` per test. Servers are killed before and after the full suite. See `tests/md/run_tests.md` for the coverage table and manual smoke tests.
+All output is isolated to `tmp_path` per test. Servers are killed before and after the full suite. See [tests/md/run_tests.md](tests/md/run_tests.md) for the coverage table and manual smoke tests.

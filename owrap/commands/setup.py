@@ -20,7 +20,9 @@ def _write_base(data: dict):
 
 
 class SetupRunner:
-    """Create per-workspace config + stage templates. Does not run orun; planner does."""
+    """
+    Create per-workspace config + stage templates. Does not run orun; planner does.
+    """
 
     def run(self, path=None, project_name=None, workspace=None, research_root=None,
             allow_all=None, oread=None):

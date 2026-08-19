@@ -1,6 +1,8 @@
 import argparse
 import json
 import os
+import re
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -107,7 +109,9 @@ def _mint_from(old_sid, parent_sid=None):
 
 
 class StartRunner(BaseRunner):
-    """Initialize a new owrap session, resolve workspace, and print orientation."""
+    """
+    Initialize a new owrap session, resolve workspace, and print orientation.
+    """
 
     def run(self, shell_pid=None, session_file=None, research=None,
             session_id=None, area=None, child=None):
@@ -202,7 +206,6 @@ class StartRunner(BaseRunner):
         _old_docs = Path(__file__).resolve().parents[2] / "docs"
         _new_docs = SESSION_DIR / "docs"
         if _old_docs.exists() and any(_old_docs.iterdir()):
-            import shutil
             _new_docs.mkdir(parents=True, exist_ok=True)
             shutil.copytree(str(_old_docs), str(_new_docs), dirs_exist_ok=True)
             shutil.rmtree(str(_old_docs))
@@ -217,7 +220,6 @@ class StartRunner(BaseRunner):
         self.manager._housekeeping()
         self.manager.refresh_context_plan(plan_path)
         # Auto-populate Focus from research project file on first create
-        import re as _re
         cp2 = context_path(session_id)
         if cp2.exists() and research:
             _ct = cp2.read_text()
@@ -225,7 +227,7 @@ class StartRunner(BaseRunner):
                 _proj = get_todo_path(research)
                 if _proj.exists():
                     _proj_text = _proj.read_text()
-                    _m = _re.search(r"current_phase:\s*(\d+)", _proj_text)
+                    _m = re.search(r"current_phase:\s*(\d+)", _proj_text)
                     if _m:
                         _focus = f"Phase {_m.group(1)}"
                         _ct = _ct.replace(
@@ -262,11 +264,15 @@ class StartRunner(BaseRunner):
 
 
 class RefreshRunner(BaseRunner):
-    """Refresh an existing owrap session's context and re-print orientation."""
+    """
+    Refresh an existing owrap session's context and re-print orientation.
+    """
 
     def run(self, shell_pid=None, session_file=None, research=None,
             session_id=None, area=None):
-        """Execute the refresh workflow: validate session, update context, and exit."""
+        """
+        Execute the refresh workflow: validate session, update context, and exit.
+        """
         if session_id is not None:
             session_path = SESSION_DIR / "sessions" / f"{session_id}.session"
             if not session_path.exists():
@@ -356,10 +362,14 @@ class RefreshRunner(BaseRunner):
 
 
 class AttachRunner(BaseRunner):
-    """Attach to an existing owrap session by ID and print orientation."""
+    """
+    Attach to an existing owrap session by ID and print orientation.
+    """
 
     def run(self, target_session_id=None):
-        """Attach to the given session and re-export its environment variables."""
+        """
+        Attach to the given session and re-export its environment variables.
+        """
         if not target_session_id:
             print("ERROR: owrap attach <session_id> — missing session_id.")
             print()
@@ -412,11 +422,15 @@ class AttachRunner(BaseRunner):
 
 
 class RestartRunner(BaseRunner):
-    """Stop and immediately re-start an owrap session."""
+    """
+    Stop and immediately re-start an owrap session.
+    """
 
     def run(self, shell_pid=None, session_file=None, research=None,
             force=False, session_id=None):
-        """Stop the current session and start a fresh one with the same parameters."""
+        """
+        Stop the current session and start a fresh one with the same parameters.
+        """
         if self.logger:
             self.logger.info(
                 "restart initiated research=%s force=%s session_id=%s",
@@ -434,10 +448,14 @@ class RestartRunner(BaseRunner):
 
 
 class UpdateAreaRunner(BaseRunner):
-    """Update the area (and optionally research) of the current session."""
+    """
+    Update the area (and optionally research) of the current session.
+    """
 
     def run(self, research=None, area=None, child=None):
-        """Update session fields and re-print orientation with the new area."""
+        """
+        Update session fields and re-print orientation with the new area.
+        """
         session_id, _, _ = resolve(mode="refresh")
         if research:
             update_session_field(session_id, "research", research)
@@ -467,10 +485,14 @@ class UpdateAreaRunner(BaseRunner):
 
 
 class SpawnRunner(BaseRunner):
-    """Spawn a child area under the current session's research and area."""
+    """
+    Spawn a child area under the current session's research and area.
+    """
 
     def run(self, child):
-        """Create a child area as a genuinely isolated new session."""
+        """
+        Create a child area as a genuinely isolated new session.
+        """
         parent_sid, parent_path, _ = resolve(mode="refresh")
         if not parent_sid:
             print("Error: no active session — run owrap start first",

@@ -21,7 +21,7 @@ _owrap_complete() {
     # Top-level: complete subcommands and top-level flags
     if [[ ${COMP_CWORD} -eq 1 ]]; then
         COMPREPLY=( $(compgen -W "start stop end refresh attach restart setup \
-sync read run exec work stat cleanup restore agent finish agents killservers \
+sync read run exec work stat cleanup restore agent abort agents killservers \
 f update-area spawn update-home precompact precompact-worker get keepalive p \
 wait -a --allow-all" -- "${cur}") )
         return 0
@@ -173,7 +173,7 @@ bullets" -- "${cur}") )
 --debug --log-time --clear --disablewd" -- "${cur}") )
                 return 0
                 ;;
-            finish)
+            abort)
                 COMPREPLY=( $(compgen -W "--session" -- "${cur}") )
                 return 0
                 ;;
@@ -285,7 +285,7 @@ bullets" -- "${cur}") )
 --model --debug --log-time --clear --disablewd" -- "${cur}") ) ;;
             esac
             ;;
-        finish)
+        abort)
             case $pos_count in
                 0)  COMPREPLY=() ;;
                 *)  COMPREPLY=( $(compgen -W "--session" -- "${cur}") ) ;;

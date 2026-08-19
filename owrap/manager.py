@@ -28,6 +28,7 @@ from .utils.paths import (
     session_task_output_dir, session_agent_full_log_dir,
 )
 from .utils.trash import sweep_trash, move_to_trash
+from .utils import rtlog
 from .utils.session_resolver import (
     _parse as _parse_session, _clear_anchor,
     BY_CCSID_DIR, BY_OPENCODE_RUN_ID_DIR,
@@ -40,7 +41,9 @@ _health_cache: dict[str, tuple[bool, float]] = {}
 
 
 class Manager:
-    """Manages the owrap server lifecycle, task tracking, and session context."""
+    """
+    Manages the owrap server lifecycle, task tracking, and session context.
+    """
 
     TASKS_DIR = TASKS_DIR
     STATE_FILE = STATE_FILE
@@ -93,13 +96,21 @@ class Manager:
         return session_input(self.session_id)
 
     def start(self, port=4096):
-        """Start the opencode server on the given port and return its URL."""
+        """
+        Start the opencode server on the given port and return its URL.
+        """
         SESSION_DIR.mkdir(parents=True, exist_ok=True)
         self._kill_port_occupant(port)
         tmp_log = SESSION_DIR / f"owrap_start_{int(time.time())}.log"
         log_fd = open(tmp_log, "w")
+        script = (
+            'opencode serve --port "$1" & '
+            'echo "OWRAP_PID=$!"; '
+            'wait $!; '
+            'echo "OWRAP_EXIT=$?"'
+        )
         proc = subprocess.Popen(
-            ["opencode", "serve", "--port", str(port)],
+            ["sh", "-c", script, "sh", str(port)],
             stdout=log_fd,
             stderr=log_fd,
             start_new_session=True,
@@ -113,10 +124,14 @@ class Manager:
             time.sleep(0.2)
             try:
                 content = tmp_log.read_text(errors="replace")
-                match = re.search(r"https?://\S+", content)
-                if match:
-                    url = match.group().rstrip()
-                    break
+                pid_match = re.search(r"OWRAP_PID=(\d+)", content)
+                if pid_match:
+                    pid = int(pid_match.group(1))
+                if url is None:
+                    match = re.search(r"https?://\S+", content)
+                    if match:
+                        url = match.group().rstrip()
+                        break
             except OSError:
                 pass
             if proc.poll() is not None:
@@ -130,7 +145,6 @@ class Manager:
             )
         log_file = str(SERVER_LOGS_DIR / f"owrap_{pid}.log")
         tmp_log.rename(log_file)
-        self._log_file = log_file
         state = {
             "pid": pid, "url": url, "port": port,
             "log_file": log_file, "tasks": {},
@@ -141,7 +155,9 @@ class Manager:
         return url
 
     def stop(self):
-        """Stop the running opencode server gracefully."""
+        """
+        Stop the running opencode server gracefully.
+        """
         state = self._read_state()
         if state is None:
             if self._logger:
@@ -178,7 +194,9 @@ class Manager:
             pass
 
     def get_url(self):
-        """Return the server URL if the server is running and responsive."""
+        """
+        Return the server URL if the server is running and responsive.
+        """
         state = self._read_state()
         if state is None:
             return None
@@ -200,18 +218,24 @@ class Manager:
         return url
 
     def get_server_url(self):
-        """Alias for get_url, used by BaseRunner."""
+        """
+        Return the server URL if the server is running and responsive.
+        """
         return self.get_url()
 
     def get_logger(self, name: str = "owrap", level: str = "INFO") -> logging.Logger:
-        """Create a logger using the manager's log_file path."""
+        """
+        Create a logger using the manager's log_file path.
+        """
         return get_logger(name, log_path=self._log_file, level=level)
 
     def set_logger(self, logger: logging.Logger):
         self._logger = logger
 
     def ensure_running(self, port=4096):
-        """Return the server URL, starting the server if not already running."""
+        """
+        Return the server URL, starting the server if not already running.
+        """
         url = self.get_url()
         if url is not None:
             if self._logger:
@@ -233,7 +257,9 @@ class Manager:
         self._t_cmd_end = time.time()
 
     def log_time(self, log_time=True):
-        """Print timing information for the last command execution."""
+        """
+        Print timing information for the last command execution.
+        """
         if not self._t_cmd_start or not self._t_cmd_end:
             return
         opencode = self._t_cmd_end - self._t_cmd_start
@@ -252,7 +278,9 @@ class Manager:
                 )
 
     def wait_for_input_clear(self, input_path, timeout=30, interval=1):
-        """Wait until the input file is empty or removed."""
+        """
+        Wait until the input file is empty or removed.
+        """
         deadline = time.time() + timeout
         while time.time() < deadline:
             if not input_path.exists() or input_path.stat().st_size == 0:
@@ -264,7 +292,9 @@ class Manager:
         return f"{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
 
     def register_task(self, task_id, call_type: str = "task"):
-        """Register a new task in the server state."""
+        """
+        Register a new task in the server state.
+        """
         state = self._read_state() or {}
         tasks = state.setdefault("tasks", {})
         tasks[str(task_id)] = {
@@ -275,7 +305,9 @@ class Manager:
         self._write_state(state)
 
     def complete_task(self, task_id):
-        """Mark a task as done and record timing information."""
+        """
+        Mark a task as done and record timing information.
+        """
         state = self._read_state()
         if state is None:
             return
@@ -303,7 +335,9 @@ class Manager:
         self._write_state(state)
 
     def cleanup_done_tasks(self):
-        """Remove completed tasks from state and disk."""
+        """
+        Remove completed tasks from state and disk.
+        """
         state = self._read_state()
         if state is None:
             return
@@ -334,7 +368,9 @@ class Manager:
         self._write_state(state)
 
     def cleanup_stale_msg_logs(self, max_age_hours: float = 24):
-        """Remove msg_*.log files older than max_age_hours from session-scoped dir."""
+        """
+        Remove msg_*.log files older than max_age_hours from session-scoped dir.
+        """
         if self.session_id:
             msg_dir = session_msg_output_dir(self.session_id)
             msg_dir.mkdir(parents=True, exist_ok=True)
@@ -369,7 +405,9 @@ class Manager:
         return 0
 
     def create_context(self):
-        """Create or update the session context file."""
+        """
+        Create or update the session context file.
+        """
         cp = self.context_path
         config = _read_config()
         research_root = config.get("research_root", "")
@@ -427,7 +465,9 @@ class Manager:
     def append_context_recent(
         self, title: str, rc: int, ctx: bool = True, kind: str = "msg",
     ):
-        """Append a recent action entry to the context file."""
+        """
+        Append a recent action entry to the context file.
+        """
         cp = self.context_path
         lock = context_lock_path(self.session_id)
         if not cp.exists():
@@ -491,7 +531,9 @@ class Manager:
             pass
 
     def update_frequent_files(self):
-        """Update the Frequent Files section from read log."""
+        """
+        Update the Frequent Files section from read log.
+        """
         cp = self.context_path
         lock = context_lock_path(self.session_id)
         read_log = self.read_log_path
@@ -538,8 +580,10 @@ class Manager:
             pass
 
     def refresh_context_plan(self, plan_path=None):
-        """Update ## Active Plan section from the first 3 uncompleted steps
-        in the active plan."""
+        """
+        Update ## Active Plan section from the first 3 uncompleted steps
+        in the active plan.
+        """
         cp = self.context_path
         if not cp.exists():
             return
@@ -587,7 +631,9 @@ class Manager:
             pass
 
     def start_watchdog(self):
-        """Start a background thread to periodically compress the context file."""
+        """
+        Start a background thread to periodically compress the context file.
+        """
         import threading
         if not self.session_id:
             return
@@ -667,20 +713,10 @@ class Manager:
         t.start()
 
     def _resolve_log_file(self):
-        """Set up log_file: reuse if server PID alive, new if not."""
-        state = self._read_state()
-        if state is None:
-            self._log_file = None
-            return
-        pid = state.get("pid")
-        if pid is not None:
-            try:
-                os.kill(pid, 0)
-                self._log_file = state.get("log_file")
-                return
-            except OSError:
-                pass
-        self._log_file = str(SERVER_LOGS_DIR / f"owrap_{pid or 'new'}.log")
+        """Do not route application logs into SERVER_LOGS_DIR.
+        rtlog is the record now.
+        """
+        self._log_file = None
 
     def _read_state(self):
         try:
@@ -729,7 +765,9 @@ class Manager:
             return False
 
     def _find_port_pids(self, port):
-        """Return PIDs listening on port by reading /proc/net/tcp (no external tools)."""
+        """
+        Return PIDs listening on port by reading /proc/net/tcp (no external tools).
+        """
         hex_port = format(port, '04X')
         inodes = set()
         for tcp_file in ('/proc/net/tcp', '/proc/net/tcp6'):
@@ -772,11 +810,17 @@ class Manager:
         return pids
 
     def _kill_port_occupant(self, port):
-        """Kill any process occupying the given port (orphan cleanup)."""
+        """
+        Kill any process occupying the given port (orphan cleanup).
+        """
         pids = self._find_port_pids(port)
         for pid in pids:
             try:
                 os.kill(pid, 15)
+                rtlog.log(
+                    "server.port_kill", pid=pid, port=port, signal=15,
+                    reason="port_occupant",
+                )
             except OSError:
                 pass
         if pids:
@@ -788,6 +832,10 @@ class Manager:
             for pid in pids:
                 try:
                     os.kill(pid, 9)
+                    rtlog.log(
+                        "server.port_kill", pid=pid, port=port, signal=9,
+                        reason="port_occupant_escalated",
+                    )
                 except OSError:
                     pass
             time.sleep(0.2)
@@ -821,7 +869,9 @@ class Manager:
             pass
 
     def _sweep_bare_sessions(self, sessions_dir):
-        """Move bare sessions (no research field, older than threshold) to trash."""
+        """
+        Move bare sessions (no research field, older than threshold) to trash.
+        """
         if not sessions_dir.exists():
             return
         now = time.time()
@@ -859,7 +909,9 @@ class Manager:
                 pass
 
     def _cap_context_sections(self, cp: Path):
-        """Ensure context file doesn't grow unbounded; keep each section bounded."""
+        """
+        Ensure context file doesn't grow unbounded; keep each section bounded.
+        """
         try:
             text = cp.read_text()
             lines = text.splitlines()
