@@ -1,3 +1,4 @@
+import difflib
 import os
 import secrets
 import time
@@ -173,6 +174,73 @@ def _clear_anchor(target_sid: str, pointer_dir: Path):
     for ptr in pointer_dir.iterdir():
         if ptr.is_file() and ptr.read_text().strip() == target_sid:
             ptr.unlink(missing_ok=True)
+
+
+def _suggest_attach_targets(token: str, sessions: list) -> list:
+    """
+    Return session/research/area strings close to token, for a
+    "did you mean" hint when no exact match was found.
+    """
+
+    candidates = set()
+    for s in sessions:
+        candidates.add(s.get("session_id", ""))
+        candidates.add(s.get("research", ""))
+        candidates.add(s.get("area", ""))
+    candidates.discard("")
+
+    substring = [c for c in candidates if token.lower() in c.lower()]
+    close = difflib.get_close_matches(token, candidates, n=5, cutoff=0.6)
+
+    ordered = []
+    for c in substring + close:
+        if c not in ordered:
+            ordered.append(c)
+    return ordered[:5]
+
+
+def resolve_attach_target(token: str) -> tuple:
+    """
+    Resolve a user-typed `owrap attach` argument to a session.
+
+    Tries an exact session id first, then an exact match on the
+    'research' field, then an exact match on the 'area' field;
+    research and area hits are unioned and deduped by session_id.
+
+    Returns (status, payload):
+      ("session_id", token) — token is a valid session id
+      ("unique", session_dict) — exactly one session matched
+      ("ambiguous", (differential, [session_dicts])) — 2+ matched
+      ("none", [suggestions]) — no match; near-miss strings, if any
+    """
+    if session_file(token).exists():
+        return "session_id", token
+
+    sessions = list_sessions()
+    research_matches = [s for s in sessions if s.get("research") == token]
+    area_matches = [s for s in sessions if s.get("area") == token]
+
+    seen = {}
+    for s in research_matches + area_matches:
+        seen[s["session_id"]] = s
+    matches = list(seen.values())
+
+    if not matches:
+        return "none", _suggest_attach_targets(token, sessions)
+    if len(matches) == 1:
+        return "unique", matches[0]
+
+    researches = {s.get("research", "") for s in matches}
+    areas = {s.get("area", "") for s in matches}
+    if len(researches) == 1 and len(areas) > 1:
+        differential = "area"
+    elif len(areas) == 1 and len(researches) > 1:
+        differential = "research"
+    else:
+        differential = "multi"
+
+    matches.sort(key=lambda s: (s.get("research", ""), s.get("area", "")))
+    return "ambiguous", (differential, matches)
 
 
 def attach(target_sid: str) -> tuple:

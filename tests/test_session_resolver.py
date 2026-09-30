@@ -14,6 +14,7 @@ from owrap.utils.session_resolver import (
     attach,
     remove_session,
     list_sessions,
+    resolve_attach_target,
 )
 
 
@@ -226,3 +227,93 @@ def _parse_session(path: Path) -> dict:
             k, v = line.split("=", 1)
             data[k.strip()] = v.strip()
     return data
+
+
+class TestResolveAttachTarget:
+    def _write_sessions(self, tmp_path, sessions):
+        for sid, research, area in sessions:
+            (tmp_path / f"{sid}.session").write_text(
+                f"session_id={sid}\nresearch={research}\narea={area}\n",
+            )
+
+    def test_exact_session_id(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
+        self._write_sessions(tmp_path, [("9f5f96", "owrap", "main")])
+
+        status, payload = resolve_attach_target("9f5f96")
+        assert status == "session_id"
+        assert payload == "9f5f96"
+
+    def test_unique_research_match(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
+        self._write_sessions(tmp_path, [("9f5f96", "owrap", "main")])
+
+        status, payload = resolve_attach_target("owrap")
+        assert status == "unique"
+        assert payload["session_id"] == "9f5f96"
+
+    def test_unique_area_match(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
+        self._write_sessions(tmp_path, [
+            ("b0d5b3", "translator", "data-gen"),
+            ("66e748", "translator", "results"),
+        ])
+
+        status, payload = resolve_attach_target("results")
+        assert status == "unique"
+        assert payload["session_id"] == "66e748"
+
+    def test_ambiguous_research_differs_by_area(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
+        self._write_sessions(tmp_path, [
+            ("b0d5b3", "translator", "data-gen"),
+            ("79f7f6", "translator", "data-gen-rewards"),
+            ("66e748", "translator", "results"),
+        ])
+
+        status, payload = resolve_attach_target("translator")
+        assert status == "ambiguous"
+        differential, matches = payload
+        assert differential == "area"
+        assert {s["session_id"] for s in matches} == {"b0d5b3", "79f7f6", "66e748"}
+
+    def test_ambiguous_area_differs_by_research(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
+        self._write_sessions(tmp_path, [
+            ("9f5f96", "owrap", "main"),
+            ("cc6885", "mpe_learner", "main"),
+            ("dfe743", "docs", "main"),
+        ])
+
+        status, payload = resolve_attach_target("main")
+        assert status == "ambiguous"
+        differential, matches = payload
+        assert differential == "research"
+        assert {s["session_id"] for s in matches} == {"9f5f96", "cc6885", "dfe743"}
+
+    def test_area_exact_match_excludes_similar_area(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
+        self._write_sessions(tmp_path, [
+            ("b0d5b3", "translator", "data-gen"),
+            ("79f7f6", "translator", "data-gen-rewards"),
+        ])
+
+        status, payload = resolve_attach_target("data-gen")
+        assert status == "unique"
+        assert payload["session_id"] == "b0d5b3"
+
+    def test_no_match_returns_typo_suggestion(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
+        self._write_sessions(tmp_path, [("9f5f96", "owrap", "main")])
+
+        status, payload = resolve_attach_target("owrapp")
+        assert status == "none"
+        assert "owrap" in payload
+
+    def test_no_match_no_suggestion(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
+        self._write_sessions(tmp_path, [("9f5f96", "owrap", "main")])
+
+        status, payload = resolve_attach_target("bogusxyz")
+        assert status == "none"
+        assert payload == []

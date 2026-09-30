@@ -24,7 +24,7 @@ from ..utils.session_resolver import (
     session_file as _sf, ccsid_pointer, _write as _sr_write,
     SESSIONS_DIR, BY_CCSID_DIR, BY_OPENCODE_RUN_ID_DIR,
     list_sessions, _parse, attach, mint_session_id,
-    opencode_run_id_pointer, _clear_anchor,
+    opencode_run_id_pointer, _clear_anchor, resolve_attach_target,
 )
 from .orientation import print_orientation
 from .stop import StopRunner
@@ -368,22 +368,45 @@ class AttachRunner(BaseRunner):
 
     def run(self, target_session_id=None):
         """
-        Attach to the given session and re-export its environment variables.
+        Attach to the given session id, research name, or area name, and
+        re-export its environment variables.
         """
         if not target_session_id:
-            print("ERROR: owrap attach <session_id> — missing session_id.")
+            print("ERROR: owrap attach <session_id|research|area> — missing target.")
             print()
-            print("Known sessions:")
-            for s in list_sessions():
-                ccsid_val = s.get("claude_session_id", "-")
-                _cc = ccsid_val[:8] if ccsid_val != "-" else "-"
-                print(
-                    f"  {s['session_id']}  research={s.get('research','-')}  "
-                    f"started={s.get('started','-')}  ccsid={_cc}",
-                )
+            self._print_known_sessions()
             sys.exit(2)
+
+        status, payload = resolve_attach_target(target_session_id)
+
+        if status == "none":
+            print(f"ERROR: no session found matching '{target_session_id}'.")
+            if payload:
+                print(f"Did you mean: {', '.join(payload)}?")
+            print()
+            self._print_known_sessions()
+            sys.exit(2)
+
+        if status == "ambiguous":
+            differential, matches = payload
+            print(
+                f"AMBIGUOUS: '{target_session_id}' matches {len(matches)} sessions "
+                f"(differing by {differential}) — re-run with one of:",
+            )
+            for s in matches:
+                if differential == "area":
+                    label = s.get("area", "-")
+                elif differential == "research":
+                    label = s.get("research", "-")
+                else:
+                    label = f"research={s.get('research','-')} area={s.get('area','-')}"
+                print(f"  {label:<24} session={s['session_id']}")
+            sys.exit(2)
+
+        resolved_sid = target_session_id if status == "session_id" else payload["session_id"]
+
         try:
-            sid, sf, prev = attach(target_session_id)
+            sid, sf, prev = attach(resolved_sid)
         except (FileNotFoundError, RuntimeError) as e:
             print(f"ERROR: {e}")
             sys.exit(2)
@@ -419,6 +442,23 @@ class AttachRunner(BaseRunner):
         if area:
             print(f"__OWRAP_EXPORT__ OWRAP_AREA={area}")
         sys.exit(0)
+
+
+    # Private Methods
+
+    def _print_known_sessions(self):
+        """
+        Print the session id/research/area table for all known sessions.
+        """
+
+        print("Known sessions:")
+        for s in list_sessions():
+            ccsid_val = s.get("claude_session_id", "-")
+            _cc = ccsid_val[:8] if ccsid_val != "-" else "-"
+            print(
+                f"  {s['session_id']}  research={s.get('research','-')}  "
+                f"area={s.get('area','-')}  started={s.get('started','-')}  ccsid={_cc}",
+            )
 
 
 class RestartRunner(BaseRunner):
