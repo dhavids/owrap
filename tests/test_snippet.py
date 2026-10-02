@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from owrap.utils.snippet import extract_snippet
+from owrap.utils.parser.snippet import extract_snippet
 
 
 def test_active_plan_with_phase(tmp_path):

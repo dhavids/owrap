@@ -10,7 +10,7 @@ def print_orientation(
     session_id, research, url=None, plan_path=None,
     todo_path=None, input_path=None, context_path=None,
     area=None, memory_path=None, project_path=None,
-    attach=False,
+    attach=False, runner_enabled=True,
 ):
     """
     Print the session orientation banner: server URL, plan/todo/context
@@ -25,10 +25,14 @@ def print_orientation(
     focus = ""
     plan_steps = []
     env_line = ""
+    ctx_status = None
     if context_path:
         _cp = _Path(context_path)
         if _cp.exists():
             _text = _cp.read_text()
+            _m = _re.search(r"^ctx_status:\s*(\S+)", _text, _re.MULTILINE)
+            if _m:
+                ctx_status = _m.group(1)
             _m = _re.search(
                 r"^## Focus\s*\n(.+?)(?=\n## |\Z)",
                 _text, _re.DOTALL | _re.MULTILINE,
@@ -57,12 +61,24 @@ def print_orientation(
     print("=== OWRAP SESSION ===")
     server_str = f"   server: {url}" if url else ""
     print(f"  session: {session_id}   research: {r}{server_str}")
+    if ctx_status in ("pending", "failed"):
+        print(
+            f"  ⚠ last context-manager dispatch: {ctx_status} — "
+            f"run `owrap ctx`/`owrap updr` again if this is stale",
+        )
     print()
-    print(
-        "You are the planner. Design plans, dispatch work, "
-        "review results. Never write code or run commands "
-        "directly.",
-    )
+    if runner_enabled:
+        print(
+            "You are the planner. Design plans, dispatch work, "
+            "review results. Never write code or run commands "
+            "directly.",
+        )
+    else:
+        print(
+            "You are the planner. The owrap runner is currently "
+            "disabled — work directly: read files, write code, "
+            "and run commands yourself as needed.",
+        )
     print()
     _gi_path = None
     if session_id:
@@ -86,12 +102,16 @@ def print_orientation(
         from ..utils.paths import FALLBACK_PLAN, FALLBACK_TASK
         plan_path = FALLBACK_PLAN
         input_path = FALLBACK_TASK
-        _fallback_note = "  (research=owrap: dispatch via `owrap f <path>`)"
+        if runner_enabled:
+            _fallback_note = "  (research=owrap: dispatch via `owrap f <path>`)"
     print("KEY FILES")
-    print(f"  plan    {plan_path}{_fallback_note}")
-    print(f"  input   {input_path}{_fallback_note}")
+    if runner_enabled:
+        print(f"  plan    {plan_path}{_fallback_note}")
+        print(f"  input   {input_path}{_fallback_note}")
     if area:
         print(f"  area    {area}")
+    if todo_path:
+        print(f"  todo    {todo_path}")
     if memory_path:
         _area_tag = f"#{area}" if area else ""
         print(f"  memory  {memory_path}{_area_tag}")

@@ -17,7 +17,10 @@ def test_read_log_isolation(tmp_path, monkeypatch):
     test_file.write_text("hello")
     with patch.object(sys, "argv", ["oread", "read", "-f", str(test_file)]), \
          patch("owrap.runner._read_config", return_value={"default_workspace": "test"}), \
-         patch("owrap.runner.get_workspace_config", return_value={"oread": True}), \
+         patch(
+             "owrap.runner.get_workspace_config",
+             return_value={"runner_use_oread": True},
+         ), \
          patch("owrap.commands.read.Terminal") as mock_terminal_cls, \
          patch("owrap.commands.read._pool_active", return_value=False):
         mock_terminal = MagicMock()
@@ -52,7 +55,10 @@ def test_global_read_log_isolation(tmp_path, monkeypatch, isolate_owrap_dirs):
     test_file.write_text("hello")
     with patch.object(sys, "argv", ["oread", "read", "-f", str(test_file)]), \
          patch("owrap.runner._read_config", return_value={"default_workspace": "test"}), \
-         patch("owrap.runner.get_workspace_config", return_value={"oread": True}), \
+         patch(
+             "owrap.runner.get_workspace_config",
+             return_value={"runner_use_oread": True},
+         ), \
          patch("owrap.commands.read.Terminal") as mock_terminal_cls, \
          patch("owrap.commands.read._pool_active", return_value=False):
         mock_terminal = MagicMock()

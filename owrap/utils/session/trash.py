@@ -3,8 +3,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from ..constants import TRASH_RETENTION_DAYS
-from .paths import (
+from ...constants import TRASH_RETENTION_DAYS
+from ..paths import (
     TRASH_DIR, SESSIONS_DIR, SESSION_DIR, RUNTIME_DIR, DOCS_DIR,
     session_dir, _read_config,
 )

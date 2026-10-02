@@ -5,37 +5,26 @@ import sys
 import pytest
 
 
-def test_oread_disabled_prints_message_help(tmp_path, capsys):
-    """oread -h prints OREAD_DISABLED_MSG when oread is false."""
-    with patch.object(sys, "argv", ["oread", "read", "-h"]), \
+@pytest.mark.parametrize("mode", ["help", "file", "grep"])
+def test_oread_disabled_prints_message(mode, tmp_path, capsys):
+    """
+    oread prints OREAD_DISABLED_MSG when oread is false, regardless of mode.
+    """
+    if mode == "help":
+        extra_args = ["-h"]
+    elif mode == "grep":
+        extra_args = ["-g", "pattern"]
+    else:
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("hello")
+        extra_args = ["-f", str(test_file)]
+
+    with patch.object(sys, "argv", ["oread", "read", *extra_args]), \
          patch("owrap.runner._read_config", return_value={"default_workspace": "test"}), \
-         patch("owrap.runner.get_workspace_config", return_value={"oread": False}):
-        with pytest.raises(SystemExit):
-            from owrap.runner import main
-            main()
-    captured = capsys.readouterr()
-    assert "oread is disabled" in captured.out
-
-
-def test_oread_disabled_prints_message_file(tmp_path, capsys):
-    """oread -f <file> prints OREAD_DISABLED_MSG when oread is false."""
-    test_file = tmp_path / "test.txt"
-    test_file.write_text("hello")
-    with patch.object(sys, "argv", ["oread", "read", "-f", str(test_file)]), \
-         patch("owrap.runner._read_config", return_value={"default_workspace": "test"}), \
-         patch("owrap.runner.get_workspace_config", return_value={"oread": False}):
-        with pytest.raises(SystemExit):
-            from owrap.runner import main
-            main()
-    captured = capsys.readouterr()
-    assert "oread is disabled" in captured.out
-
-
-def test_oread_disabled_prints_message_grep(tmp_path, capsys):
-    """oread -g <pattern> prints OREAD_DISABLED_MSG when oread is false."""
-    with patch.object(sys, "argv", ["oread", "read", "-g", "pattern"]), \
-         patch("owrap.runner._read_config", return_value={"default_workspace": "test"}), \
-         patch("owrap.runner.get_workspace_config", return_value={"oread": False}):
+         patch(
+             "owrap.runner.get_workspace_config",
+             return_value={"runner_use_oread": False},
+         ):
         with pytest.raises(SystemExit):
             from owrap.runner import main
             main()
@@ -49,7 +38,10 @@ def test_oread_enabled_does_not_print_message(tmp_path, capsys):
     test_file.write_text("hello")
     with patch.object(sys, "argv", ["oread", "read", "-f", str(test_file)]), \
          patch("owrap.runner._read_config", return_value={"default_workspace": "test"}), \
-         patch("owrap.runner.get_workspace_config", return_value={"oread": True}), \
+         patch(
+             "owrap.runner.get_workspace_config",
+             return_value={"runner_use_oread": True},
+         ), \
          patch("owrap.commands.read.Terminal") as mock_terminal_cls, \
          patch("owrap.commands.read._pool_active", return_value=False):
         mock_terminal = MagicMock()

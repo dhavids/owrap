@@ -4,6 +4,8 @@ import subprocess
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
+import pytest
+
 
 def test_context_path_under_context_dir():
     from owrap.utils.paths import context_path, SESSIONS_DIR
@@ -15,6 +17,18 @@ def test_context_lock_path_under_context_dir():
     from owrap.utils.paths import context_lock_path, SESSIONS_DIR
     p = context_lock_path("abc123")
     assert p == SESSIONS_DIR / "abc123" / "context.lock"
+
+
+def test_memory_lock_path_under_locks_dir():
+    from owrap.utils.paths import memory_lock_path, LOCKS_DIR
+    p = memory_lock_path("myresearch")
+    assert p == LOCKS_DIR / "memory" / "myresearch.lock"
+
+
+def test_projects_lock_path_under_locks_dir():
+    from owrap.utils.paths import projects_lock_path, LOCKS_DIR
+    p = projects_lock_path("myresearch")
+    assert p == LOCKS_DIR / "projects" / "myresearch.lock"
 
 
 def test_get_plan_path_under_exec_plans():
@@ -41,8 +55,8 @@ def test_resolve_general_instruction_path_returns_claude_md(tmp_path):
         with patch("owrap.utils.paths.get_workspace_config", return_value={"workspace": str(tmp_path)}):
             (tmp_path / "CLAUDE.md").write_text("# test")
             (tmp_path / "AGENTS.md").write_text("# test")
-            with patch("owrap.utils.session_resolver._parse", return_value={"claude_session_id": "abc123"}):
-                with patch("owrap.utils.session_resolver.session_file", return_value=tmp_path / "sid.session"):
+            with patch("owrap.utils.session.session_resolver._parse", return_value={"claude_session_id": "abc123"}):
+                with patch("owrap.utils.session.session_resolver.session_file", return_value=tmp_path / "sid.session"):
                     result = resolve_general_instruction_path("test123")
                     assert result is not None
                     assert result.name == "CLAUDE.md"
@@ -53,8 +67,8 @@ def test_resolve_general_instruction_path_returns_agents_md(tmp_path):
     with patch("owrap.utils.paths._read_config", return_value={"default_workspace": "x"}):
         with patch("owrap.utils.paths.get_workspace_config", return_value={"workspace": str(tmp_path)}):
             (tmp_path / "AGENTS.md").write_text("# test")
-            with patch("owrap.utils.session_resolver._parse", return_value={}):
-                with patch("owrap.utils.session_resolver.session_file", return_value=tmp_path / "sid.session"):
+            with patch("owrap.utils.session.session_resolver._parse", return_value={}):
+                with patch("owrap.utils.session.session_resolver.session_file", return_value=tmp_path / "sid.session"):
                     result = resolve_general_instruction_path("test123")
                     assert result is not None
                     assert result.name == "AGENTS.md"
@@ -74,11 +88,11 @@ def test_format_failure_pointer_self_target(tmp_path):
 def test_format_failure_pointer_instruction_target(tmp_path):
     from owrap.utils.paths import format_failure_pointer
     with patch("owrap.utils.paths.resolve_general_instruction_path", return_value=tmp_path / "AGENTS.md"):
-        (tmp_path / "AGENTS.md").write_text("## Dispatch Tooling\n")
+        (tmp_path / "AGENTS.md").write_text("## Runner Tooling\n")
         msg = format_failure_pointer("INPUT_EMPTY", "test123")
         assert "#DO NOW" in msg
         assert "INPUT_EMPTY" in msg
-        assert "Dispatch Tooling — File task" in msg
+        assert "Runner Tooling — File task" in msg
         assert str(tmp_path / "AGENTS.md") in msg
 
 
@@ -113,3 +127,46 @@ def test_legacy_dirs_not_created_on_import(tmp_path):
     assert not (home / ".owrap" / "docs" / "exec" / "plans").exists()
     assert not (home / ".owrap" / "docs" / "run" / "output" / "msg").exists()
     assert not (home / ".owrap" / "docs" / "run" / "output" / "task").exists()
+
+
+@pytest.mark.parametrize("config,expected", [
+    (
+        {
+            "context_manager_model": "custom/model",
+            "runner_model": "runner/model",
+            "context_fallback_model": "fallback/model",
+        },
+        "custom/model",
+    ),
+    (
+        {"runner_model": "runner/model", "context_fallback_model": "fallback/model"},
+        "runner/model",
+    ),
+    ({"context_fallback_model": "fallback/model"}, "fallback/model"),
+], ids=[
+    "prefers_key", "falls_back_to_runner_model",
+    "falls_back_to_context_fallback_model",
+])
+def test_get_maintenance_model(config, expected):
+    from owrap.utils.paths import get_maintenance_model
+    assert get_maintenance_model(config) == expected
+
+
+def test_get_maintenance_model_none_when_nothing_configured():
+    from owrap.utils.paths import get_maintenance_model
+    assert get_maintenance_model({}) is None
+
+
+def test_get_model_chain_orders_and_dedupes():
+    from owrap.utils.paths import get_model_chain
+    chain = get_model_chain({
+        "context_manager_model": "custom/model",
+        "runner_model": "custom/model",
+        "context_fallback_model": "fallback/model",
+    })
+    assert chain == ["custom/model", "fallback/model"]
+
+
+def test_get_model_chain_empty_when_nothing_configured():
+    from owrap.utils.paths import get_model_chain
+    assert get_model_chain({}) == []

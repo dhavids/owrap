@@ -22,7 +22,7 @@ _owrap_complete() {
     if [[ ${COMP_CWORD} -eq 1 ]]; then
         COMPREPLY=( $(compgen -W "start stop end refresh attach restart setup \
 sync read run exec work stat cleanup restore agent abort agents killservers \
-f update-area spawn update-home precompact precompact-worker get keepalive p \
+f update-area spawn update-home ctx-hook ctx-worker get daemon p \
 wait -a --allow-all" -- "${cur}") )
         return 0
     fi
@@ -194,7 +194,7 @@ bullets" -- "${cur}") )
                 COMPREPLY=( $(compgen -W "--session --timeout" -- "${cur}") )
                 return 0
                 ;;
-            precompact-worker)
+            ctx-worker)
                 COMPREPLY=( $(compgen -W "--input" -- "${cur}") )
                 return 0
                 ;;
@@ -344,10 +344,10 @@ memory project area research config home agents output" -- "${cur}") ) ;;
 -- "${cur}") ) ;;
             esac
             ;;
-        precompact-worker)
+        ctx-worker)
             COMPREPLY=( $(compgen -W "--input" -- "${cur}") )
             ;;
-        sync|keepalive|p|precompact)
+        sync|daemon|p|ctx-hook)
             COMPREPLY=()
             ;;
         *)

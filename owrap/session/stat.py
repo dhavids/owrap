@@ -12,7 +12,7 @@ from ..base import BaseRunner
 from ..utils.paths import (
     RUNNING_DIR, RECENTLY_DONE_DIR, session_input,
     _read_config, SERVER_LOGS_DIR, SESSION_DIR, STATS_FILE,
-    KEEPALIVE_PID_FILE, KEEPALIVE_STATE_FILE, RUNTIME_LOG,
+    DAEMON_PID_FILE, DAEMON_STATE_FILE, RUNTIME_LOG,
 )
 
 
@@ -140,34 +140,33 @@ class StatRunner(BaseRunner):
                 )
         print(f"{banner}\n")
 
-        # keepalive status
+        # daemon status
 
-        keepalive_pid_file = KEEPALIVE_PID_FILE
-        keepalive_state_file = KEEPALIVE_STATE_FILE
-        if keepalive_pid_file.exists():
+        daemon_pid_file = DAEMON_PID_FILE
+        daemon_state_file = DAEMON_STATE_FILE
+        if daemon_pid_file.exists():
             try:
-                kpid = int(keepalive_pid_file.read_text().strip())
+                kpid = int(daemon_pid_file.read_text().strip())
                 os.kill(kpid, 0)
                 ka_extra = ""
-                if keepalive_state_file.exists():
+                if not _read_config().get("owrap_runner_enabled", True):
+                    ka_extra = "  runner: disabled"
+                elif daemon_state_file.exists():
                     try:
-                        ks = json.loads(keepalive_state_file.read_text())
+                        ks = json.loads(daemon_state_file.read_text())
                         idle_since = ks.get("idle_since")
-                        idle_exit_s = ks.get("idle_exit_s", 300)
                         if idle_since is not None:
-                            remaining_idle = max(
-                                0, idle_exit_s - (time.time() - idle_since),
-                            )
-                            ka_extra = f"  idle  dies in {remaining_idle:.0f}s"
+                            idle_for = time.time() - idle_since
+                            ka_extra = f"  idle {idle_for:.0f}s"
                         else:
                             ka_extra = "  active"
                     except Exception:
                         pass
-                print(f"  keepalive: pid={kpid} running{ka_extra}")
+                print(f"  daemon: pid={kpid} running{ka_extra}")
             except (ValueError, OSError):
-                print("  keepalive: stopped")
+                print("  daemon: stopped")
         else:
-            print("  keepalive: stopped")
+            print("  daemon: stopped")
         if RUNTIME_LOG.exists():
             sz = RUNTIME_LOG.stat().st_size
             print(f"  rtlog: {RUNTIME_LOG} ({sz // 1024} KB)")
@@ -175,7 +174,7 @@ class StatRunner(BaseRunner):
             print(f"  rtlog: {RUNTIME_LOG} (empty)")
         print()
 
-        from ..utils.pool import get_pool, _active_load, _estimate_remaining
+        from ..utils.dispatch.pool import get_pool, _active_load, _estimate_remaining
         pool = get_pool()
 
         running_tasks, done_tasks = self._load_tasks()

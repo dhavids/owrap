@@ -11,23 +11,37 @@ from ..base import BaseRunner
 from ..manager import Manager
 from ..utils.paths import SESSION_DIR
 from ..utils.paths import (
-    get_plan_path, get_todo_path, session_input, _read_config,
-    SERVERS_DIR, STATE_FILE, context_path, get_workspace_config,
-    BASE_CONFIG_FILE,
+    get_plan_path, get_project_file_path, get_todo_file_path, session_input,
+    _read_config, SERVERS_DIR, STATE_FILE, context_path, get_workspace_config,
+    BASE_CONFIG_FILE, resolve_memory_project_paths,
 )
 from ..utils.paths import (
     session_dir, session_tasks_dir, session_msg_output_dir,
-    session_task_output_dir, session_precompact_dir,
+    session_task_output_dir,
 )
-from ..utils.session_resolver import (
+from ..utils.session.session_resolver import (
     resolve, update_session_field, migrate_legacy_files,
     session_file as _sf, ccsid_pointer, _write as _sr_write,
     SESSIONS_DIR, BY_CCSID_DIR, BY_OPENCODE_RUN_ID_DIR,
     list_sessions, _parse, attach, mint_session_id,
-    opencode_run_id_pointer, _clear_anchor, resolve_attach_target,
+    opencode_run_id_pointer, _clear_anchor, resolve_session_or_exit,
+    detach, attached_ccsids, print_known_sessions,
 )
 from .orientation import print_orientation
 from .stop import StopRunner
+
+
+def _todo_path_or_none(research):
+    """
+    Return the per-research todo file path, or None if research/research_root
+    isn't configured.
+    """
+    if not research:
+        return None
+    try:
+        return get_todo_file_path(research)
+    except ValueError:
+        return None
 
 
 def _prune_logs(max_logs: int):
@@ -127,11 +141,13 @@ class StartRunner(BaseRunner):
             area = f"{area}-{child}"
         migrate_legacy_files()
 
+        is_new_session = False
         if session_id is not None:
             sf_path = _sf(session_id)
             if sf_path.exists():
                 session_path = sf_path
             else:
+                is_new_session = True
                 ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
                 _sr_write(sf_path, {
                     "session_id": session_id,
@@ -147,6 +163,7 @@ class StartRunner(BaseRunner):
             session_id, session_path = _mint_from(
                 parent_sid, parent_sid,
             )
+            is_new_session = True
         else:
             session_id, session_path, source = resolve(mode="start")
             if source != "minted" and research:
@@ -154,17 +171,22 @@ class StartRunner(BaseRunner):
                 if existing_research and existing_research != research:
                     session_id, session_path = _mint_from(session_id)
                     source = "minted"
+            is_new_session = (source == "minted")
 
-        from ..utils.pool import _pool_active, ensure_min_servers, _ensure_keepalive
+        from ..utils.dispatch.pool import _pool_active, ensure_min_servers, _ensure_daemon
         if _pool_active():
             ensure_min_servers()
-            _ensure_keepalive()
+            _ensure_daemon()
         else:
             Manager().ensure_running()
 
         if research:
             update_session_field(session_id, "research", research)
         if area:
+            update_session_field(session_id, "area", area)
+        elif is_new_session:
+            # Default to "main" so Update Protocol/donow area checks have a target.
+            area = "main"
             update_session_field(session_id, "area", area)
         if child:
             update_session_field(session_id, "child", child)
@@ -189,7 +211,6 @@ class StartRunner(BaseRunner):
         session_tasks_dir(session_id).mkdir(parents=True, exist_ok=True)
         session_msg_output_dir(session_id).mkdir(parents=True, exist_ok=True)
         session_task_output_dir(session_id).mkdir(parents=True, exist_ok=True)
-        session_precompact_dir(session_id).mkdir(parents=True, exist_ok=True)
 
         if research:
             config = _read_config()
@@ -199,8 +220,8 @@ class StartRunner(BaseRunner):
                 if not project_file.exists():
                     project_file.parent.mkdir(parents=True, exist_ok=True)
                     project_file.write_text(
-                        f"---\nname: {research}\nactive_plan: none\n---\n"
-                        f"\n## TODO\n\n## DONE\n"
+                        f"# {research}\n\n## Overview\n\n### Structure\n\n"
+                        f"### Environment\n"
                     )
 
         _old_docs = Path(__file__).resolve().parents[2] / "docs"
@@ -212,7 +233,7 @@ class StartRunner(BaseRunner):
             print(f"  [owrap] Migrated {_old_docs} -> {_new_docs}")
 
         plan_path = get_plan_path(session_id)
-        todo_path = get_todo_path(research)
+        todo_path = _todo_path_or_none(research)
         input_path = session_input(session_id)
 
         self.manager.session_id = session_id
@@ -224,7 +245,7 @@ class StartRunner(BaseRunner):
         if cp2.exists() and research:
             _ct = cp2.read_text()
             if "## Focus\n\n## " in _ct:
-                _proj = get_todo_path(research)
+                _proj = get_project_file_path(research)
                 if _proj.exists():
                     _proj_text = _proj.read_text()
                     _m = re.search(r"current_phase:\s*(\d+)", _proj_text)
@@ -242,20 +263,14 @@ class StartRunner(BaseRunner):
                 "start session=%s research=%s", session_id, research or "none",
             )
         cp = context_path(session_id)
-        from ..utils.session_resolver import _parse as _sp
+        from ..utils.session.session_resolver import _parse as _sp
         area_val = area or _sp(_sf(session_id)).get("area")
-        memory_path = project_path = None
-        if research:
-            _rr = _read_config().get("research_root")
-            if _rr:
-                _mp = Path(_rr) / "memory" / f"{research}.md"
-                _pp = Path(_rr) / "projects" / f"{research}.md"
-                memory_path = _mp if _mp.exists() else None
-                project_path = _pp if _pp.exists() else None
+        memory_path, project_path = resolve_memory_project_paths(research)
         print_orientation(
             session_id, research, plan_path=plan_path, todo_path=todo_path,
             input_path=input_path, context_path=cp, area=area_val,
             memory_path=memory_path, project_path=project_path,
+            runner_enabled=_read_config().get("owrap_runner_enabled", True),
         )
         print(f"\n__OWRAP_EXPORT__ SESSION_ID={session_id}")
         if area_val:
@@ -309,10 +324,10 @@ class RefreshRunner(BaseRunner):
         if research is None:
             research = _read_config().get("default_research")
 
-        from ..utils.pool import _pool_active, ensure_min_servers, _ensure_keepalive
+        from ..utils.dispatch.pool import _pool_active, ensure_min_servers, _ensure_daemon
         if _pool_active():
             ensure_min_servers()
-            _ensure_keepalive()
+            _ensure_daemon()
         else:
             url = self.manager.ensure_running()
             if url is None:
@@ -331,7 +346,7 @@ class RefreshRunner(BaseRunner):
         self.manager._housekeeping()
 
         plan_path = get_plan_path(session_id)
-        todo_path = get_todo_path(research)
+        todo_path = _todo_path_or_none(research)
         input_path = session_input(session_id)
 
         if self.logger:
@@ -339,18 +354,12 @@ class RefreshRunner(BaseRunner):
                 "refresh session=%s research=%s", session_id, research or "none",
             )
         cp = context_path(session_id)
-        memory_path = project_path = None
-        if research:
-            _rr = _read_config().get("research_root")
-            if _rr:
-                _mp = Path(_rr) / "memory" / f"{research}.md"
-                _pp = Path(_rr) / "projects" / f"{research}.md"
-                memory_path = _mp if _mp.exists() else None
-                project_path = _pp if _pp.exists() else None
+        memory_path, project_path = resolve_memory_project_paths(research)
         print_orientation(
             session_id, research, plan_path=plan_path, todo_path=todo_path,
             input_path=input_path, context_path=cp, area=area_val,
             memory_path=memory_path, project_path=project_path,
+            runner_enabled=_read_config().get("owrap_runner_enabled", True),
         )
         update_session_field(
             session_id, "last_refresh", time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -374,36 +383,12 @@ class AttachRunner(BaseRunner):
         if not target_session_id:
             print("ERROR: owrap attach <session_id|research|area> — missing target.")
             print()
-            self._print_known_sessions()
+            print_known_sessions()
             sys.exit(2)
 
-        status, payload = resolve_attach_target(target_session_id)
-
-        if status == "none":
-            print(f"ERROR: no session found matching '{target_session_id}'.")
-            if payload:
-                print(f"Did you mean: {', '.join(payload)}?")
-            print()
-            self._print_known_sessions()
-            sys.exit(2)
-
-        if status == "ambiguous":
-            differential, matches = payload
-            print(
-                f"AMBIGUOUS: '{target_session_id}' matches {len(matches)} sessions "
-                f"(differing by {differential}) — re-run with one of:",
-            )
-            for s in matches:
-                if differential == "area":
-                    label = s.get("area", "-")
-                elif differential == "research":
-                    label = s.get("research", "-")
-                else:
-                    label = f"research={s.get('research','-')} area={s.get('area','-')}"
-                print(f"  {label:<24} session={s['session_id']}")
-            sys.exit(2)
-
-        resolved_sid = target_session_id if status == "session_id" else payload["session_id"]
+        resolved_sid = resolve_session_or_exit(
+            target_session_id, print_known_on_none=True,
+        )
 
         try:
             sid, sf, prev = attach(resolved_sid)
@@ -417,16 +402,10 @@ class AttachRunner(BaseRunner):
         url = data.get("server_url", "")
 
         plan_path = get_plan_path(sid)
-        todo_path = get_todo_path(research)
+        todo_path = _todo_path_or_none(research)
         input_path = session_input(sid)
         cp = context_path(sid)
-        _rr = _read_config().get("research_root")
-        memory_path = project_path = None
-        if research and _rr:
-            _mp = Path(_rr) / "memory" / f"{research}.md"
-            _pp = Path(_rr) / "projects" / f"{research}.md"
-            memory_path = _mp if _mp.exists() else None
-            project_path = _pp if _pp.exists() else None
+        memory_path, project_path = resolve_memory_project_paths(research)
 
         self.manager.session_id = sid
         print(
@@ -437,6 +416,7 @@ class AttachRunner(BaseRunner):
             sid, research, url, plan_path, todo_path, input_path,
             context_path=cp, area=area, memory_path=memory_path,
             project_path=project_path, attach=True,
+            runner_enabled=_read_config().get("owrap_runner_enabled", True),
         )
         print(f"\n__OWRAP_EXPORT__ SESSION_ID={sid}")
         if area:
@@ -444,21 +424,24 @@ class AttachRunner(BaseRunner):
         sys.exit(0)
 
 
-    # Private Methods
+class DetachRunner(BaseRunner):
+    """
+    Release this window's attachment to whatever session it is bound to.
+    """
 
-    def _print_known_sessions(self):
+    def run(self):
         """
-        Print the session id/research/area table for all known sessions.
+        Detach the current ccsid/oid from its session without affecting
+        any other window still attached to it.
         """
+        sid = detach()
+        if not sid:
+            print("Not attached to any session")
+            sys.exit(1)
 
-        print("Known sessions:")
-        for s in list_sessions():
-            ccsid_val = s.get("claude_session_id", "-")
-            _cc = ccsid_val[:8] if ccsid_val != "-" else "-"
-            print(
-                f"  {s['session_id']}  research={s.get('research','-')}  "
-                f"area={s.get('area','-')}  started={s.get('started','-')}  ccsid={_cc}",
-            )
+        remaining = len(attached_ccsids(sid))
+        print(f"DETACHED session={sid}  still_attached={remaining}")
+        sys.exit(0)
 
 
 class RestartRunner(BaseRunner):
@@ -502,21 +485,16 @@ class UpdateAreaRunner(BaseRunner):
         if area:
             update_session_field(session_id, "area", area)
             update_session_field(session_id, "child", child)
-        _rr = _read_config().get("research_root")
-        memory_path = project_path = None
-        if research and _rr:
-            _mp = Path(_rr) / "memory" / f"{research}.md"
-            _pp = Path(_rr) / "projects" / f"{research}.md"
-            memory_path = _mp if _mp.exists() else None
-            project_path = _pp if _pp.exists() else None
+        memory_path, project_path = resolve_memory_project_paths(research)
         cp = context_path(session_id)
         plan_path = get_plan_path(session_id)
         input_path = session_input(session_id)
-        todo_path = get_todo_path(research)
+        todo_path = _todo_path_or_none(research)
         print_orientation(
             session_id, research, plan_path=plan_path, todo_path=todo_path,
             input_path=input_path, context_path=cp, area=area,
             memory_path=memory_path, project_path=project_path,
+            runner_enabled=_read_config().get("owrap_runner_enabled", True),
         )
         print(f"\n__OWRAP_EXPORT__ SESSION_ID={session_id}")
         if area:
@@ -551,17 +529,11 @@ class SpawnRunner(BaseRunner):
         session_id, session_path = _mint_from(parent_sid, parent_sid)
         update_session_field(session_id, "area", new_area)
         update_session_field(session_id, "child", child)
-        _rr = _read_config().get("research_root")
-        memory_path = project_path = None
-        if _rr:
-            _mp = Path(_rr) / "memory" / f"{research}.md"
-            _pp = Path(_rr) / "projects" / f"{research}.md"
-            memory_path = _mp if _mp.exists() else None
-            project_path = _pp if _pp.exists() else None
+        memory_path, project_path = resolve_memory_project_paths(research)
         cp = context_path(session_id)
         plan_path = get_plan_path(session_id)
         input_path = session_input(session_id)
-        todo_path = get_todo_path(research)
+        todo_path = _todo_path_or_none(research)
         print(
             f"[owrap] Spawned child area '{new_area}' "
             f"(parent: {area}) under research '{research}'.",
@@ -570,6 +542,7 @@ class SpawnRunner(BaseRunner):
             session_id, research, plan_path=plan_path, todo_path=todo_path,
             input_path=input_path, context_path=cp, area=new_area,
             memory_path=memory_path, project_path=project_path,
+            runner_enabled=_read_config().get("owrap_runner_enabled", True),
         )
         print(f"\n__OWRAP_EXPORT__ SESSION_ID={session_id}")
         print(f"__OWRAP_EXPORT__ OWRAP_AREA={new_area}")

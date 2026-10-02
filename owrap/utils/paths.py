@@ -25,6 +25,10 @@ RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 DOCS_DIR = RUNTIME_HOME / "docs"
 SESSIONS_DIR = DOCS_DIR / "sessions"
 SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+LOCKS_DIR = RUNTIME_HOME / "locks"
+LOCKS_DIR.mkdir(parents=True, exist_ok=True)
+BACKUPS_DIR = RUNTIME_HOME / "backups"
+BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
 TEMPLATES_DIR = OWRAP_ROOT / "templates"
 CONFIGS_DIR = RUNTIME_HOME / "configs"
 BASE_CONFIG_FILE = CONFIGS_DIR / "base.json"
@@ -73,8 +77,8 @@ READ_LOG = DOCS_DIR / "read" / "log.md"
 STATE_FILE = str(RUNTIME_DIR / "manager.json")
 POOL_FILE = RUNTIME_DIR / "pool.json"
 POOL_LOCK_FILE = RUNTIME_DIR / "pool.lock"
-KEEPALIVE_PID_FILE = RUNTIME_DIR / "keepalive.pid"
-KEEPALIVE_STATE_FILE = RUNTIME_DIR / "keepalive.state"
+DAEMON_PID_FILE = RUNTIME_DIR / "daemon.pid"
+DAEMON_STATE_FILE = RUNTIME_DIR / "daemon.state"
 STATS_FILE = RUNTIME_DIR / "stats.json"
 
 _config_cache: dict | None = None
@@ -129,12 +133,28 @@ def session_exec_output_path(session_id: str) -> Path:
     return session_dir(session_id) / "exec" / "output.log"
 
 
-def session_precompact_dir(session_id: str) -> Path:
-    return session_dir(session_id) / "precompact"
+def session_ctx_dir(session_id: str, ccsid: str) -> Path:
+    """Per-window context-manager scratch dir — scoped by ccsid because
+    multiple Claude Code windows (ccsids) can attach to one owrap session.
+    """
+    return session_dir(session_id) / "ctx" / ccsid
 
 
-def session_precompact_input_path(session_id: str) -> Path:
-    return session_dir(session_id) / "run" / "input_precompact.md"
+def session_ctx_input_path(session_id: str, ccsid: str) -> Path:
+    return session_ctx_dir(session_id, ccsid) / "input.md"
+
+
+def session_ctx_transcript_path(session_id: str, ccsid: str) -> Path:
+    return session_ctx_dir(session_id, ccsid) / "transcript.txt"
+
+
+def session_ctx_touched_path(session_id: str, ccsid: str) -> Path:
+    """
+    Per-window pending-paths file (item 14): paths the planner explicitly
+    reported touching, queued here until the next context-manager dispatch
+    picks them up.
+    """
+    return session_ctx_dir(session_id, ccsid) / "touched.json"
 
 
 def session_tasks_dir(session_id: str) -> Path:
@@ -232,17 +252,50 @@ def get_dispatch_model(
 
     Resolution order:
     1. override argument (e.g. CLI --model)
-    2. config["exec_model"]
+    2. config["runner_model"]
     3. config["fast_model"] if default_to_fast is True
     4. None (let opencode use its default)
     """
     if override:
         return override
-    if config.get("exec_model"):
-        return config["exec_model"]
+    if config.get("runner_model"):
+        return config["runner_model"]
     if default_to_fast and config.get("fast_model"):
         return config["fast_model"]
     return None
+
+
+def get_model_chain(config: dict, key: str = "context_manager_model") -> list:
+    """
+    Ordered, deduplicated list of models to try for a background
+    context-manager task: config[key] -> config["runner_model"] ->
+    config["context_fallback_model"]. The last is the named, already-
+    proven free-tier model configured as `base.json`'s default — a
+    config value, never hardcoded here, so a user can repoint it. Can be
+    empty if none of these are configured.
+    """
+    candidates = [
+        config.get(key), config.get("runner_model"),
+        config.get("context_fallback_model"),
+    ]
+    seen = set()
+    chain = []
+    for m in candidates:
+        if m and m not in seen:
+            seen.add(m)
+            chain.append(m)
+    return chain
+
+
+def get_maintenance_model(
+    config: dict, key: str = "context_manager_model",
+) -> str | None:
+    """
+    Resolve the single best model for a background context-manager task —
+    the first entry of `get_model_chain`, or None if nothing is configured.
+    """
+    chain = get_model_chain(config, key)
+    return chain[0] if chain else None
 
 
 def staged_dir(project_name: str):
@@ -313,7 +366,7 @@ def resolve_general_instruction_path(session_id: str | None) -> Path | None:
     Return CLAUDE.md if session has a claude_session_id, else AGENTS.md.
     """
     if session_id:
-        from .session_resolver import _parse, session_file as _sf
+        from .session.session_resolver import _parse, session_file as _sf
         try:
             data = _parse(_sf(session_id))
             if data.get("claude_session_id"):
@@ -341,9 +394,17 @@ def get_workspace_path() -> Path:
     return DOCS_DIR.parent
 
 
-def get_todo_path(research: str = None) -> Path:
-    if research is None:
-        research = os.environ.get("OWRAP_RESEARCH", "")
+def claude_transcript_path(ccsid: str, workspace_path: Path) -> Path:
+    """
+    Path to Claude Code's own transcript JSONL for one window (ccsid),
+    derived without needing a hook payload: Claude Code stores it at
+    ~/.claude/projects/<workspace-path-with-/-as-->/<ccsid>.jsonl.
+    """
+    project_dir = str(workspace_path).replace("/", "-")
+    return Path.home() / ".claude" / "projects" / project_dir / f"{ccsid}.jsonl"
+
+
+def _resolve_research_root() -> str | None:
     config = _read_config()
     ws_name = config.get("default_workspace", "")
     research_root = None
@@ -351,9 +412,77 @@ def get_todo_path(research: str = None) -> Path:
         research_root = get_workspace_config(ws_name).get("research_root")
     if not research_root:
         research_root = config.get("research_root")
+    return research_root
+
+
+def get_project_file_path(research: str = None) -> Path:
+    """
+    Return the per-research project file path (`projects/<research>.md`).
+    """
+    if research is None:
+        research = os.environ.get("OWRAP_RESEARCH", "")
+    research_root = _resolve_research_root()
     if research and research_root:
         return Path(research_root) / "projects" / f"{research}.md"
     return DOCS_DIR / "todo.md"
+
+
+def get_todo_file_path(research: str) -> Path:
+    """
+    Return the per-research user-todo file path (`todo/<research>.md`).
+    """
+    research_root = _resolve_research_root()
+    if not research_root:
+        raise ValueError("research_root not configured")
+    return Path(research_root) / "todo" / f"{research}.md"
+
+
+def resolve_memory_project_paths(research: str) -> tuple:
+    """
+    Return (memory_path, project_path) for a research, or (None, None) if
+    research or research_root isn't set. Paths are returned whether or not
+    the files exist yet — the planner needs to know where they'd be.
+    """
+    if not research:
+        return None, None
+    research_root = _resolve_research_root()
+    if not research_root:
+        return None, None
+    base = Path(research_root)
+    return base / "memory" / f"{research}.md", base / "projects" / f"{research}.md"
+
+
+def research_file_lock_path(kind: str, research: str) -> Path:
+    """
+    Return the lock path for a per-research shared file (todo/memory/
+    projects, keyed by kind).
+
+    Lives under LOCKS_DIR (OWRAP_HOME), not the research directory — a lock
+    file is runtime coordination state, not research content, and must not
+    end up committed or synced alongside the actual file it protects.
+    """
+    return LOCKS_DIR / kind / f"{research}.lock"
+
+
+def todo_lock_path(research: str) -> Path:
+    """
+    Return the per-research todo file lock path.
+    """
+    return research_file_lock_path("todo", research)
+
+
+def memory_lock_path(research: str) -> Path:
+    """
+    Return the per-research memory file lock path.
+    """
+    return research_file_lock_path("memory", research)
+
+
+def projects_lock_path(research: str) -> Path:
+    """
+    Return the per-research projects file lock path.
+    """
+    return research_file_lock_path("projects", research)
 
 
 def server_state_file(port: int) -> Path:

@@ -5,20 +5,20 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from ..utils.terminal import Terminal
+from ..utils.dispatch.terminal import Terminal
 from ..manager import Manager
 from ..base import BaseRunner
 from ..constants import (
     ANTI_SUMMARY_SUFFIX, EXEC_KILL_S, EXEC_HARD_TIMEOUT_S,
     NO_OUTPUT_EXEC_S, INFRA_FAILURE_EXEC_S,
 )
-from ..utils.pool import _pool_active, pick_server, update_last_used
+from ..utils.dispatch.pool import _pool_active, pick_server, update_last_used
 from ..utils.paths import (
     session_exec_output_path, get_plan_path, context_path,
     _read_config, get_agents_md_path, get_workspace_path,
     get_dispatch_model, format_failure_pointer,
 )
-from ..utils.snippet import extract_snippet, divider
+from ..utils.parser.snippet import extract_snippet, divider
 
 
 class ExecRunner(BaseRunner):
@@ -74,7 +74,7 @@ class ExecRunner(BaseRunner):
         ctx_instr = None
         executor_md = get_agents_md_path()
         if (
-            _ctx_cfg.get("context_enabled", True)
+            _ctx_cfg.get("context_injection_enabled", True)
             and cp and cp.exists() and cp.stat().st_size > 0
         ):
             if executor_md and executor_md.exists():
@@ -130,7 +130,7 @@ class ExecRunner(BaseRunner):
                 log.flush()
                 self.manager.t_cmd_start()
                 terminal = Terminal(verbose=False)
-                from ..utils.watchdog import Watchdog
+                from ..utils.dispatch.watchdog import Watchdog
                 def _exec_stop():
                     setattr(self, '_stall_killed', True)
                     terminal.terminate_process()
@@ -196,12 +196,12 @@ class ExecRunner(BaseRunner):
         area = os.environ.get("OWRAP_AREA", "")
         if not area and session_id:
             try:
-                from ..utils.session_resolver import _parse, session_file
+                from ..utils.session.session_resolver import _parse, session_file
                 d = _parse(session_file(session_id))
                 area = d.get("area", "")
             except Exception:
                 pass
-        from ..utils.donow import check_donow
+        from ..utils.session.donow import check_donow
         donow_msg = check_donow(
             self.manager, session_id, area,
             self.manager.research, kind="exec",
@@ -235,12 +235,12 @@ class ExecRunner(BaseRunner):
                 pass
             if not getattr(self, '_stall_killed', False):
                 try:
-                    from ..utils.pool import record_responsive
+                    from ..utils.dispatch.pool import record_responsive
                     record_responsive(url)
                 except Exception:
                     pass
             try:
-                from ..utils.pool import release_server
+                from ..utils.dispatch.pool import release_server
                 release_server(url)
             except Exception:
                 pass

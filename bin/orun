@@ -25,16 +25,20 @@ export SESSION_ID="$SID"
 [ -f "$SESSION_FILE" ] && export OWRAP_RESEARCH=$(grep "^research=" "$SESSION_FILE" | cut -d= -f2)
 cd "<OWRAP_ROOT>"
 ID_VAL=""
+FG=""
+HELP=""
 SAFE_ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -i|--id) ID_VAL="$2"; shift 2 ;;
     --id=*)  ID_VAL="${1#--id=}"; shift ;;
+    --fg)    FG="1"; shift ;;
+    -h|--help) HELP="1"; SAFE_ARGS+=("$1"); shift ;;
     *)       SAFE_ARGS+=("$1"); shift ;;
   esac
 done
 [[ -n "$ID_VAL" ]] && SAFE_ARGS+=("--id" "$ID_VAL")
-if [[ "${SAFE_ARGS[*]}" == *"--msg"* || "${SAFE_ARGS[*]}" == *"-m "* || "${SAFE_ARGS[0]}" == "--fg" ]]; then
+if [[ "${SAFE_ARGS[*]}" == *"--msg"* || "${SAFE_ARGS[*]}" == *"-m "* || -n "$FG" || -n "$HELP" ]]; then
   <PYTHON> -m owrap.runner run "${SAFE_ARGS[@]}"
 else
   echo "[orun] dispatching (session: $OWRAP_SESSION) ... will notify when complete."

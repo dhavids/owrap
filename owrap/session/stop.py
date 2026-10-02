@@ -10,12 +10,12 @@ from ..utils.paths import (
     _read_config, DOCS_DIR, RUNTIME_DIR, get_plan_path, session_input,
     context_path, context_lock_path, SERVER_LOGS_DIR, SERVERS_DIR,
     RUNNING_DIR, RECENTLY_DONE_DIR, SESSION_DIR, session_dir,
-    KEEPALIVE_PID_FILE,
+    DAEMON_PID_FILE,
 )
-from ..utils.session_resolver import (
+from ..utils.session.session_resolver import (
     resolve, remove_session, BY_CCSID_DIR, list_sessions, _parse,
 )
-from ..utils.trash import move_to_trash, restore_from_trash
+from ..utils.session.trash import move_to_trash, restore_from_trash
 
 
 def _parse_session(path: Path) -> dict:
@@ -261,7 +261,7 @@ class KillServersRunner:
 
     def run(self, session_id: str | None = None):
         """Kill running tasks and servers, optionally filtered by *session_id*."""
-        from ..utils.pool import POOL_FILE, _read_pool
+        from ..utils.dispatch.pool import POOL_FILE, _read_pool
 
         killed_tasks = 0
         killed_servers = 0
@@ -301,7 +301,7 @@ class KillServersRunner:
                 _kill_pid(pid)
                 server_pids.append(pid)
                 killed_servers += 1
-                from ..utils import rtlog
+                from ..utils.log import rtlog
                 rtlog.log(
                     "server.kill", pid=pid, port=entry.get("port"),
                     url=entry.get("url"), reason="killservers",
@@ -322,18 +322,18 @@ class KillServersRunner:
                 except Exception:
                     pass
 
-        killed_keepalive = False
-        if KEEPALIVE_PID_FILE.exists():
+        killed_daemon = False
+        if DAEMON_PID_FILE.exists():
             try:
-                ka_pid = int(KEEPALIVE_PID_FILE.read_text().strip())
-                if _pid_alive(ka_pid):
-                    _kill_pid(ka_pid)
-                    _wait_dead([ka_pid])
-                    killed_keepalive = True
+                daemon_pid = int(DAEMON_PID_FILE.read_text().strip())
+                if _pid_alive(daemon_pid):
+                    _kill_pid(daemon_pid)
+                    _wait_dead([daemon_pid])
+                    killed_daemon = True
             except (ValueError, OSError):
                 pass
             try:
-                KEEPALIVE_PID_FILE.unlink(missing_ok=True)
+                DAEMON_PID_FILE.unlink(missing_ok=True)
             except Exception:
                 pass
 
@@ -352,8 +352,8 @@ class KillServersRunner:
             parts.append(f"{killed_tasks} task{'s' if killed_tasks != 1 else ''}")
         if killed_servers:
             parts.append(f"{killed_servers} server{'s' if killed_servers != 1 else ''}")
-        if killed_keepalive:
-            parts.append("keepalive")
+        if killed_daemon:
+            parts.append("daemon")
         if parts:
             print(f"killed {' and '.join(parts)}")
         else:

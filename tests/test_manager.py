@@ -58,35 +58,14 @@ def test_complete_task_timing(tmp_path):
     assert entry["total_s"] == 2.3
 
 
-def test_cleanup_removes_done_task_files(tmp_path):
+@pytest.mark.parametrize("log_name", ["task2.log", "task2_123456.log"])
+def test_cleanup_removes_done_task_files(tmp_path, log_name):
     tasks_dir = tmp_path / "tasks"
     tasks_dir.mkdir()
     output_dir = tmp_path / "output"
     output_dir.mkdir()
     (tasks_dir / "task2.md").write_text("done task")
-    (output_dir / "task2.log").write_text("log")
-
-    state_file = tmp_path / "manager.json"
-    manager = _make_manager()
-    manager.STATE_FILE = str(state_file)
-    manager.TASKS_DIR = tasks_dir
-
-    manager._write_state({"pid": 12345, "url": "http://localhost:4096", "port": 4096, "tasks": {"task2": {"status": "done", "invocation_time": time.time()}}})
-
-    manager.cleanup_done_tasks()
-
-    assert not (tasks_dir / "task2.md").exists()
-    state = manager._read_state()
-    assert "task2" not in state["tasks"]
-
-
-def test_cleanup_removes_suffixed_logs(tmp_path):
-    tasks_dir = tmp_path / "tasks"
-    tasks_dir.mkdir()
-    output_dir = tmp_path / "output"
-    output_dir.mkdir()
-    (tasks_dir / "task2.md").write_text("done task")
-    (output_dir / "task2_123456.log").write_text("suffixed log")
+    (output_dir / log_name).write_text("log")
 
     state_file = tmp_path / "manager.json"
     manager = _make_manager()

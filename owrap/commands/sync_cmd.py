@@ -4,7 +4,7 @@ from pathlib import Path
 
 from ..staging import stage_all, resolve_flags
 from ..utils.paths import get_workspace_config, _read_config
-from ..utils.session_resolver import resolve, _parse
+from ..utils.session.session_resolver import resolve, _parse
 
 
 class SyncRunner:
@@ -49,13 +49,10 @@ class SyncRunner:
         print(f"workspace: {workspace}")
         print(f"research_root: {research_root}")
         print()
-        if flags.get("OWRAP_ENABLED"):
+        if flags.get("RUNNER_ENABLED"):
             print("sync complete — reread CLAUDE.md if needed")
         else:
-            print(
-                "owrap has now been disabled — dispatch tooling "
-                "unavailable, work directly."
-            )
+            print("owrap runner has now been disabled — work directly.")
         sys.exit(0)
 
     def _active_workspace(self):

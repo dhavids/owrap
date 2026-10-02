@@ -13,7 +13,7 @@ def test_get_logger_creates_file_handler(tmp_path):
     logger = logging.getLogger(f"owrap_test_{tmp_path.name}")
     logger.handlers.clear()
 
-    from owrap.utils.logger import get_logger
+    from owrap.utils.log.logger import get_logger
     lg = get_logger(f"owrap_test_{tmp_path.name}", log_path=log_path)
     lg.info("hello")
 
@@ -22,7 +22,7 @@ def test_get_logger_creates_file_handler(tmp_path):
 
 
 def test_prune_old_logs_keeps_max(tmp_path):
-    from owrap.utils.logger import _prune_old_logs
+    from owrap.utils.log.logger import _prune_old_logs
 
     for i in range(15):
         f = tmp_path / f"owrap_{i:03d}.log"
@@ -39,7 +39,7 @@ def test_prune_old_logs_keeps_max(tmp_path):
 
 
 def test_prune_old_logs_noop_under_limit(tmp_path):
-    from owrap.utils.logger import _prune_old_logs
+    from owrap.utils.log.logger import _prune_old_logs
 
     for i in range(5):
         (tmp_path / f"owrap_{i:03d}.log").write_text("x")
@@ -51,7 +51,7 @@ def test_prune_old_logs_noop_under_limit(tmp_path):
 
 def test_get_logger_calls_prune(tmp_path):
     import logging
-    from owrap.utils.logger import get_logger
+    from owrap.utils.log.logger import get_logger
 
     for i in range(12):
         f = tmp_path / f"owrap_{i:03d}.log"

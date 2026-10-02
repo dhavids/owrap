@@ -7,20 +7,20 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
-def test_extract_agent_summary_with_summary_header_only():
+@pytest.mark.parametrize("output,expected", [
+    (
+        "some output\n\n## Summary\nThis is the summary.",
+        "This is the summary.",
+    ),
+    (
+        "some output\n\n## Summary\nSummary content here.\n\n"
+        "## Next Section\nMore stuff.",
+        "Summary content here.\n\n## Next Section\nMore stuff.",
+    ),
+], ids=["summary_header_only", "summary_then_another_heading"])
+def test_extract_agent_summary(output, expected):
     from owrap.commands.agents import _extract_agent_summary
-
-    output = "some output\n\n## Summary\nThis is the summary."
-    result = _extract_agent_summary(output)
-    assert result == "This is the summary."
-
-
-def test_extract_agent_summary_with_summary_then_another_heading():
-    from owrap.commands.agents import _extract_agent_summary
-
-    output = "some output\n\n## Summary\nSummary content here.\n\n## Next Section\nMore stuff."
-    result = _extract_agent_summary(output)
-    assert result == "Summary content here.\n\n## Next Section\nMore stuff."
+    assert _extract_agent_summary(output) == expected
 
 
 def test_extract_agent_summary_no_summary_header():

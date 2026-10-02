@@ -8,17 +8,26 @@ import pytest
 def test_run_runner_msg_validation_newlines(mock_manager):
     from owrap.commands.run_cmd import RunRunner
 
-    runner = RunRunner(mock_manager)
-    with pytest.raises(SystemExit):
-        runner.run(msg="line1\nline2")
+    with patch("owrap.commands.run_cmd.Terminal") as mock_terminal_cls, \
+         patch("owrap.commands.run_cmd._pool_active", return_value=False):
+        mock_terminal_cls.return_value = MagicMock()
+        runner = RunRunner(mock_manager)
+        with pytest.raises(SystemExit):
+            runner.run(msg="line1\nline2")
+        mock_terminal_cls.return_value.run.assert_not_called()
 
 
 def test_run_runner_msg_validation_length(mock_manager):
     from owrap.commands.run_cmd import RunRunner
+    from owrap.constants import MSG_MAX_CHARS
 
-    runner = RunRunner(mock_manager)
-    with pytest.raises(SystemExit):
-        runner.run(msg="x" * 1025)
+    with patch("owrap.commands.run_cmd.Terminal") as mock_terminal_cls, \
+         patch("owrap.commands.run_cmd._pool_active", return_value=False):
+        mock_terminal_cls.return_value = MagicMock()
+        runner = RunRunner(mock_manager)
+        with pytest.raises(SystemExit):
+            runner.run(msg="x" * (MSG_MAX_CHARS + 1))
+        mock_terminal_cls.return_value.run.assert_not_called()
 
 
 def test_run_runner_msg_mode_calls_opencode(mock_manager):

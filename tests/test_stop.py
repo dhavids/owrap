@@ -39,15 +39,15 @@ def test_kill_servers_logs_via_rtlog(tmp_path, monkeypatch):
     alive_pid = os.getpid()
     fake_pool = [{"pid": alive_pid, "port": 4096, "url": "http://127.0.0.1:4096"}]
 
-    with patch("owrap.utils.pool._read_pool", return_value=fake_pool), \
+    with patch("owrap.utils.dispatch.pool._read_pool", return_value=fake_pool), \
          patch("owrap.session.stop._pid_alive", return_value=True), \
          patch("owrap.session.stop._kill_pid", return_value=True), \
          patch("owrap.session.stop._wait_dead", return_value=None), \
-         patch("owrap.utils.rtlog.log") as mock_log, \
+         patch("owrap.utils.log.rtlog.log") as mock_log, \
          patch("owrap.session.stop.RUNNING_DIR", tmp_path / "running"), \
          patch("owrap.session.stop.RECENTLY_DONE_DIR", tmp_path / "done"), \
          patch("owrap.session.stop.SERVERS_DIR", tmp_path / "servers"), \
-         patch("owrap.session.stop.KEEPALIVE_PID_FILE", tmp_path / "ka.pid"), \
+         patch("owrap.session.stop.DAEMON_PID_FILE", tmp_path / "ka.pid"), \
          patch("owrap.utils.paths.STATS_FILE", tmp_path / "stats.json"):
         KillServersRunner().run()
 
@@ -57,20 +57,20 @@ def test_kill_servers_logs_via_rtlog(tmp_path, monkeypatch):
     assert call[1].get("reason") == "killservers"
 
 
-def test_kill_servers_stops_keepalive(tmp_path, monkeypatch):
+def test_kill_servers_stops_daemon(tmp_path, monkeypatch):
     from owrap.session.stop import KillServersRunner
     alive_pid = os.getpid()
-    ka_pid_file = tmp_path / "keepalive.pid"
+    ka_pid_file = tmp_path / "daemon.pid"
     ka_pid_file.write_text(str(alive_pid))
 
-    with patch("owrap.utils.pool._read_pool", return_value=[]), \
+    with patch("owrap.utils.dispatch.pool._read_pool", return_value=[]), \
          patch("owrap.session.stop._pid_alive", return_value=True), \
          patch("owrap.session.stop._kill_pid", return_value=True) as mock_kill, \
          patch("owrap.session.stop._wait_dead", return_value=None), \
          patch("owrap.session.stop.RUNNING_DIR", tmp_path / "running"), \
          patch("owrap.session.stop.RECENTLY_DONE_DIR", tmp_path / "done"), \
          patch("owrap.session.stop.SERVERS_DIR", tmp_path / "servers"), \
-         patch("owrap.session.stop.KEEPALIVE_PID_FILE", ka_pid_file), \
+         patch("owrap.session.stop.DAEMON_PID_FILE", ka_pid_file), \
          patch("owrap.utils.paths.STATS_FILE", tmp_path / "stats.json"):
         KillServersRunner().run()
 
@@ -87,14 +87,14 @@ def test_kill_servers_resets_stats(tmp_path, monkeypatch):
         "stalled": 1, "timed_out": 2,
     }))
 
-    with patch("owrap.utils.pool._read_pool", return_value=[]), \
+    with patch("owrap.utils.dispatch.pool._read_pool", return_value=[]), \
          patch("owrap.session.stop._pid_alive", return_value=False), \
          patch("owrap.session.stop._kill_pid", return_value=True), \
          patch("owrap.session.stop._wait_dead", return_value=None), \
          patch("owrap.session.stop.RUNNING_DIR", tmp_path / "running"), \
          patch("owrap.session.stop.RECENTLY_DONE_DIR", tmp_path / "done"), \
          patch("owrap.session.stop.SERVERS_DIR", tmp_path / "servers"), \
-         patch("owrap.session.stop.KEEPALIVE_PID_FILE", tmp_path / "ka.pid"), \
+         patch("owrap.session.stop.DAEMON_PID_FILE", tmp_path / "ka.pid"), \
          patch("owrap.utils.paths.STATS_FILE", stats_file):
         KillServersRunner().run()
 

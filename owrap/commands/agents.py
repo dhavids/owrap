@@ -8,20 +8,20 @@ import sys
 import time
 from datetime import datetime
 
-from ..utils.terminal import Terminal
-from ..utils.output_parser import OutputParser
+from ..utils.dispatch.terminal import Terminal
+from ..utils.parser.output_parser import OutputParser
 from ..base import BaseRunner
 from ..constants import (
     AGENT_KILL_S, NO_OUTPUT_AGENT_S, AGENT_INLINE_MAX_CHARS, AGENT_TIMEOUT_DEFAULT,
     LOG_WRAP_WIDTH, AGENT_GRACE_MIN_S, AGENT_GRACE_MAX_S, AGENT_GRACE_LOW_ANCHOR_S,
     AGENT_GRACE_HIGH_ANCHOR_S, INFRA_FAILURE_AGENT_S,
 )
-from ..utils.pool import _pool_active, pick_server, update_last_used
+from ..utils.dispatch.pool import _pool_active, pick_server, update_last_used
 from ..utils.paths import (
     _read_config, get_dispatch_model, get_workspace_path, format_failure_pointer,
     session_agents_dir, session_agent_log_path, session_agent_full_log_dir, RUNNING_DIR,
 )
-from ..utils.snippet import wrap_log_text, divider
+from ..utils.parser.snippet import wrap_log_text, divider
 
 
 _AGENT_SUMMARY_HEADER_RE = re.compile(r'^\+?#{1,6}\s*Summary\s*$', re.MULTILINE)
@@ -241,7 +241,7 @@ class AgentsRunner(BaseRunner):
                 tee.write(f"[server: {url or 'direct'}]\n\n")
                 tee.flush()
                 terminal = Terminal(verbose=False)
-                from ..utils.watchdog import Watchdog
+                from ..utils.dispatch.watchdog import Watchdog
                 def _agent_stop():
                     setattr(self, '_stall_killed', True)
                     terminal.terminate_process()
@@ -307,12 +307,12 @@ class AgentsRunner(BaseRunner):
                     pass
                 if not getattr(self, '_stall_killed', False):
                     try:
-                        from ..utils.pool import record_responsive
+                        from ..utils.dispatch.pool import record_responsive
                         record_responsive(url)
                     except Exception:
                         pass
                 try:
-                    from ..utils.pool import release_server
+                    from ..utils.dispatch.pool import release_server
                     release_server(url)
                 except Exception:
                     pass

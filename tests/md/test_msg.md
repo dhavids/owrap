@@ -14,7 +14,7 @@ Run the following msg commands and record timing results for each:
    wait
    ```
    — verify pool distributes across servers
-7. `sleep 60 && owrap run --msg "echo after_idle"` — verify keepalive prevents cold-start
+7. `sleep 60 && owrap run --msg "echo after_idle"` — verify daemon prevents cold-start
 
 For each call, capture:
 - wall-clock time (from `time` prefix or `[timing]` block)

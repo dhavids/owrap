@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from owrap.utils.donow import (
+from owrap.utils.session.donow import (
     _counters_path,
     _read_counters,
     _write_counters,
@@ -27,7 +27,7 @@ class TestCounters:
         assert "sessions" in str(p)
 
     def test_read_write_counters(self, tmp_path):
-        with patch("owrap.utils.donow.COUNTERS_DIR", tmp_path):
+        with patch("owrap.utils.session.donow.COUNTERS_DIR", tmp_path):
             sid = "test_sid"
             data = {"orun_count": 3, "plan_count": 1}
             _write_counters(sid, data)
@@ -35,12 +35,12 @@ class TestCounters:
             assert result == data
 
     def test_read_counters_missing_returns_empty(self, tmp_path):
-        with patch("owrap.utils.donow.COUNTERS_DIR", tmp_path):
+        with patch("owrap.utils.session.donow.COUNTERS_DIR", tmp_path):
             result = _read_counters("nonexistent")
             assert result == {}
 
     def test_read_counters_corrupt(self, tmp_path):
-        with patch("owrap.utils.donow.COUNTERS_DIR", tmp_path):
+        with patch("owrap.utils.session.donow.COUNTERS_DIR", tmp_path):
             _counters_path("bad").write_text("not json")
             result = _read_counters("bad")
             assert result == {}
@@ -175,21 +175,16 @@ class TestCheckDonow:
             return env["plans"] / f"plan_{s}.md"
 
         def _config():
-            return {
-                "research_root": str(env["research"]),
-                "ctx_update_every_orun": 3,
-                "updr_every_plans": 2,
-                "updr_every_steps": 15,
-            }
+            return {"research_root": str(env["research"])}
 
         return env, manager, cp, plan, memory, projects, _ctx_path, _plan_path, _config
 
     def test_no_area_returns_none(self, setup_env):
         env, manager, cp, plan, memory, projects, ctx_path_fn, plan_path_fn, config_fn = self._make_mocks(setup_env)
-        with patch("owrap.utils.donow.context_path", ctx_path_fn), \
-             patch("owrap.utils.donow.get_plan_path", plan_path_fn), \
-             patch("owrap.utils.donow._read_config", config_fn), \
-             patch("owrap.utils.donow.COUNTERS_DIR", env["counters"]):
+        with patch("owrap.utils.session.donow.context_path", ctx_path_fn), \
+             patch("owrap.utils.session.donow.get_plan_path", plan_path_fn), \
+             patch("owrap.utils.session.donow._read_config", config_fn), \
+             patch("owrap.utils.session.donow.COUNTERS_DIR", env["counters"]):
             result = check_donow(manager, "test123", "", "testr", "task")
             assert result is None
 
@@ -198,10 +193,10 @@ class TestCheckDonow:
         sid = "test123"
         # Delete context file
         cp.unlink()
-        with patch("owrap.utils.donow.context_path", ctx_path_fn), \
-             patch("owrap.utils.donow.get_plan_path", plan_path_fn), \
-             patch("owrap.utils.donow._read_config", config_fn), \
-             patch("owrap.utils.donow.COUNTERS_DIR", env["counters"]):
+        with patch("owrap.utils.session.donow.context_path", ctx_path_fn), \
+             patch("owrap.utils.session.donow.get_plan_path", plan_path_fn), \
+             patch("owrap.utils.session.donow._read_config", config_fn), \
+             patch("owrap.utils.session.donow.COUNTERS_DIR", env["counters"]):
             result = check_donow(manager, sid, "myarea", "testr", "task")
             assert result is not None
             assert "#DO NOW" in result
@@ -213,10 +208,10 @@ class TestCheckDonow:
         sid = "test123"
         # Remove area section from memory
         memory.write_text("## Other\nno myarea section\n")
-        with patch("owrap.utils.donow.context_path", ctx_path_fn), \
-             patch("owrap.utils.donow.get_plan_path", plan_path_fn), \
-             patch("owrap.utils.donow._read_config", config_fn), \
-             patch("owrap.utils.donow.COUNTERS_DIR", env["counters"]):
+        with patch("owrap.utils.session.donow.context_path", ctx_path_fn), \
+             patch("owrap.utils.session.donow.get_plan_path", plan_path_fn), \
+             patch("owrap.utils.session.donow._read_config", config_fn), \
+             patch("owrap.utils.session.donow.COUNTERS_DIR", env["counters"]):
             result = check_donow(manager, sid, "myarea", "testr", "task")
             assert result is not None
             assert "#DO NOW" in result

@@ -8,7 +8,7 @@ Every session calls `owrap start` at boot. Resolves session ID via `$SESSION_ID`
 
 ## OWRAP_HOME
 
-`{{OWRAP_HOME}}` (rendered above wherever it appears) resolves in this order: `$OWRAP_HOME` env var (if set) > contents of the fixed pointer file `~/.owrap_home` (if it exists) > default `~/.owrap`. Both the Python package (`owrap/utils/paths.py`) and every bash shim (`owrap`, `orun`, `oexec`, `owait`, `oread`) resolve it the same way. To point at a new path, use `owrap update-home <new_path>` (see Command Reference): by default this only updates the pointer file (useful when the target already has valid content, e.g. a synced mount from another machine, or is a fresh path you'll populate via normal use — run `owrap sync` afterward). Pass `--migrate` to actually relocate existing content on the same machine — it backs up first, stops the server pool and keepalive daemon, atomically moves the directory, updates the pointer file, and re-syncs the current workspace automatically.
+`{{OWRAP_HOME}}` (rendered above wherever it appears) resolves in this order: `$OWRAP_HOME` env var (if set) > contents of the fixed pointer file `~/.owrap_home` (if it exists) > default `~/.owrap`. Both the Python package (`owrap/utils/paths.py`) and every bash shim (`owrap`, `orun`, `oexec`, `owait`, `oread`) resolve it the same way. To point at a new path, use `owrap update-home <new_path>` (see Command Reference): by default this only updates the pointer file (useful when the target already has valid content, e.g. a synced mount from another machine, or is a fresh path you'll populate via normal use — run `owrap sync` afterward). Pass `--migrate` to actually relocate existing content on the same machine — it backs up first, stops the server pool and daemon, atomically moves the directory, updates the pointer file, and re-syncs the current workspace automatically.
 
 ## File Structure
 
@@ -92,91 +92,43 @@ Collapsing a child area back into its parent is a planner-driven operation, not 
 
 ## Update Context
 
-You are the planner — you have been running this session and know what changed. Do this now:
+Run `{{BIN_DIR}}/owrap ctx`. **Fire-and-forget**: it validates fast, queues the actual dispatch on a detached background process, and returns immediately — it does not block waiting for the model. The dispatch runs into a sandboxed directory containing *only* `transcript.txt` (the new assistant activity since the last checkpoint) — the executor never sees `context.md`, `memory.md`, `projects.md`, or any real path; it reports only what's new, never what should stay or be evicted. It writes a structured `output.md`; owrap itself then merges that back into the real `context.md` deterministically — no model judgment involved in capping or eviction. Check `ctx_status` (surfaced automatically in the orientation banner on the next `owrap refresh`/`owrap attach`) to see whether it finished `ok` or `failed`:
+- **## Focus** — full replace: 1-3 lines, what changed in this excerpt
+- **## Key Locations** — new entries appended (max 5 total — oldest evicted first on overflow); only real source paths relevant to ongoing/future work, never `context.md`/`memory.md`/`projects.md` themselves. On every merge, existing entries whose path no longer exists on disk are pruned first, before the cap is applied.
+- **## Decisions** — new entries appended (max 7 total — oldest evicted first on overflow)
+- **## Environment** — full replace, only if venv/flags/constraints changed in this excerpt
+- **## How To** — new entries appended (max 3 total — oldest evicted first on overflow); only a command shown verbatim (a `$ ` line in the transcript excerpt), never a paraphrase — a `-> ` line right after it is that command's real (truncated) output, usable to judge whether it worked
 
-1. Run `owrap get context` to read the current context file. Identify what is stale or missing across each section, based on work done since it was last updated:
-   - **## Focus** — does it reflect the current phase and state?
-   - **## Key Locations** — any new files or paths introduced this session?
-   - **## Decisions** — any architectural choices not yet recorded?
-   - **## Environment** — any new env facts (flags, configs, tool constraints)?
-   - **## How To** — any useful commands or techniques discovered this session? (e.g., exact grep that found something, log analysis command that worked well, a command flag that made a difference)
-
-2. Write a task file to `{{OWRAP_HOME}}/docs/sessions/<sid>/run/input.md` in this exact form, then dispatch via `orun`:
-
-```
-# Update Context
-
-Update {{OWRAP_HOME}}/docs/sessions/<sid>/context.md — apply the following changes:
-
-## Focus
-<full replacement paragraph — current phase, what is active, what is blocked>
-
-## Key Locations — append only new entries (max 5 total — if appending would exceed 5, remove the oldest entries first):
-- `absolute/path/to/file.py` — one-line description
-
-## Decisions — append only new entries (max 7 total — if appending would exceed 7, remove the oldest entries first):
-| YYYY-MM-DD | <decision> | <reason> |
-
-## How To — append only new entries (max 3 total — if appending would exceed 3, remove the oldest entries first):
-- `<command or invocation>` — when to use it / what it does
-
-## Environment — append only new entries (max 3 total — if appending would exceed 3, remove the oldest entries first):
-- <fact>: <value>
-
-(omit any section that needs no change)
-```
-
-The executor applies exactly what you wrote — it makes no decisions. Provide the full content for ## Focus; for others, append only new entries not already present. Honour the per-section caps stated above by removing oldest entries if the cap would be exceeded.
-
-This must be a **standalone** task with the header **# Update Context**. It must not be lumped or combined with any other tasks.
+**If you already know exactly what you changed** and don't want to wait for the transcript to carry it, run `{{BIN_DIR}}/owrap touched <path> [<path> ...] [--note "<one-line note>"]` — the next dispatch (automatic or manual) includes each path as a `[Touched]` entry, treated the same as a real `[Edit]`/`[Write]` marker, and clears the queued list once successfully applied.
 
 ## Update Protocol
 
-You are the planner — you have been running this session and know what changed. Do this now:
+Run `{{BIN_DIR}}/owrap updr [area]`. Same fire-and-forget behavior and transcript-only sandbox as Update Context, for the given area (default: this session's current area). The executor writes `output.md`; owrap applies it back to the real files the same deterministic way. Need both Context and Protocol updated from the same excerpt? Add `--ctx` (`owrap updr [area] --ctx`, planner shorthand `--uall [area]`) rather than calling `owrap ctx` and `owrap updr` separately — separately dispatches twice against the same unconsumed transcript excerpt (no lock on the checkpoint counter) and costs two model calls instead of one; `--ctx` queues a single background dispatch producing both halves at once, same as the automatic daemon check and `PreCompact` already do:
 
-1. Run `{{BIN_DIR}}/owrap get memory` and `{{BIN_DIR}}/owrap get project` to read the current state of both files for the active area.
-2. Based on completed plan steps and decisions made since the last `--updr`, identify what is new or changed:
-   - **memory** — new files, classes, methods, config flows relevant to this area?
-   - **projects status** — has phase/state changed? Any active blockers?
-   - **projects decisions** — any architectural choices to record?
-3. Write a task file to `{{OWRAP_HOME}}/docs/sessions/<sid>/run/input.md` in this exact form, then dispatch via `{{BIN_DIR}}/orun`:
+`{{RESEARCH_ROOT}}/memory/<research>.md` — area `## <area>`:
+- `### Components` — new entries appended, deduped, uncapped
+- `### <Subsystem>` — a new `### <Subsystem>` heading from the model is appended as its own block (not merged into an existing same-named subsystem — v1 limitation)
 
-```
-# Update Protocol
+`{{RESEARCH_ROOT}}/projects/<research>.md` — area `## <area>`:
+- `### Status` — full replace: current phase/state, last run, active blockers
+- `### Decisions` — new entries dated and prepended at the top (newest-first; max 150 total — oldest evicted on overflow); the model writes undated `- decision — why` bullets, owrap adds the date
 
-Update {{RESEARCH_ROOT}}/memory/<research>.md — area ## <area>:
+If `## <area>` is a newly-created child area, the executor includes the `**Parent area:**` annotation — see § Child Areas.
 
-### Components — write/update flat list of files relevant to this area:
-- `file.py` — one-line role
+### Reliability
 
-### <Subsystem> — write/update architecture reference (omit subsections with no new entries):
-- `ClassName at file.py:N` — purpose, key params (≤10 entries per subsystem)
-
-Update {{RESEARCH_ROOT}}/projects/<research>.md — area ## <area>:
-
-### Status
-<replacement paragraph — current phase/state, last run, active blockers>
-
-### Decisions — prepend new entries at the top (newest-first; max 150 total — if prepending would exceed 150, remove the oldest entries first):
-| YYYY-MM-DD | <decision> | <reason> |
-
-(omit any section that needs no change)
-```
-
-The executor applies exactly what you wrote — it makes no decisions. If `## <area>` is a newly-created child area, include the `**Parent area:**` annotation — see § Child Areas.
-
-This must be a **standalone** task with the header **# Update Protocol**. It must not be lumped or combined with any other tasks.
+Each dispatch tries the configured model, retries it once, then falls back a rung at a time through `context_manager_model` → `runner_model` → `context_fallback_model` (config keys; the last always resolves to a real value — never an arbitrary opencode free-tier pick). Every attempt's `output.md` is validated before being trusted (`## Focus` present if Update Context ran, `### Status` present if Update Protocol ran) — an invalid or missing output doesn't get applied. If every rung fails, nothing is dropped: the transcript checkpoint isn't advanced, so the same unprocessed excerpt is retried on the next trigger instead of being silently lost.
 
 ### When to run
 
-Run `--updr` when:
-- **Precompact**: automatically, unconditionally, on every precompact event (handled by the PreCompact hook worker — no manual action needed).
+- **Automatically, in the background**: the daemon (`{{BIN_DIR}}/owrap daemon`, started by `owrap start`/`owrap refresh`) checks every attached window every `ctx_check_interval_s` (config key, default 300s) for a non-empty transcript diff and dispatches both halves itself if one exists — no manual action needed, and independent of whether the runner (dispatch tooling) is enabled.
+- **On PreCompact**: also handled automatically, via the `ctx-hook`/`ctx-worker` pair, right before a compaction would otherwise lose the excerpt.
 - **Session end** (`--end`): if the run was significant — produced new findings, completed a phase, made an architectural decision, or resolved a blocker. Replicating known results without new insight is not significant.
-- **Explicit call**: `--updr [area]` at any time.
+- **Explicit call**: `--ctx` / `--updr [area]` at any time, for an immediate update instead of waiting for the next automatic check.
 
 ### Area
 
-Check your active area with `{{BIN_DIR}}/owrap get area`. If not set and files have multiple `## <area>` sections → set area first via `owrap update-area <research> <area>` before running updr. If files have a single section → infer it. Always specify the area explicitly in the task file — executor updates only that section and never touches others.
+`owrap updr` defaults to this session's configured area (`{{BIN_DIR}}/owrap get area`) and updates only that `## <area>` section, never touching others. Pass `owrap updr <area>` explicitly to target a different one.
 
 ### Limits
 
@@ -285,7 +237,7 @@ On demand via `--collapse [child]` (see Planner Modes in `CLAUDE.md`) — never 
 
 ## DO NOW Mechanism
 
-Counters live in `{{OWRAP_HOME}}/sessions/<sid>.counters.json` (owrap-managed — never read or edit directly), used only for the recovery checks below and for precompact's internal transcript-offset tracking.
+Counters live in `{{OWRAP_HOME}}/sessions/<sid>.counters.json` (owrap-managed — never read or edit directly), used for the recovery checks below. The context manager's own transcript-offset tracking lives separately per attached window, in `<sid>.<ccsid>.counters.json`.
 
 ### Trigger Table
 
@@ -296,7 +248,7 @@ Counters live in `{{OWRAP_HOME}}/sessions/<sid>.counters.json` (owrap-managed �
 
 ## Fallbacks
 
-If `{{BIN_DIR}}/orun` or `{{BIN_DIR}}/oexec` is unavailable (binary missing, server pool empty, keepalive dead), run fallback dispatches directly via `owrap f <path>` — no server/pool/Manager involved:
+If `{{BIN_DIR}}/orun` or `{{BIN_DIR}}/oexec` is unavailable (binary missing, server pool empty, daemon dead), run fallback dispatches directly via `owrap f <path>` — no server/pool/Manager involved:
 
 - **Task fallback**: write the task to `{{OWRAP_DOCS}}/f/task/task.md` (or any path whose filename contains "task"), then run `~/bin/owrap f <path>`. Mode (`--taskf`) is inferred from the filename.
 - **Plan fallback**: write the plan to `{{OWRAP_DOCS}}/f/exec/plan.md` (or any path without "task" in the filename), then run `~/bin/owrap f <path>`. Mode (`--execf`) is inferred from the filename.
@@ -319,17 +271,20 @@ If `{{BIN_DIR}}/orun` or `{{BIN_DIR}}/oexec` is unavailable (binary missing, ser
 | `owrap update-area <research> <area> [child]` | Set active research AND area on the current session (both fields updated independently — pass the same area to change only research, or vice versa). `[child]` sets the session's `child` field when this area is a child area; omit it to clear/unset the field (e.g. when rebinding back to a parent after a collapse) |
 | `owrap spawn <child>` | Rebind current session to a child area `<parent>-<child>`, where `<parent>` is the session's current area |
 | `owrap update-home <path> [--dry-run]` | Point `OWRAP_HOME` at `<path>` — lightweight: validates target, updates `~/.owrap_home` pointer file only. Run `owrap sync` afterward. |
-| `owrap update-home <path> --migrate [--dry-run]` | Relocate `OWRAP_HOME`: backs up to `~/.owrap_backups/`, stops server pool + keepalive, atomically moves the directory, updates the pointer file, re-syncs current workspace |
+| `owrap update-home <path> --migrate [--dry-run]` | Relocate `OWRAP_HOME`: backs up to `~/.owrap_backups/`, stops server pool + daemon, atomically moves the directory, updates the pointer file, re-syncs current workspace |
 | `owrap stat <sid>` | Show session stats (tasks, durations, pool state) |
-| `owrap keepalive` | Launch/restart keepalive daemon |
+| `owrap daemon` | Launch/restart the owrap daemon |
 | `owrap get <what>` | Print a session resource: `plan`, `input`, `context`, `session`, `memory`, `project`, `area`, `research`, `config`, `home`, `agents`, `output` |
 | `owrap get output <msg\|task\|agent\|exec> [--id <id>] [--head N] [--tail N]` | Print the resolved output log path + head/tail preview for the most recent (or a specific `--id`) msg/task/agent dispatch; `exec`/`task` fall back to the single `owrap f` output log when no session is active |
 | `owrap f <path>` | Fallback: run `--execf`/`--taskf` directly (no server) on `<path>`; mode inferred from filename ("task" in name → `--taskf`, else `--execf`); tees to `f/<mode>/output.log`, logs to `f/<mode>/log.md`; errors if path missing or path doesn't exist |
 | `owrap f tstop` | Stop a running/stalled task fallback: SIGTERM the tracked `runner_pid`, mark `f/task/status.json` as `stopped`, log to `f/task/log.md` |
 | `owrap f estop` | Stop a running/stalled exec fallback: same as `tstop` but for `f/exec/status.json`/`log.md` |
 | `owrap restore trash <sid>` | Restore a session previously moved to `.trash` by `owrap end`/`owrap stop`; run `owrap attach <sid>` afterward to bind a window to it |
+| `owrap backup <research>` | Snapshot `memory.md`/`projects.md`/`todo.md` for `<research>` into `{{OWRAP_HOME}}/backups/<research>/<timestamp>/` — a manual safety net, not automatic |
+| `owrap retrieve <research> [timestamp\|latest]` | Restore those files from a backup snapshot; omit `[timestamp]` to list available ones first. `timestamp` may be an unambiguous prefix, resolved the same way as `owrap set model`'s query matching (AMBIGUOUS error if it matches more than one). Distinct from `owrap restore trash`, which restores a trashed *session*, not a file backup |
+| `owrap delete backup <research> [latest\|all\|timestamp]` | Delete a backup snapshot — `latest` (default) removes only the newest, `all` removes every snapshot for `<research>`, or name a timestamp prefix (same ambiguity resolution as `retrieve`). The supported way to clean these up instead of `rm -rf`ing them directly |
 | `owrap cleanup trash` | Permanently delete `.trash` entries older than `trash_retention_days` (default 30); also runs automatically via `_housekeeping` on `owrap start`/`refresh` |
-| `owrap precompact` | PreCompact hook — summarises transcript before compaction |
+| `owrap ctx-hook` | PreCompact hook — spawns the context-manager worker before compaction |
 
 ### oread (file reading, OpenCode)
 | Flag | What it does |

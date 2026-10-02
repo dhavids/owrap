@@ -6,21 +6,378 @@ from pathlib import Path
 
 from .session import (
     StartRunner, StopRunner, RefreshRunner, RestartRunner,
-    CleanupRunner, EndRunner, AttachRunner, UpdateAreaRunner,
-    RestoreRunner,
+    CleanupRunner, EndRunner, AttachRunner, DetachRunner,
+    UpdateAreaRunner, RestoreRunner,
 )
 from .commands import (
     AbortRunner, ExecRunner, ReadRunner, RunRunner,
     SetupRunner, WaitRunner,
 )
 from .commands.sync_cmd import SyncRunner
-from .commands.keepalive import KeepaliveRunner
+from .commands.daemon import DaemonRunner
 from .manager import Manager
 from .utils.paths import _read_config, get_workspace_config
 from .utils.arg_parser import OwrapArgumentParser
-from .utils import rtlog
+from .utils.log import rtlog
 
-_UNLOGGED_CMDS = {"stat", "get", "permit", "wait"}
+_UNLOGGED_CMDS = {"stat", "get", "permit", "wait", "set"}
+
+
+# Command Handlers
+
+def _cmd_start(args, manager, logger, allow_all):
+    StartRunner(manager, logger, allow_all=allow_all).run(
+        shell_pid=args.shell_pid,
+        session_file=args.session_file,
+        research=args.research,
+        session_id=getattr(args, 'session_id', None),
+        area=getattr(args, 'area', None),
+        child=getattr(args, 'child', None),
+    )
+
+
+def _cmd_stop(args, manager, logger, allow_all):
+    target = (
+        getattr(args, 'session_id', None)
+        or getattr(args, 'target', None)
+    )
+    StopRunner(manager, logger, allow_all=allow_all).run(
+        session_file=args.session_file,
+        force=args.force,
+        target=target,
+    )
+
+
+def _cmd_end(args, manager, logger, allow_all):
+    target = (
+        getattr(args, 'session_id', None)
+        or getattr(args, 'target', None)
+    )
+    EndRunner(manager, logger, allow_all=allow_all).run(
+        session_file=args.session_file,
+        target=target,
+    )
+
+
+def _cmd_refresh(args, manager, logger, allow_all):
+    RefreshRunner(manager, logger, allow_all=allow_all).run(
+        shell_pid=args.shell_pid,
+        session_file=args.session_file,
+        research=args.research,
+        session_id=getattr(args, 'session_id', None),
+        area=getattr(args, 'area', None),
+    )
+
+
+def _cmd_attach(args, manager, logger, allow_all):
+    AttachRunner(manager, logger, allow_all=allow_all).run(
+        target_session_id=args.target_session_id,
+    )
+
+
+def _cmd_detach(args, manager, logger, allow_all):
+    DetachRunner(manager, logger, allow_all=allow_all).run()
+
+
+def _cmd_todo(args, manager, logger, allow_all):
+    from .commands.todo_cmd import TodoRunner
+    if args.target == "clear":
+        TodoRunner().run_clear(args.arg2)
+    elif args.target == "done":
+        TodoRunner().run_done(args.arg2, args.arg3)
+    else:
+        TodoRunner().run(args.target, args.arg2, args.arg3)
+
+
+def _cmd_restart(args, manager, logger, allow_all):
+    RestartRunner(manager, logger, allow_all=allow_all).run(
+        shell_pid=args.shell_pid,
+        session_file=args.session_file,
+        research=args.research,
+        force=args.force,
+        session_id=getattr(args, 'session_id', None),
+    )
+
+
+def _cmd_setup(args, manager, logger, allow_all):
+    SetupRunner().run(
+        path=args.path,
+        project_name=args.name,
+        workspace=args.workspace,
+        research_root=args.research_root,
+        allow_all=args.allow_all,
+        oread=args.oread,
+    )
+
+
+def _cmd_sync(args, manager, logger, allow_all):
+    SyncRunner().run()
+
+
+def _cmd_read(args, manager, logger, allow_all):
+    if getattr(args, 'list_styles', False):
+        ReadRunner(manager, logger, allow_all=allow_all).list_styles()
+        sys.exit(0)
+    if args.files is None and args.grep is None:
+        import sys as _sys
+        print(
+            "error: -f/--file required unless using -g/--grep",
+            file=_sys.stderr,
+        )
+        _sys.exit(1)
+    ReadRunner(manager, logger, allow_all=allow_all).run(
+        (
+            args.files[0]
+            if args.files and len(args.files) == 1
+            else args.files
+        ),
+        summarise=args.summarise,
+        details=args.details,
+        log_time=args.log_time,
+        grep=args.grep,
+        read_id=getattr(args, 'id', None),
+        timeout=getattr(args, 'timeout', None),
+        verbose=args.verbose,
+        prompt_style=getattr(args, 'prompt_style', None),
+    )
+
+
+def _cmd_run(args, manager, logger, allow_all):
+    RunRunner(
+        manager, logger, allow_all=allow_all,
+        add_context=args.add_context,
+        model=args.model,
+        disablewd=args.disablewd,
+    ).run(
+        msg=args.msg,
+        msg_id=getattr(args, 'id', None),
+        input_path=Path(args.input) if args.input else None,
+        log_time=args.log_time,
+        timeout=getattr(args, 'timeout', None),
+    )
+
+
+def _cmd_agent(args, manager, logger, allow_all):
+    from .commands.agents import AgentsRunner
+    agent_data = args.data
+    if agent_data is None or agent_data == "-":
+        import sys as _sys
+        agent_data = _sys.stdin.read()
+    AgentsRunner(
+        manager, logger, allow_all=allow_all,
+        model=args.model,
+        disablewd=args.disablewd,
+    ).run_agent(
+        data=agent_data,
+        agent_id=getattr(args, 'id', None),
+        log_time=args.log_time,
+        timeout=getattr(args, 'timeout', None),
+        clear=args.clear,
+    )
+
+
+def _cmd_exec(args, manager, logger, allow_all):
+    ExecRunner(
+        manager, logger, allow_all=allow_all,
+        model=args.model,
+        disablewd=args.disablewd,
+    ).run(
+        log_time=args.log_time,
+        timeout=getattr(args, 'timeout', None),
+    )
+
+
+def _cmd_abort(args, manager, logger, allow_all):
+    AbortRunner(manager, logger, allow_all=allow_all).run(
+        target=args.target,
+        session_id=getattr(args, "session", None),
+    )
+
+
+def _cmd_agents(args, manager, logger, allow_all):
+    from .commands.agents import AgentsRunner
+    AgentsRunner(manager, logger, allow_all=allow_all).run(action=args.action)
+
+
+def _cmd_killservers(args, manager, logger, allow_all):
+    from .session.stop import KillServersRunner
+    KillServersRunner().run(session_id=getattr(args, "session", None))
+
+
+def _cmd_daemon(args, manager, logger, allow_all):
+    DaemonRunner(manager, logger, allow_all=allow_all).run()
+
+
+def _cmd_update_area(args, manager, logger, allow_all):
+    UpdateAreaRunner(
+        manager, logger, allow_all=allow_all,
+    ).run(
+        research=args.research,
+        area=args.area,
+        child=args.child,
+    )
+
+
+def _cmd_spawn(args, manager, logger, allow_all):
+    from .session.start import SpawnRunner
+    SpawnRunner(manager, logger, allow_all=allow_all).run(child=args.child)
+
+
+def _cmd_update_home(args, manager, logger, allow_all):
+    from .commands.update_home import UpdateHomeRunner
+    UpdateHomeRunner(
+        manager, logger, allow_all=allow_all,
+    ).run(
+        new_path=args.path,
+        dry_run=args.dry_run,
+        migrate=args.migrate,
+    )
+
+
+def _cmd_wait(args, manager, logger, allow_all):
+    WaitRunner(manager, logger, allow_all=allow_all).run(
+        wait_type=args.type,
+        wait_id=args.id,
+        session_id=args.session,
+        timeout=args.timeout,
+    )
+
+
+def _cmd_stat(args, manager, logger, allow_all):
+    from .session.stat import StatRunner
+    sys.exit(StatRunner(manager, logger, allow_all).run(args))
+
+
+def _cmd_cleanup(args, manager, logger, allow_all):
+    if getattr(args, "session_id", None) == "trash":
+        from .utils.session.trash import sweep_trash
+        removed = sweep_trash()
+        if removed:
+            print(
+                f"Trash sweep: {removed} session(s) permanently removed "
+                f"(past retention)."
+            )
+        else:
+            print("Trash sweep: nothing past retention.")
+        sys.exit(0)
+    sys.exit(CleanupRunner(manager, logger, allow_all).run(args))
+
+
+def _cmd_restore(args, manager, logger, allow_all):
+    sys.exit(RestoreRunner(manager, logger, allow_all).run(args))
+
+
+def _cmd_f(args, manager, logger, allow_all):
+    from .commands.fallback import FallbackRunner
+    FallbackRunner().run(args.path)
+
+
+def _cmd_ctx_hook(args, manager, logger, allow_all):
+    from .commands.context_manager import CtxHookRunner
+    CtxHookRunner().run()
+
+
+def _cmd_ctx_worker(args, manager, logger, allow_all):
+    from .commands.context_manager import CtxWorkerRunner
+    CtxWorkerRunner().run(input_path=Path(args.input))
+
+
+def _cmd_ctx(args, manager, logger, allow_all):
+    from .commands.context_manager import CtxWorkerRunner
+    CtxWorkerRunner().run_manual(mode="ctx")
+
+
+def _cmd_updr(args, manager, logger, allow_all):
+    from .commands.context_manager import CtxWorkerRunner
+    mode = None if args.ctx else "updr"
+    CtxWorkerRunner().run_manual(mode=mode, area=args.area)
+
+
+def _cmd_touched(args, manager, logger, allow_all):
+    from .commands.touched_cmd import TouchedRunner
+    TouchedRunner().run(args.paths, note=args.note)
+
+
+def _cmd_backup(args, manager, logger, allow_all):
+    from .commands.backup_cmd import BackupRunner
+    BackupRunner().run(args.research)
+
+
+def _cmd_retrieve(args, manager, logger, allow_all):
+    from .commands.backup_cmd import RetrieveRunner
+    RetrieveRunner().run(args.research, timestamp=args.timestamp)
+
+
+def _cmd_delete(args, manager, logger, allow_all):
+    if args.what == "backup":
+        from .commands.backup_cmd import DeleteBackupRunner
+        DeleteBackupRunner().run(args.research, which=args.which)
+
+
+def _cmd_get(args, manager, logger, allow_all):
+    from .commands.get_cmd import GetRunner
+    runner = GetRunner()
+    if args.what == "output":
+        sys.exit(
+            runner.run_output(
+                kind=args.kind,
+                dispatch_id=args.id,
+                head=args.head,
+                tail=args.tail,
+                session_id=args.session,
+            )
+            or 0
+        )
+    if args.what == "runtime":
+        sys.exit(runner.run_runtime(
+            tail=args.tail, ev_prefix=args.ev, sid=args.sid,
+        ) or 0)
+    if args.what == "transcript":
+        sys.exit(runner.run_transcript(
+            session_id=args.session, ccsid=args.ccsid,
+        ) or 0)
+    sys.exit(runner.run(args.what, session_id=args.session,
+                        dispatch_id=args.id) or 0)
+
+
+_COMMAND_HANDLERS = {
+    "start": _cmd_start,
+    "stop": _cmd_stop,
+    "end": _cmd_end,
+    "refresh": _cmd_refresh,
+    "attach": _cmd_attach,
+    "detach": _cmd_detach,
+    "todo": _cmd_todo,
+    "restart": _cmd_restart,
+    "setup": _cmd_setup,
+    "sync": _cmd_sync,
+    "read": _cmd_read,
+    "run": _cmd_run,
+    "agent": _cmd_agent,
+    "exec": _cmd_exec,
+    "work": _cmd_exec,
+    "abort": _cmd_abort,
+    "agents": _cmd_agents,
+    "killservers": _cmd_killservers,
+    "daemon": _cmd_daemon,
+    "update-area": _cmd_update_area,
+    "spawn": _cmd_spawn,
+    "update-home": _cmd_update_home,
+    "wait": _cmd_wait,
+    "stat": _cmd_stat,
+    "cleanup": _cmd_cleanup,
+    "restore": _cmd_restore,
+    "f": _cmd_f,
+    "ctx-hook": _cmd_ctx_hook,
+    "ctx-worker": _cmd_ctx_worker,
+    "ctx": _cmd_ctx,
+    "updr": _cmd_updr,
+    "touched": _cmd_touched,
+    "backup": _cmd_backup,
+    "retrieve": _cmd_retrieve,
+    "delete": _cmd_delete,
+    "get": _cmd_get,
+}
 
 
 def main():
@@ -114,6 +471,30 @@ def main():
     attach_parser.add_argument("target_session_id", help="Session ID to attach to")
     attach_parser.add_argument(
         "--shell-pid", type=int, default=None, help="Shell PID (ignored)",
+    )
+
+    subparsers.add_parser(
+        "detach", help="Release this window's attachment to its session",
+    )
+
+    todo_parser = subparsers.add_parser(
+        "todo",
+        help="Add, insert, mark done, or clear todo entries for a research/area",
+    )
+    todo_parser.add_argument(
+        "target",
+        help=(
+            "Session id, research/area name, 'clear' to clear done items, "
+            "or 'done' to mark one item done"
+        ),
+    )
+    todo_parser.add_argument(
+        "arg2", nargs="?", default=None,
+        help="Todo text, position, or (after 'clear'/'done') the target",
+    )
+    todo_parser.add_argument(
+        "arg3", nargs="?", default=None,
+        help="Todo text when arg2 is a position, or (after 'done') the selector",
     )
 
     restart_parser = subparsers.add_parser(
@@ -429,21 +810,72 @@ def main():
     update_home_parser.add_argument(
         "--migrate", action="store_true", default=False,
         help=(
-            "Relocate existing content: backup, stop server pool + keepalive, "
+            "Relocate existing content: backup, stop server pool + daemon, "
             "atomically move, re-sync current workspace"
         ),
     )
 
-    precompact_parser = subparsers.add_parser(
-        "precompact", help="PreCompact hook handler",
+    ctx_hook_parser = subparsers.add_parser(
+        "ctx-hook", help="PreCompact hook handler",
     )
 
-    precompact_worker_parser = subparsers.add_parser(
-        "precompact-worker", help="PreCompact worker",
+    ctx_worker_parser = subparsers.add_parser(
+        "ctx-worker", help="Context-manager background worker",
     )
-    precompact_worker_parser.add_argument(
+    ctx_worker_parser.add_argument(
         "--input", type=str, required=True,
         help="Input JSON path",
+    )
+
+    ctx_parser = subparsers.add_parser(
+        "ctx", help="Dispatch an Update Context task for this window now",
+    )
+
+    updr_parser = subparsers.add_parser(
+        "updr", help="Dispatch an Update Protocol task for this window now",
+    )
+    updr_parser.add_argument(
+        "area", nargs="?", default=None,
+        help="Area to update (default: this session's configured area)",
+    )
+    updr_parser.add_argument(
+        "--ctx", action="store_true",
+        help="Also run Update Context, in the same single background dispatch",
+    )
+
+    touched_parser = subparsers.add_parser(
+        "touched",
+        help="Report touched file paths for the next context-manager dispatch",
+    )
+    touched_parser.add_argument("paths", nargs="+", help="One or more file paths")
+    touched_parser.add_argument(
+        "--note", default=None, help="One-line note applied to every path given",
+    )
+
+    backup_parser = subparsers.add_parser(
+        "backup", help="Snapshot a research's memory/projects/todo files",
+    )
+    backup_parser.add_argument("research", help="Research name")
+
+    retrieve_parser = subparsers.add_parser(
+        "retrieve",
+        help="Restore memory/projects/todo files from an `owrap backup` snapshot",
+    )
+    retrieve_parser.add_argument("research", help="Research name")
+    retrieve_parser.add_argument(
+        "timestamp", nargs="?", default=None,
+        help="Backup timestamp (or an unambiguous prefix), or 'latest' — "
+             "omit to list available backups",
+    )
+
+    delete_parser = subparsers.add_parser(
+        "delete", help="Delete something (backup only, for now)",
+    )
+    delete_parser.add_argument("what", choices=["backup"])
+    delete_parser.add_argument("research", help="Research name")
+    delete_parser.add_argument(
+        "which", nargs="?", default="latest",
+        help="'latest' (default), 'all', or a timestamp prefix",
     )
 
     get_parser = subparsers.add_parser("get", help="Inspect session files")
@@ -451,8 +883,8 @@ def main():
         "what",
         choices=[
             "plan", "input", "context", "session", "memory",
-            "project", "area", "research", "config", "home", "agents",
-            "output", "runtime",
+            "project", "todo", "area", "research", "config", "home", "agents",
+            "output", "runtime", "transcript",
         ],
     )
     get_parser.add_argument(
@@ -465,11 +897,39 @@ def main():
     get_parser.add_argument("--tail", type=int, default=5)
     get_parser.add_argument("--ev", default=None, help="Filter events by prefix")
     get_parser.add_argument("--sid", default=None, help="Filter by session ID")
+    get_parser.add_argument(
+        "--ccsid", default=None,
+        help="Attached window id (default: current CLAUDE_CODE_SESSION_ID)",
+    )
 
-    keepalive_parser = subparsers.add_parser("keepalive", help="Run the keepalive daemon")
+    daemon_parser = subparsers.add_parser("daemon", help="Run the owrap daemon")
 
     p_parser = subparsers.add_parser(
         "p", help="PreToolUse permission check (reads staged permit.json)",
+    )
+
+    permit_cmd_parser = subparsers.add_parser(
+        "permit", help="Inspect or toggle the permit auto-approve-all bypass",
+    )
+    permit_cmd_parser.add_argument("action", choices=["status", "bypass-all"])
+    permit_cmd_parser.add_argument(
+        "state", nargs="?", choices=["on", "off"], default=None,
+    )
+
+    set_parser = subparsers.add_parser("set", help="Set a workspace config value")
+    set_subparsers = set_parser.add_subparsers(dest="set_target")
+    set_model_parser = set_subparsers.add_parser(
+        "model", help="Search live opencode models and set one on a model slot",
+    )
+    set_model_parser.add_argument(
+        "slot",
+        choices=["runner", "context_manager", "context_fallback", "daemon_default"],
+    )
+    set_model_parser.add_argument(
+        "query", help="Substring to search for in available model names",
+    )
+    set_model_parser.add_argument(
+        "--workspace", default=None, help="Workspace name (default: default_workspace)",
     )
 
     wait_parser = subparsers.add_parser("wait", help="Wait for task/read/msg completion")
@@ -491,7 +951,9 @@ def main():
         from .constants import OREAD_DISABLED_MSG
         _cfg = _read_config()
         _ws_cfg = get_workspace_config(_cfg.get("default_workspace", ""))
-        _oread_enabled = _ws_cfg.get("oread", _cfg.get("oread", True))
+        _oread_enabled = _ws_cfg.get(
+            "runner_use_oread", _cfg.get("runner_use_oread", True),
+        )
         if not _oread_enabled:
             print(OREAD_DISABLED_MSG)
             sys.exit(0)
@@ -511,6 +973,27 @@ def main():
         PermitRunner().run()
         sys.exit(0)
 
+    if args.command == "permit":
+        from .commands.permit import PermitCmdRunner
+        cmd_runner = PermitCmdRunner()
+        if args.action == "status":
+            cmd_runner.run_status()
+        elif args.state is None:
+            print("Usage: owrap permit bypass-all <on|off>")
+            sys.exit(2)
+        else:
+            cmd_runner.run_bypass_all(args.state)
+        sys.exit(0)
+
+    if args.command == "set":
+        if args.set_target == "model":
+            from .commands.set_model import SetModelRunner
+            SetModelRunner().run(args.slot, args.query, workspace=args.workspace)
+        else:
+            print("Usage: owrap set model <slot> <query> [--workspace <name>]")
+            sys.exit(2)
+        sys.exit(0)
+
     manager = Manager()
     level = "DEBUG" if getattr(args, "debug", False) else "INFO"
     logger = manager.get_logger(level=level)
@@ -520,8 +1003,8 @@ def main():
     _ws_cfg = get_workspace_config(_base.get("default_workspace", ""))
     allow_all = (
         allow_all
-        or _base.get("allow_all", False)
-        or _ws_cfg.get("allow_all", False)
+        or _base.get("runner_allow_all", False)
+        or _ws_cfg.get("runner_allow_all", False)
     )
 
     cmd = args.command or ""
@@ -531,217 +1014,9 @@ def main():
     _cmd_rc = 0
     try:
         try:
-            if args.command == "start":
-                StartRunner(manager, logger, allow_all=allow_all).run(
-                    shell_pid=args.shell_pid,
-                    session_file=args.session_file,
-                    research=args.research,
-                    session_id=getattr(args, 'session_id', None),
-                    area=getattr(args, 'area', None),
-                    child=getattr(args, 'child', None),
-                )
-            elif args.command == "stop":
-                target = (
-                    getattr(args, 'session_id', None)
-                    or getattr(args, 'target', None)
-                )
-                StopRunner(manager, logger, allow_all=allow_all).run(
-                    session_file=args.session_file,
-                    force=args.force,
-                    target=target,
-                )
-            elif args.command == "end":
-                target = (
-                    getattr(args, 'session_id', None)
-                    or getattr(args, 'target', None)
-                )
-                EndRunner(manager, logger, allow_all=allow_all).run(
-                    session_file=args.session_file,
-                    target=target,
-                )
-            elif args.command == "refresh":
-                RefreshRunner(manager, logger, allow_all=allow_all).run(
-                    shell_pid=args.shell_pid,
-                    session_file=args.session_file,
-                    research=args.research,
-                    session_id=getattr(args, 'session_id', None),
-                    area=getattr(args, 'area', None),
-                )
-            elif args.command == "attach":
-                AttachRunner(manager, logger, allow_all=allow_all).run(
-                    target_session_id=args.target_session_id,
-                )
-            elif args.command == "restart":
-                RestartRunner(manager, logger, allow_all=allow_all).run(
-                    shell_pid=args.shell_pid,
-                    session_file=args.session_file,
-                    research=args.research,
-                    force=args.force,
-                    session_id=getattr(args, 'session_id', None),
-                )
-            elif args.command == "setup":
-                SetupRunner().run(
-                    path=args.path,
-                    project_name=args.name,
-                    workspace=args.workspace,
-                    research_root=args.research_root,
-                    allow_all=args.allow_all,
-                    oread=args.oread,
-                )
-            elif args.command == "sync":
-                SyncRunner().run()
-            elif args.command == "read":
-                if getattr(args, 'list_styles', False):
-                    ReadRunner(manager, logger, allow_all=allow_all).list_styles()
-                    sys.exit(0)
-                if args.files is None and args.grep is None:
-                    import sys as _sys
-                    print(
-                        "error: -f/--file required unless using -g/--grep",
-                        file=_sys.stderr,
-                    )
-                    _sys.exit(1)
-                ReadRunner(manager, logger, allow_all=allow_all).run(
-                    (
-                        args.files[0]
-                        if args.files and len(args.files) == 1
-                        else args.files
-                    ),
-                    summarise=args.summarise,
-                    details=args.details,
-                    log_time=args.log_time,
-                    grep=args.grep,
-                    read_id=getattr(args, 'id', None),
-                    timeout=getattr(args, 'timeout', None),
-                    verbose=args.verbose,
-                    prompt_style=getattr(args, 'prompt_style', None),
-                )
-            elif args.command in ("run",):
-                RunRunner(
-                    manager, logger, allow_all=allow_all,
-                    add_context=args.add_context,
-                    model=args.model,
-                    disablewd=args.disablewd,
-                ).run(
-                    msg=args.msg,
-                    msg_id=getattr(args, 'id', None),
-                    input_path=Path(args.input) if args.input else None,
-                    log_time=args.log_time,
-                    timeout=getattr(args, 'timeout', None),
-                )
-            elif args.command == "agent":
-                from .commands.agents import AgentsRunner
-                agent_data = args.data
-                if agent_data is None or agent_data == "-":
-                    import sys as _sys
-                    agent_data = _sys.stdin.read()
-                AgentsRunner(
-                    manager, logger, allow_all=allow_all,
-                    model=args.model,
-                    disablewd=args.disablewd,
-                ).run_agent(
-                    data=agent_data,
-                    agent_id=getattr(args, 'id', None),
-                    log_time=args.log_time,
-                    timeout=getattr(args, 'timeout', None),
-                    clear=args.clear,
-                )
-            elif args.command in ("exec", "work"):
-                ExecRunner(
-                    manager, logger, allow_all=allow_all,
-                    model=args.model,
-                    disablewd=args.disablewd,
-                ).run(
-                    log_time=args.log_time,
-                    timeout=getattr(args, 'timeout', None),
-                )
-            elif args.command == "abort":
-                AbortRunner(manager, logger, allow_all=allow_all).run(
-                    target=args.target,
-                    session_id=getattr(args, "session", None),
-                )
-            elif args.command == "agents":
-                from .commands.agents import AgentsRunner
-                AgentsRunner(manager, logger, allow_all=allow_all).run(action=args.action)
-            elif args.command == "killservers":
-                from .session.stop import KillServersRunner
-                KillServersRunner().run(session_id=getattr(args, "session", None))
-            elif args.command == "keepalive":
-                KeepaliveRunner(manager, logger, allow_all=allow_all).run()
-            elif args.command == "update-area":
-                UpdateAreaRunner(
-                    manager, logger, allow_all=allow_all,
-                ).run(
-                    research=args.research,
-                    area=args.area,
-                    child=args.child,
-                )
-            elif args.command == "spawn":
-                from .session.start import SpawnRunner
-                SpawnRunner(manager, logger, allow_all=allow_all).run(child=args.child)
-            elif args.command == "update-home":
-                from .commands.update_home import UpdateHomeRunner
-                UpdateHomeRunner(
-                    manager, logger, allow_all=allow_all,
-                ).run(
-                    new_path=args.path,
-                    dry_run=args.dry_run,
-                    migrate=args.migrate,
-                )
-            elif args.command == "wait":
-                WaitRunner(manager, logger, allow_all=allow_all).run(
-                    wait_type=args.type,
-                    wait_id=args.id,
-                    session_id=args.session,
-                    timeout=args.timeout,
-                )
-            elif args.command == "stat":
-                from .session.stat import StatRunner
-                sys.exit(StatRunner(manager, logger, allow_all).run(args))
-            elif args.command == "cleanup":
-                if getattr(args, "session_id", None) == "trash":
-                    from .utils.trash import sweep_trash
-                    removed = sweep_trash()
-                    if removed:
-                        print(
-                            f"Trash sweep: {removed} session(s) permanently removed "
-                            f"(past retention)."
-                        )
-                    else:
-                        print("Trash sweep: nothing past retention.")
-                    sys.exit(0)
-                sys.exit(CleanupRunner(manager, logger, allow_all).run(args))
-            elif args.command == "restore":
-                sys.exit(RestoreRunner(manager, logger, allow_all).run(args))
-            elif args.command == "f":
-                from .commands.fallback import FallbackRunner
-                FallbackRunner().run(args.path)
-            elif args.command == "precompact":
-                from .commands.precompact import PrecompactRunner
-                PrecompactRunner().run()
-            elif args.command == "precompact-worker":
-                from .commands.precompact import PrecompactWorkerRunner
-                PrecompactWorkerRunner().run(input_path=Path(args.input))
-            elif args.command == "get":
-                from .commands.get_cmd import GetRunner
-                runner = GetRunner()
-                if args.what == "output":
-                    sys.exit(
-                        runner.run_output(
-                            kind=args.kind,
-                            dispatch_id=args.id,
-                            head=args.head,
-                            tail=args.tail,
-                            session_id=args.session,
-                        )
-                        or 0
-                    )
-                if args.what == "runtime":
-                    sys.exit(runner.run_runtime(
-                        tail=args.tail, ev_prefix=args.ev, sid=args.sid,
-                    ) or 0)
-                sys.exit(runner.run(args.what, session_id=args.session,
-                                    dispatch_id=args.id) or 0)
+            handler = _COMMAND_HANDLERS.get(args.command)
+            if handler:
+                handler(args, manager, logger, allow_all)
             else:
                 parser.print_help()
         except SystemExit as _e:

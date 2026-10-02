@@ -27,7 +27,7 @@ class PermitRunner:
             sys.exit(0)
 
         permit = json.loads(permit_path.read_text())
-        if isinstance(permit, dict) and permit.get("allow_all"):
+        if isinstance(permit, dict) and permit.get("bypass_all"):
             print(json.dumps({
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
@@ -92,3 +92,70 @@ class PermitRunner:
                 )
             }
         }))
+
+
+class PermitCmdRunner:
+    """
+    Inspect or toggle the permit auto-approve-all bypass for a workspace.
+    """
+
+    def run_status(self):
+        """
+        Print whether bypass_all is currently on for the active workspace.
+        """
+        ws_name, permit_path = self._resolve_permit_path()
+        if not permit_path.exists():
+            print(f"No permit file staged for '{ws_name}' — run `owrap sync`.")
+            return
+        permit = json.loads(permit_path.read_text())
+        if permit.get("bypass_all"):
+            print(
+                f"PERMIT BYPASS ALL: ON for '{ws_name}' — owrap p auto-approves "
+                f"every Bash/Write/Edit call, no rule matching. Turn off with "
+                f"`owrap permit bypass-all off`."
+            )
+        else:
+            print(f"PERMIT BYPASS ALL: off for '{ws_name}' — normal rules apply.")
+
+    def run_bypass_all(self, state: str):
+        """
+        Set permit_bypass_all in the workspace config and re-stage permit.json.
+        """
+        if state not in ("on", "off"):
+            print(f"ERROR: expected 'on' or 'off', got '{state}'")
+            sys.exit(2)
+
+        ws_name, _ = self._resolve_permit_path()
+        from ..utils.paths import CONFIGS_DIR
+        cfg_path = CONFIGS_DIR / f"{ws_name}.json"
+        if not cfg_path.exists():
+            print(f"ERROR: no config file for workspace '{ws_name}'")
+            sys.exit(2)
+
+        cfg = json.loads(cfg_path.read_text())
+        cfg["permit_bypass_all"] = (state == "on")
+        cfg_path.write_text(json.dumps(cfg, indent=2))
+
+        from ..staging import stage_all
+        stage_all(ws_name)
+
+        if state == "on":
+            print(
+                f"PERMIT BYPASS ALL: now ON for '{ws_name}' — owrap p will "
+                f"auto-approve every Bash/Write/Edit call. Turn off with "
+                f"`owrap permit bypass-all off`."
+            )
+        else:
+            print(f"PERMIT BYPASS ALL: now off for '{ws_name}'.")
+
+
+    # Private Methods
+
+    def _resolve_permit_path(self):
+        """
+        Return (workspace_name, permit_path) for the active workspace.
+        """
+        from ..utils.paths import CONFIGS_DIR, _read_config
+        config = _read_config()
+        ws_name = config.get("default_workspace", "")
+        return ws_name, CONFIGS_DIR / f"{ws_name}_permit.json"

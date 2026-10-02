@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 
 def test_watchdog_notifies_stall_on_no_growth(tmp_path):
-    from owrap.utils.watchdog import Watchdog
+    from owrap.utils.dispatch.watchdog import Watchdog
 
     log_file = tmp_path / "test.log"
     log_file.write_text("initial")
@@ -24,7 +24,7 @@ def test_watchdog_notifies_stall_on_no_growth(tmp_path):
 
 
 def test_watchdog_resets_on_file_growth(tmp_path):
-    from owrap.utils.watchdog import Watchdog
+    from owrap.utils.dispatch.watchdog import Watchdog
 
     log_file = tmp_path / "test.log"
     log_file.write_text("initial")
@@ -45,7 +45,7 @@ def test_watchdog_resets_on_file_growth(tmp_path):
 
 
 def test_watchdog_kills_after_kill_delay(tmp_path):
-    from owrap.utils.watchdog import Watchdog
+    from owrap.utils.dispatch.watchdog import Watchdog
 
     log_file = tmp_path / "test.log"
     log_file.write_text("x")
@@ -62,7 +62,7 @@ def test_watchdog_kills_after_kill_delay(tmp_path):
 
 
 def test_watchdog_stop_cancels_kill(tmp_path):
-    from owrap.utils.watchdog import Watchdog
+    from owrap.utils.dispatch.watchdog import Watchdog
 
     log_file = tmp_path / "test.log"
     log_file.write_text("x")
@@ -79,7 +79,7 @@ def test_watchdog_stop_cancels_kill(tmp_path):
 
 
 def test_write_sentinel_health(tmp_path):
-    from owrap.utils.watchdog import write_sentinel_health
+    from owrap.utils.dispatch.watchdog import write_sentinel_health
 
     sentinel = tmp_path / "sentinel.json"
     sentinel.write_text(json.dumps({"task_id": "1", "health": "healthy"}))
@@ -91,7 +91,7 @@ def test_write_sentinel_health(tmp_path):
 
 
 def test_watchdog_fires_unresponsive_callback_on_no_output(tmp_path):
-    from owrap.utils.watchdog import Watchdog
+    from owrap.utils.dispatch.watchdog import Watchdog
 
     log_file = tmp_path / "test.log"
     log_file.write_text("")  # never grows — simulates attaching to a dead/unresponsive server
@@ -109,7 +109,7 @@ def test_watchdog_fires_unresponsive_callback_on_no_output(tmp_path):
 
 
 def test_watchdog_unresponsive_fires_only_once(tmp_path):
-    from owrap.utils.watchdog import Watchdog
+    from owrap.utils.dispatch.watchdog import Watchdog
 
     log_file = tmp_path / "test.log"
     log_file.write_text("")

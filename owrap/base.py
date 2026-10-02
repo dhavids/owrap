@@ -7,7 +7,7 @@ import time
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from .utils import rtlog
+from .utils.log import rtlog
 
 
 def _increment_stat(key: str):
@@ -149,7 +149,7 @@ class BaseRunner(ABC):
         RESULT footer and completion sentinel. Returns the final rc.
         """
         from datetime import datetime
-        from .utils.snippet import divider
+        from .utils.parser.snippet import divider
 
         timed_out = bool(result.get("timed_out"))
         stall_killed = getattr(self, '_stall_killed', False)

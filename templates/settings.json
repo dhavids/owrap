@@ -22,7 +22,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/bin/owrap precompact",
+            "command": "~/bin/owrap ctx-hook",
             "timeout": 15
           }
         ]

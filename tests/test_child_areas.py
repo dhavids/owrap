@@ -19,9 +19,9 @@ def session_resolver_dir(tmp_path, monkeypatch):
     sessions_dir.mkdir()
     by_ccsid_dir = sessions_dir / "by_ccsid"
     by_oid_dir = sessions_dir / "by_opencode_run_id"
-    monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", sessions_dir)
-    monkeypatch.setattr("owrap.utils.session_resolver.BY_CCSID_DIR", by_ccsid_dir)
-    monkeypatch.setattr("owrap.utils.session_resolver.BY_OPENCODE_RUN_ID_DIR", by_oid_dir)
+    monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", sessions_dir)
+    monkeypatch.setattr("owrap.utils.session.session_resolver.BY_CCSID_DIR", by_ccsid_dir)
+    monkeypatch.setattr("owrap.utils.session.session_resolver.BY_OPENCODE_RUN_ID_DIR", by_oid_dir)
     monkeypatch.setattr("owrap.session.start.BY_CCSID_DIR", by_ccsid_dir)
     monkeypatch.setattr("owrap.session.stop.BY_CCSID_DIR", by_ccsid_dir)
     return sessions_dir
@@ -72,9 +72,9 @@ def test_start_child_with_area_concatenates(
                 }), \
          patch("owrap.session.start.get_workspace_config", return_value={}), \
          patch("owrap.session.start.print_orientation"), \
-         patch("owrap.utils.pool._pool_active", return_value=True), \
-         patch("owrap.utils.pool.ensure_min_servers"), \
-         patch("owrap.utils.pool._ensure_keepalive"):
+         patch("owrap.utils.dispatch.pool._pool_active", return_value=True), \
+         patch("owrap.utils.dispatch.pool.ensure_min_servers"), \
+         patch("owrap.utils.dispatch.pool._ensure_daemon"):
         with pytest.raises(SystemExit) as exc:
             StartRunner(mock_manager).run(
                 session_id="sid2", research="myres",

@@ -8,6 +8,7 @@ from ..utils.paths import (
     FALLBACK_EXEC_OUTPUT, FALLBACK_TASK_OUTPUT,
     session_msg_output_dir, session_task_output_dir,
     session_agent_full_log_dir, session_agent_log_path,
+    session_ctx_transcript_path,
 )
 
 _EXEC_OUTPUT_MAX_LINES = 15
@@ -89,7 +90,7 @@ class GetRunner:
                 print(content)
             return
 
-        if what in ("memory", "project"):
+        if what in ("memory", "project", "todo"):
             research = sdata.get("research", "")
             if not research:
                 print(f"No research configured for session {sid}")
@@ -98,8 +99,10 @@ class GetRunner:
             research_root = self._get_research_root(workspace)
             if what == "memory":
                 fpath = Path(research_root) / "memory" / f"{research}.md"
-            else:
+            elif what == "project":
                 fpath = Path(research_root) / "projects" / f"{research}.md"
+            else:
+                fpath = Path(research_root) / "todo" / f"{research}.md"
             if not fpath.exists():
                 print(f"{what}/{research}.md does not exist (research: {research})")
                 sys.exit(1)
@@ -125,6 +128,7 @@ class GetRunner:
             print("           (all subagent summaries)")
             print("  memory   — memory/<research>.md (requires research)")
             print("  project  — projects/<research>.md (requires research)")
+            print("  todo     — todo/<research>.md (requires research)")
             print("  area     — current area name")
             print("  research — current research name")
             print("  config   — full workspace config JSON")
@@ -216,6 +220,41 @@ class GetRunner:
 
         print(f"path: {fpath}")
         self._print_head_tail(fpath, head, tail)
+
+    def run_transcript(self, session_id=None, ccsid=None):
+        """
+        Print the fixed per-window transcript file path (and a short
+        preview of its current content, if any) for the context manager.
+
+        Scoped by both the owrap session id and the attached window's
+        ccsid — multiple windows can attach to one owrap session, each
+        with its own transcript excerpt.
+        """
+        sid = self._resolve_session_id(session_id)
+        if not sid:
+            print("No active session")
+            sys.exit(1)
+        ccsid = ccsid or os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
+        if not ccsid:
+            print(
+                "No ccsid available — pass --ccsid or run this from an "
+                "attached Claude Code window"
+            )
+            sys.exit(1)
+        fpath = session_ctx_transcript_path(sid, ccsid)
+        print(f"path: {fpath}")
+        if not fpath.exists():
+            print("(no transcript excerpt yet)")
+            return
+        content = fpath.read_text().strip()
+        if not content:
+            print("(empty)")
+            return
+        lines = content.splitlines()
+        preview = lines[-10:]
+        if len(lines) > 10:
+            print(f"... ({len(lines) - 10} lines omitted)")
+        print("\n".join(preview))
 
     def run_runtime(self, tail=50, ev_prefix=None, sid=None):
         """
@@ -420,7 +459,9 @@ class GetRunner:
         return result
 
     def _split_agent_blocks(self, content):
-        """Split agent log content into blocks at ``## [a:...]`` headers."""
+        """
+        Split agent log content into blocks at ``## [a:...]`` headers.
+        """
         import re
         pattern = re.compile(r'^## \[a:', re.MULTILINE)
         parts = pattern.split(content)
@@ -502,7 +543,9 @@ class GetRunner:
         return None
 
     def _print_sectioned(self, lines, total, section_indices):
-        """Print sectioned msg/task log, skipping INPUT body."""
+        """
+        Print sectioned msg/task log, skipping INPUT body.
+        """
         input_idx = section_indices["input_idx"]
         exec_idx = section_indices["exec_idx"]
         result_idx = section_indices["result_idx"]

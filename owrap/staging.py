@@ -33,7 +33,7 @@ def resolve_placeholders(config: dict, workspace_name: str) -> dict:
     bin_dir = config.get("bin_dir") or str(Path.home() / "bin")
     owrap_docs = str(OWRAP_HOME / "docs")
     owrap_home = str(OWRAP_HOME)
-    oread = bool(config.get("oread", True))
+    oread = bool(config.get("runner_use_oread", True))
     return {
         "WORKSPACE": workspace,
         "RESEARCH_ROOT": research_root,
@@ -60,6 +60,9 @@ def process_conditionals(text: str, flags: dict) -> str:
     Strip {{IF:FLAG}}...{{ENDIF}} blocks where flags[FLAG] is falsy.
     Keep block contents otherwise. Supports nesting: repeatedly resolves
     innermost blocks until none remain.
+
+    Stripped blocks can leave runs of blank lines behind at their old
+    boundary; these are collapsed to a single blank line between sections.
     """
     def _r(m):
         flag = m.group(1)
@@ -69,21 +72,26 @@ def process_conditionals(text: str, flags: dict) -> str:
     while prev != text:
         prev = text
         text = COND_RE.sub(_r, text)
-    return text
+    return re.sub(r"\n{3,}", "\n\n", text)
 
 
 def resolve_flags(config: dict) -> dict:
     """
     Build the boolean flag map for conditional template blocks.
     """
-    oread = bool(config.get("oread", True))
-    owrap_enabled = bool(config.get("owrap_enabled", True))
+    oread = bool(config.get("runner_use_oread", True))
+    runner_enabled = bool(config.get("owrap_runner_enabled", True))
+    context_manager_enabled = bool(
+        config.get("owrap_context_manager_enabled", True),
+    )
     return {
         "OREAD": oread,
         "NO_OREAD": not oread,
-        "ALLOW_ALL": bool(config.get("allow_all", False)),
-        "OWRAP_ENABLED": owrap_enabled,
-        "OWRAP_DISABLED": not owrap_enabled,
+        "RUNNER_ALLOW_ALL": bool(config.get("runner_allow_all", False)),
+        "RUNNER_ENABLED": runner_enabled,
+        "RUNNER_DISABLED": not runner_enabled,
+        "CONTEXT_MANAGER_ENABLED": context_manager_enabled,
+        "CONTEXT_MANAGER_DISABLED": not context_manager_enabled,
     }
 
 
@@ -248,9 +256,11 @@ def stage_all(workspace_name: str) -> Path:
     bin_dir = placeholders.get("BIN_DIR", str(Path.home() / "bin"))
     orun_cmd = _tilde_relative(str(Path(bin_dir).expanduser() / "orun"))
     permit_path = CONFIGS_DIR / f"{workspace_name}_permit.json"
-    permit_data = {"orun_cmd": orun_cmd, "rules": permit_rules}
-    if flags.get("OWRAP_DISABLED"):
-        permit_data["allow_all"] = True
+    permit_data = {
+        "orun_cmd": orun_cmd,
+        "rules": permit_rules,
+        "bypass_all": bool(config.get("permit_bypass_all", False)),
+    }
     permit_path.write_text(json.dumps(permit_data, indent=2))
 
 

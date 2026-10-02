@@ -7,9 +7,9 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from ..utils.terminal import Terminal
+from ..utils.dispatch.terminal import Terminal
 from ..constants import ANTI_SUMMARY_SUFFIX, NO_OUTPUT_TASK_S
-from ..utils.snippet import extract_snippet, divider
+from ..utils.parser.snippet import extract_snippet, divider
 from ..utils.paths import (
     FALLBACK_EXEC_OUTPUT, FALLBACK_EXEC_LOG, FALLBACK_EXEC_STATUS,
     FALLBACK_TASK_OUTPUT, FALLBACK_TASK_LOG, FALLBACK_TASK_STATUS,

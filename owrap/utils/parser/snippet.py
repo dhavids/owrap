@@ -2,7 +2,7 @@ import re
 import textwrap
 from pathlib import Path
 
-from ..constants import LOG_DIVIDER_WIDTH
+from ...constants import LOG_DIVIDER_WIDTH
 
 
 def extract_snippet(path: Path, default: str = "") -> str:

@@ -5,7 +5,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime
 
-from .paths import (
+from ..paths import (
     RUNTIME_LOG, RUNTIME_LOG_MAX_BYTES, RUNTIME_LOG_GENERATIONS,
 )
 

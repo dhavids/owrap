@@ -4,11 +4,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from ..utils.terminal import Terminal
+from ..utils.dispatch.terminal import Terminal
 from ..manager import Manager
 from ..base import BaseRunner
 from ..constants import ANTI_SUMMARY_SUFFIX
-from ..utils.pool import _pool_active, pick_server, update_last_used
+from ..utils.dispatch.pool import _pool_active, pick_server, update_last_used
 from ..utils.paths import TASKS_DIR, context_path, _read_config, FALLBACK_TASK
 
 OREAD_MAX_CHARS = 8_000
@@ -163,7 +163,7 @@ class ReadRunner(BaseRunner):
         _ctx_cfg = _read_config()
         cp = context_path(self.manager.session_id)
         if (
-            _ctx_cfg.get("context_enabled", True)
+            _ctx_cfg.get("context_injection_enabled", True)
             and self.manager.session_id
             and cp.exists()
             and cp.stat().st_size > 0
@@ -276,7 +276,7 @@ class ReadRunner(BaseRunner):
                 except Exception:
                     pass
                 try:
-                    from ..utils.pool import release_server
+                    from ..utils.dispatch.pool import release_server
                     release_server(url)
                 except Exception:
                     pass

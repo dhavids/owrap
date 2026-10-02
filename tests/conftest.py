@@ -38,6 +38,7 @@ def isolate_owrap_dirs(tmp_path, monkeypatch):
         "RECENTLY_DONE_DIR": tmp_path / "recently_done",
         "DOCS_DIR":         tmp_path / "docs",
         "SESSIONS_DIR":     tmp_path / "docs" / "sessions",
+        "LOCKS_DIR":        tmp_path / "locks",
         "RUN_DIR":          tmp_path / "docs" / "run",
         "RUN_LOG":          tmp_path / "docs" / "run" / "log.md",
         "READ_LOG":         tmp_path / "docs" / "read" / "log.md",

@@ -1,4 +1,4 @@
-from owrap.utils.output_parser import OutputParser
+from owrap.utils.parser.output_parser import OutputParser
 
 
 class TestOutputParser:

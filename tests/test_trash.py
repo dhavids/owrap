@@ -16,7 +16,7 @@ def _patch_paths(tmp_path):
 
 
 def test_move_to_trash_moves_all_pieces(tmp_path):
-    from owrap.utils import trash as trash_mod
+    from owrap.utils.session import trash as trash_mod
 
     trash_dir, sessions_dir, runtime_dir, docs_dir = _patch_paths(tmp_path)
     sid = "abc123"
@@ -51,7 +51,7 @@ def test_move_to_trash_moves_all_pieces(tmp_path):
 
 
 def test_restore_from_trash_round_trips(tmp_path):
-    from owrap.utils import trash as trash_mod
+    from owrap.utils.session import trash as trash_mod
 
     trash_dir, sessions_dir, runtime_dir, docs_dir = _patch_paths(tmp_path)
     sid = "def456"
@@ -78,7 +78,7 @@ def test_restore_from_trash_round_trips(tmp_path):
 
 
 def test_restore_from_trash_missing_raises(tmp_path):
-    from owrap.utils import trash as trash_mod
+    from owrap.utils.session import trash as trash_mod
 
     trash_dir, sessions_dir, runtime_dir, docs_dir = _patch_paths(tmp_path)
 
@@ -88,7 +88,7 @@ def test_restore_from_trash_missing_raises(tmp_path):
 
 
 def test_sweep_trash_removes_only_past_retention(tmp_path):
-    from owrap.utils import trash as trash_mod
+    from owrap.utils.session import trash as trash_mod
 
     trash_dir = tmp_path / "trash"
     trash_dir.mkdir()
@@ -111,7 +111,7 @@ def test_sweep_trash_removes_only_past_retention(tmp_path):
 
 
 def test_sweep_trash_respects_custom_retention_arg(tmp_path):
-    from owrap.utils import trash as trash_mod
+    from owrap.utils.session import trash as trash_mod
 
     trash_dir = tmp_path / "trash"
     trash_dir.mkdir()

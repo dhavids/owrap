@@ -10,7 +10,7 @@ from pathlib import Path
 from ..base import BaseRunner
 from ..utils.paths import (
     OWRAP_HOME, OWRAP_HOME_POINTER_FILE, CONFIGS_DIR,
-    KEEPALIVE_PID_FILE, _read_config,
+    DAEMON_PID_FILE, _read_config,
 )
 
 
@@ -107,7 +107,7 @@ class UpdateHomeRunner(BaseRunner):
         print("Stopping server pool and running tasks...")
         from ..session.stop import KillServersRunner
         KillServersRunner().run()
-        self._stop_keepalive()
+        self._stop_daemon()
 
         try:
             self._move(current_home, target)
@@ -205,7 +205,7 @@ class UpdateHomeRunner(BaseRunner):
             print(f"  contents: {len(files)} files, {total_size / (1024*1024):.1f} MB")
         except Exception:
             pass
-        print("  would stop: server pool + running tasks, keepalive daemon (if running)")
+        print("  would stop: server pool + running tasks, daemon (if running)")
         print("  would create a backup archive before moving")
         print(f"  would update pointer file: {OWRAP_HOME_POINTER_FILE}")
         other_workspaces = [w for w in workspaces if w != current_ws_name]
@@ -223,11 +223,11 @@ class UpdateHomeRunner(BaseRunner):
             tar.add(str(current_home), arcname=current_home.name)
         return backup_path
 
-    def _stop_keepalive(self):
+    def _stop_daemon(self):
         from ..session.stop import _pid_alive, _kill_pid, _wait_dead
-        if KEEPALIVE_PID_FILE.exists():
+        if DAEMON_PID_FILE.exists():
             try:
-                pid = int(KEEPALIVE_PID_FILE.read_text().strip())
+                pid = int(DAEMON_PID_FILE.read_text().strip())
                 if _pid_alive(pid):
                     _kill_pid(pid)
                     _wait_dead([pid])

@@ -5,7 +5,7 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from .output_parser import OutputParser
+from ..parser.output_parser import OutputParser
 
 
 _MUTE_LINE_PREFIXES = (
@@ -65,6 +65,9 @@ class Terminal:
 
     def register_signal_handlers(self, signals=None):
         if self._signal_handlers_registered:
+            return
+        # Signal handlers only install from the main thread — skip elsewhere.
+        if threading.current_thread() is not threading.main_thread():
             return
         signals_to_register = self._get_signals_to_register(signals)
         if not signals_to_register:

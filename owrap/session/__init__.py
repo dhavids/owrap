@@ -3,7 +3,7 @@ Session management runners and orientation printing.
 """
 
 from .start import (
-    StartRunner, RefreshRunner, AttachRunner,
+    StartRunner, RefreshRunner, AttachRunner, DetachRunner,
     RestartRunner, UpdateAreaRunner, SpawnRunner,
 )
 from .stop import (
@@ -13,8 +13,8 @@ from .stop import (
 from .orientation import print_orientation
 
 __all__ = [
-    "StartRunner", "RefreshRunner", "AttachRunner", "RestartRunner",
-    "UpdateAreaRunner", "SpawnRunner", "StopRunner", "EndRunner",
-    "KillServersRunner", "CleanupRunner", "RestoreRunner",
+    "StartRunner", "RefreshRunner", "AttachRunner", "DetachRunner",
+    "RestartRunner", "UpdateAreaRunner", "SpawnRunner", "StopRunner",
+    "EndRunner", "KillServersRunner", "CleanupRunner", "RestoreRunner",
     "print_orientation",
 ]

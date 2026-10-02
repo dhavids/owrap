@@ -5,14 +5,14 @@ import time
 import threading
 from pathlib import Path
 
-from ..constants import (
+from ...constants import (
     STALL_NOTIFY_S, WATCHDOG_POLL_S, SCRIPT_STALL_MULTIPLIER,
     WATCHDOG_UNRESPONSIVE_MSG, WATCHDOG_RETRY_HINT_FILE_TASK,
     WATCHDOG_RETRY_HINT_OWRAP_F, WATCHDOG_UNRESPONSIVE_EVICT_SUFFIX,
     WATCHDOG_INFRA_FAILURE_MSG, WATCHDOG_KILL_STALL_MSG,
 )
-from .paths import _read_config
-from . import rtlog
+from ..paths import _read_config
+from ..log import rtlog
 
 
 _SCRIPT_TRIGGER_RE = re.compile(

@@ -8,7 +8,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from ..utils.terminal import Terminal
+from ..utils.dispatch.terminal import Terminal
 from ..manager import Manager
 from ..base import BaseRunner
 from ..constants import (
@@ -16,15 +16,15 @@ from ..constants import (
     LOG_WRAP_WIDTH, NO_OUTPUT_MSG_S, NO_OUTPUT_TASK_S, MSG_MAX_CHARS,
     INFRA_FAILURE_MSG_S, INFRA_FAILURE_TASK_S,
 )
-from ..utils.pool import _pool_active, pick_server, update_last_used
+from ..utils.dispatch.pool import _pool_active, pick_server, update_last_used
 from ..utils.paths import (
     TASKS_DIR, RUNTIME_DIR, context_path, _read_config,
     get_agents_md_path, get_workspace_config, get_workspace_path,
     get_dispatch_model, format_failure_pointer, FALLBACK_TASK,
     session_msg_output_dir, session_task_output_dir,
-    session_tasks_dir, session_precompact_dir,
+    session_tasks_dir,
 )
-from ..utils.snippet import extract_snippet, wrap_log_text, divider
+from ..utils.parser.snippet import extract_snippet, wrap_log_text, divider
 
 _PLACEHOLDER_TAG_RE = re.compile(r'<([A-Za-z][\w-]*)>')
 
@@ -210,7 +210,7 @@ class RunRunner(BaseRunner):
         original_msg = msg
         if (
             self.add_context
-            and _ctx_cfg.get("context_enabled", True)
+            and _ctx_cfg.get("context_injection_enabled", True)
             and self.manager.session_id
             and cp.exists()
             and cp.stat().st_size > 0
@@ -256,7 +256,7 @@ class RunRunner(BaseRunner):
                 tee.write(f"[server: {url or 'direct'}]\n\n")
                 tee.flush()
                 terminal = Terminal(verbose=False)
-                from ..utils.watchdog import Watchdog
+                from ..utils.dispatch.watchdog import Watchdog
                 def _msg_stop():
                     setattr(self, '_stall_killed', True)
                     terminal.terminate_process()
@@ -330,12 +330,12 @@ class RunRunner(BaseRunner):
                     pass
                 if not getattr(self, '_stall_killed', False):
                     try:
-                        from ..utils.pool import record_responsive
+                        from ..utils.dispatch.pool import record_responsive
                         record_responsive(url)
                     except Exception:
                         pass
                 try:
-                    from ..utils.pool import release_server
+                    from ..utils.dispatch.pool import release_server
                     release_server(url)
                 except Exception:
                     pass
@@ -395,7 +395,7 @@ class RunRunner(BaseRunner):
             ctx_injected = False
             executor_md = get_agents_md_path()
             if (
-                _ctx_cfg.get("context_enabled", True)
+                _ctx_cfg.get("context_injection_enabled", True)
                 and self.manager.session_id
                 and cp.exists()
                 and cp.stat().st_size > 0
@@ -416,10 +416,6 @@ class RunRunner(BaseRunner):
             task_file.write_text(content)
             input_path.write_text("")
 
-            _is_precompact = (
-                input_path is not None
-                and input_path.name == "input_precompact.md"
-            )
             _is_context = _first_line in ("# Context Update", "# Update Context")
             _is_updr = _first_line in ("# Update Protocol",)
             _is_sync = (
@@ -428,10 +424,6 @@ class RunRunner(BaseRunner):
                 )
                 or (input_path is not None and "sync" in input_path.name)
             )
-            if _is_precompact and self.manager.session_id:
-                _pcdir = session_precompact_dir(self.manager.session_id)
-                _pcdir.mkdir(parents=True, exist_ok=True)
-                log_path = _pcdir / "precompact.log"
 
             cmd = ["opencode", "run", "--thinking", "--dir", str(get_workspace_path())]
             if self.allow_all:
@@ -449,9 +441,7 @@ class RunRunner(BaseRunner):
             ])
 
             title = self._get_task_title(task_file)
-            if _is_precompact:
-                _task_kind = "precompact"
-            elif _is_context:
+            if _is_context:
                 _task_kind = "context"
             elif _is_updr:
                 _task_kind = "updr"
@@ -491,7 +481,7 @@ class RunRunner(BaseRunner):
                     log.flush()
                     self.manager.t_cmd_start()
                     terminal = Terminal(verbose=False)
-                    from ..utils.watchdog import Watchdog
+                    from ..utils.dispatch.watchdog import Watchdog
                     def _task_stop():
                         setattr(self, '_stall_killed', True)
                         terminal.terminate_process()
@@ -565,12 +555,12 @@ class RunRunner(BaseRunner):
                 area = os.environ.get("OWRAP_AREA", "")
                 if not area and self.manager.session_id:
                     try:
-                        from ..utils.session_resolver import _parse, session_file
+                        from ..utils.session.session_resolver import _parse, session_file
                         d = _parse(session_file(self.manager.session_id))
                         area = d.get("area", "")
                     except Exception:
                         pass
-                from ..utils.donow import check_donow
+                from ..utils.session.donow import check_donow
                 donow_msg = check_donow(
                     self.manager, self.manager.session_id, area,
                     self.manager.research, kind=_task_kind,
@@ -578,17 +568,16 @@ class RunRunner(BaseRunner):
                 )
                 if donow_msg:
                     print(f"\n{donow_msg}")
-                if not _is_precompact:
-                    try:
-                        with open(log_path, 'a') as log2:
-                            log2.write(f'\n{divider(f"[{task_name}] completed")}\n')
-                            log2.write(f'status: {status}\n')
-                            log2.write(f'exit: {rc}\n')
-                            log2.write(f'log: {log_path}\n')
-                            if t:
-                                log2.write(f"timing: {t}\n")
-                    except Exception:
-                        pass
+                try:
+                    with open(log_path, 'a') as log2:
+                        log2.write(f'\n{divider(f"[{task_name}] completed")}\n')
+                        log2.write(f'status: {status}\n')
+                        log2.write(f'exit: {rc}\n')
+                        log2.write(f'log: {log_path}\n')
+                        if t:
+                            log2.write(f"timing: {t}\n")
+                except Exception:
+                    pass
                 self.manager.log_time(log_time)
                 self._write_run_log(title, tag=f"[t:{task_name}]")
                 try:
@@ -604,12 +593,12 @@ class RunRunner(BaseRunner):
                         pass
                     if not getattr(self, '_stall_killed', False):
                         try:
-                            from ..utils.pool import record_responsive
+                            from ..utils.dispatch.pool import record_responsive
                             record_responsive(url)
                         except Exception:
                             pass
                     try:
-                        from ..utils.pool import release_server
+                        from ..utils.dispatch.pool import release_server
                         release_server(url)
                     except Exception:
                         pass
@@ -625,7 +614,7 @@ class RunRunner(BaseRunner):
             ctx_injected_fb = False
             executor_md_fb = get_agents_md_path()
             if (
-                _ctx_cfg_fb.get("context_enabled", True)
+                _ctx_cfg_fb.get("context_injection_enabled", True)
                 and self.manager.session_id
                 and cp.exists()
                 and cp.stat().st_size > 0

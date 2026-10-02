@@ -45,7 +45,7 @@ case "$1" in
     cd "<OWRAP_ROOT>" && <PYTHON> -m owrap.runner stop "${@:2}"
     ;;
   end)
-    cd "<OWRAP_ROOT>" && <PYTHON> -m owrap.runner end ;;
+    cd "<OWRAP_ROOT>" && <PYTHON> -m owrap.runner end "${@:2}" ;;
   *)
     cd "<OWRAP_ROOT>" && <PYTHON> -m owrap.runner "$@" ;;
 esac

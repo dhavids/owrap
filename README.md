@@ -40,22 +40,26 @@ Base config: `templates/config.json` → copy to `OWRAP_HOME/configs/base.json`.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `owrap_enabled` | bool | `true` | Master on/off switch. When `false`, dispatch tooling is disabled and planner is unrestricted. |
-| `allow_all` | bool | `false` | Always pass `--dangerously-skip-permissions` to opencode. |
-| `oread` | bool | `true` | Require file reads through `oread` (enables Read in permission matcher). |
-| `context_enabled` | bool | `true` | Inject session context file into task/msg prompts. |
+| `owrap_runner_enabled` | bool | `true` | Runner on/off switch. When `false`, dispatch tooling (`orun`/`oexec`/`oagent`/`owrap f`) is disabled and planner works directly. |
+| `owrap_context_manager_enabled` | bool | `true` | Gates the context-manager pipeline (Update Context/Update Protocol dispatch, including PreCompact), independent of the runner switch above. |
+| `permit_bypass_all` | bool | `false` | When `true`, `owrap p` auto-approves every Bash/Write/Edit call with no rule matching. Explicit opt-in only — never implied by the runner switch. |
+| `runner_allow_all` | bool | `false` | Always pass `--dangerously-skip-permissions` to opencode dispatches. |
+| `runner_use_oread` | bool | `true` | Require file reads through `oread` (enables Read in permission matcher). |
+| `context_injection_enabled` | bool | `true` | Inject session context file into task/msg prompts. |
 | `default_research` | string | — | Default project name when no research is specified. |
 | `workspace` | string | — | Path to the project root. |
 | `research_root` | string | — | Path to the research folder (`self.md`). |
 | `use_multiple_servers` | bool | `false` | Enable server pool mode. |
 | `max_servers` | int | `1` | Maximum concurrent opencode servers. |
-| `min_servers` | int | `1` | Minimum live servers the keepalive maintains. |
+| `min_servers` | int | `1` | Minimum live servers the daemon maintains. |
 | `max_requests_per_server` | int | `10` | Request quota per server before graceful eviction. |
 | `idle_shutdown_s` | float | `300` | Idle seconds before server shutdown. |
-| `keepalive_interval_s` | float | `10` | Seconds between keepalive ping cycles. |
-| `keepalive_idle_exit_s` | float | `1800` | Seconds with empty pool before keepalive exits. |
-| `keepalive_ping_model` | string | — | Model used for keepalive pings. |
-| `exec_model` | string | — | Default model for exec dispatches. |
+| `daemon_interval_s` | float | `10` | Seconds between daemon pool-lifecycle checks. |
+| `ctx_check_interval_s` | float | `300` | Seconds between the daemon's background checks for an attached window's unprocessed transcript diff — dispatches an Update Context/Update Protocol pass automatically when one exists. |
+| `runner_model` | string | — | Model for regular runner dispatch (`orun`/`oexec`). |
+| `context_manager_model` | string | — | Model for context-manager tasks (Update Context/Update Protocol dispatch). |
+| `context_fallback_model` | string | — | Fallback model when `context_manager_model` isn't set. |
+| `daemon_default_model` | string | — | Reserved for the daemon; not currently consumed (the daemon is pure lifecycle management, no model calls). |
 | `msg_kill_s` / `task_kill_s` / `exec_kill_s` | int | `30`/`60`/`120` | No output kill timeouts for msg, task, exec jobs. |
 | `stall_notify_s` | int | `120` | Seconds before notification for a stalled job. |
 | `watchdog_poll_s` | int | `10` | Watchdog polling interval. |
@@ -98,7 +102,7 @@ Blocks until dispatched jobs complete. Most common: `owait input` (between paral
 ## Server Management
 
 - **Graceful draining**: Unresponsive servers or those hitting their request quota are marked *draining*. In this state, no new work is routed to them, but in-flight requests are allowed to finish. The servers are then reaped once idle, not killed outright.
-- **Keepalive**: Pings servers periodically, shuts down idle ones. Runs automatically when pool is active.
+- **Daemon**: Manages the server pool — shuts down idle servers, maintains `min_servers`. Spawned automatically on first pooled dispatch and stays running from then on (does not self-exit on idle).
 - `owrap killservers [--session <id>]` — Kill all servers and running tasks.
 
 ## Timeouts
@@ -134,7 +138,7 @@ Write a task to the session `input.md`, dispatch with `orun`, then `owait input`
 
 **Template changes not picked up**: Run `owrap sync`, then dispatch the sync task it prints via `orun`.
 
-**owrap_enabled = false**: All dispatch tooling is disabled; planner is unrestricted and can directly run commands.
+**owrap_runner_enabled = false**: Dispatch tooling is disabled; planner works directly. Note this does not by itself grant unrestricted command access — that requires the separate, explicit `permit_bypass_all` flag.
 
 ## Tests
 

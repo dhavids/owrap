@@ -36,7 +36,7 @@ TRASH_RETENTION_DAYS = 30
 UNRESPONSIVE_KILL_THRESHOLD = 2
 
 FAILURE_POINTERS = {
-    "INPUT_EMPTY": ("instruction", "Dispatch Tooling — File task"),
+    "INPUT_EMPTY": ("instruction", "Runner Tooling — File task"),
     "TIMED_OUT": ("self", "Command Reference — timeout/retry"),
     "NO_SERVER": ("self", "Command Reference — server pool"),
     "INFRA_UNAVAILABLE": (
@@ -87,44 +87,87 @@ NO_AREA_SECTION_MSG = (
 )
 
 
-PRE_COMPACT_CTX_TEMPLATE = (
+CTX_SCOPED_TASK_TEMPLATE = (
     """\
-## Update Context (pre-compaction): {session_id}
+You are in a directory containing ONLY the file you need — nothing else \
+exists for you, no other path is reachable or relevant:
+- `transcript.txt` — recent assistant activity since the last update
 
-Read {transcript_path} — recent assistant activity since the last update.
-Read `{context_path}` — current state.
+You have NOT been given the current contents of context.md/memory.md/ \
+project.md, and that is deliberate — report ONLY what this excerpt adds, \
+never what should stay or go in files you haven't seen. Another process \
+merges your additions in and handles caps/eviction; that is not your job.
 
-Update `{context_path}`:
-- `## Focus`: 1-3 lines — what changed in this excerpt
-- `## Key Locations`: append `<path> — <reason>` for new paths (max 5 total """
-    """— if appending would exceed 5, remove the oldest entries first)
-- `## Decisions`: append `<decision> — <why>` for new choices (max 7 total """
-    """— if appending would exceed 7, remove the oldest entries first)
-- `## Environment`: edit only if venv/flags/constraints changed (max 3 total)
-- `## How To`: append `<command> — <when to use>` for new commands (max 3 """
-    """total — if appending would exceed 3, remove the oldest entries first)
-Do not touch `## Active Plan`, `## Frequent Files`, `## Recent`."""
+Write your complete output to `output.md` in this same directory (create \
+it). Use exactly this structure — omit an entire top-level `# ` block if \
+there is nothing new to say for it:
+{blocks}
+Do not invent content not supported by `transcript.txt`. Do not explain \
+your reasoning in `output.md` — only the structure above."""
 )
 
-PRE_COMPACT_UPDR_TEMPLATE = (
-    """\
-## Update Protocol (pre-compaction): {research} / {area}
+CTX_CONTEXT_BLOCK = (
+    """
 
-Read {transcript_path} — recent assistant activity since the last update.
-Read `{context_path}` — current Focus, Key Locations, Decisions.
-Read `{memory_path}` — existing area sections (avoid duplication).
-Read `{projects_path}` — current status, phases, decisions.
+# Context
+## Focus
+<1-3 lines — what changed in this excerpt (this fully replaces the old """
+    """Focus text, so it must stand alone)>
+## Key Locations
+<NEW entries only, one per line — `- path — reason` ONLY for source-code """
+    """paths relevant to ongoing/future work (e.g. a function that was """
+    """added or changed). A `[Edit]`/`[Write]` marker, or a `[Touched]` """
+    """line (a path the planner explicitly reported — may carry its own """
+    """` — note`), gives the exact real path — prefer either over """
+    """paraphrasing one from prose. `path` must start with the actual file path """
+    """(e.g. `dir/file.py`) — never a bare function/class name alone; """
+    """append ` — function_name()` after the path if a specific function """
+    """matters. Do NOT list a file just because it was mentioned or """
+    """`[Read]` in this excerpt — only files actually changed. Never list """
+    """transcript.txt, context.md, memory.md, """
+    """or project.md themselves. Omit this heading entirely if nothing """
+    """new qualifies.>
+## Decisions
+<NEW entries only, one per line — `- decision — why`. Omit this heading """
+    """entirely if no new decision was made in this excerpt.>
+## Environment
+<only if venv/flags/constraints changed in this excerpt — the full new """
+    """text, replacing the old. Otherwise omit this heading entirely.>
+## How To
+<NEW entries only, one per line — `- command — when to use it`, ONLY for """
+    """a command shown verbatim after a `$ ` marker in the excerpt — never """
+    """a paraphrase of assistant prose. A `-> ` line right after a `$ ` """
+    """command is that command's real output; use it to judge whether the """
+    """command actually worked before citing it. Omit this heading """
+    """entirely if no real command appears.>"""
+)
 
-Update `{memory_path}`:
-- Under `## {area}` (create if absent), `### Components`: write/update a """
-    """flat list `- file.py — one-line role` for files relevant to this area.
-- Under `## {area}`, `### <Subsystem>` sections: write/update architecture """
-    """reference entries
-  - `- ClassName at file.py:N — purpose, key params, side effects`
-  - No status, no decisions, no narrative; ≤10 entries per subsystem
+CTX_PROTOCOL_BLOCK = (
+    """
 
-Update `{projects_path}`:
-- Under `## {area}`, `### Status`: current phase/state, last run, active blockers
-- Under `## {area}`, `### Decisions`: append 1-line `(date | decision | """
-    """reason)` entries new since last updr"""
+# Memory
+## {area}
+### Components
+<NEW entries only, one per line — `- file.py — one-line role` for files """
+    """newly relevant to this area in this excerpt. A `[Edit]`/`[Write]` """
+    """marker, or a `[Touched]` line (a path the planner explicitly """
+    """reported), gives the exact real path — prefer either over """
+    """paraphrasing one from prose. Omit this heading entirely if none """
+    """are new.>
+### <Subsystem>
+<NEW architecture reference entries only, one per line — `- ClassName at """
+    """file.py:N — purpose, key params, side effects` — no status, no """
+    """decisions, no narrative. Use a real subsystem name as the """
+    """heading. Omit this heading entirely if nothing new qualifies.>
+
+# Project
+## {area}
+### Status
+<replacement paragraph — current phase/state, last run, active blockers, """
+    """covering only what this excerpt shows (this fully replaces the """
+    """old Status text, so it must stand alone)>
+### Decisions
+<NEW entries only, one per line — `- decision — why` (no date; that is """
+    """added when your output is merged in). Omit this heading entirely """
+    """if no new decision was made in this excerpt.>"""
 )

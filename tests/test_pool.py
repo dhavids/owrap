@@ -10,19 +10,19 @@ from owrap.manager import Manager
 
 
 def test_pool_active_false_when_no_pool_file():
-    from owrap.utils.pool import _pool_active
-    with patch("owrap.utils.pool._read_config", return_value={"max_servers": 1, "min_servers": 2}):
+    from owrap.utils.dispatch.pool import _pool_active
+    with patch("owrap.utils.dispatch.pool._read_config", return_value={"max_servers": 1, "min_servers": 2}):
         assert _pool_active() is False
 
 
 def test_pool_active_true_when_configured():
-    from owrap.utils.pool import _pool_active
-    with patch("owrap.utils.pool._read_config", return_value={"max_servers": 3, "min_servers": 2}):
+    from owrap.utils.dispatch.pool import _pool_active
+    with patch("owrap.utils.dispatch.pool._read_config", return_value={"max_servers": 3, "min_servers": 2}):
         assert _pool_active() is True
 
 
 def test_shutdown_idle_respects_min_n(tmp_path):
-    from owrap.utils.pool import shutdown_idle, POOL_FILE, POOL_LOCK_FILE
+    from owrap.utils.dispatch.pool import shutdown_idle, POOL_FILE, POOL_LOCK_FILE
 
     pool = [
         {"pid": os.getpid(), "url": f"http://localhost:{4096+i}", "port": 4096+i, "last_used": 0}
@@ -32,10 +32,10 @@ def test_shutdown_idle_respects_min_n(tmp_path):
     fake_pool.write_text(json.dumps(pool))
     fake_lock = tmp_path / "pool.lock"
 
-    with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
-         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock), \
-         patch("owrap.utils.pool._is_alive", return_value=True), \
-         patch("owrap.utils.pool._is_responsive", return_value=True), \
+    with patch("owrap.utils.dispatch.pool.POOL_FILE", fake_pool), \
+         patch("owrap.utils.dispatch.pool.POOL_LOCK_FILE", fake_lock), \
+         patch("owrap.utils.dispatch.pool._is_alive", return_value=True), \
+         patch("owrap.utils.dispatch.pool._is_responsive", return_value=True), \
          patch("os.kill"):
         shutdown_idle(idle_s=0, min_n=2)
 
@@ -44,7 +44,7 @@ def test_shutdown_idle_respects_min_n(tmp_path):
 
 
 def test_shutdown_idle_killed_counter(tmp_path):
-    from owrap.utils.pool import shutdown_idle, POOL_FILE, POOL_LOCK_FILE
+    from owrap.utils.dispatch.pool import shutdown_idle, POOL_FILE, POOL_LOCK_FILE
 
     pool = [
         {"pid": os.getpid(), "url": f"http://localhost:{4096+i}", "port": 4096+i, "last_used": 0}
@@ -54,10 +54,10 @@ def test_shutdown_idle_killed_counter(tmp_path):
     fake_pool.write_text(json.dumps(pool))
     fake_lock = tmp_path / "pool.lock"
 
-    with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
-         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock), \
-         patch("owrap.utils.pool._is_alive", return_value=True), \
-         patch("owrap.utils.pool._is_responsive", return_value=True), \
+    with patch("owrap.utils.dispatch.pool.POOL_FILE", fake_pool), \
+         patch("owrap.utils.dispatch.pool.POOL_LOCK_FILE", fake_lock), \
+         patch("owrap.utils.dispatch.pool._is_alive", return_value=True), \
+         patch("owrap.utils.dispatch.pool._is_responsive", return_value=True), \
          patch("os.kill"):
         shutdown_idle(idle_s=0, min_n=1)
 
@@ -66,7 +66,7 @@ def test_shutdown_idle_killed_counter(tmp_path):
 
 
 def test_update_last_used(tmp_path):
-    from owrap.utils.pool import update_last_used, POOL_FILE, POOL_LOCK_FILE
+    from owrap.utils.dispatch.pool import update_last_used, POOL_FILE, POOL_LOCK_FILE
 
     before = time.time() - 100
     pool = [{"pid": 999, "url": "http://localhost:4096", "port": 4096, "last_used": before}]
@@ -74,8 +74,8 @@ def test_update_last_used(tmp_path):
     fake_pool.write_text(json.dumps(pool))
     fake_lock = tmp_path / "pool.lock"
 
-    with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
-         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock):
+    with patch("owrap.utils.dispatch.pool.POOL_FILE", fake_pool), \
+         patch("owrap.utils.dispatch.pool.POOL_LOCK_FILE", fake_lock):
         update_last_used("http://localhost:4096")
 
     updated = json.loads(fake_pool.read_text())
@@ -98,7 +98,7 @@ def test_trim_logs_keeps_max(tmp_path):
 
 
 def test_shutdown_idle_preserves_reserved_entries(tmp_path):
-    from owrap.utils.pool import shutdown_idle, POOL_FILE, POOL_LOCK_FILE
+    from owrap.utils.dispatch.pool import shutdown_idle, POOL_FILE, POOL_LOCK_FILE
 
     now = time.time()
     pool = [
@@ -115,11 +115,11 @@ def test_shutdown_idle_preserves_reserved_entries(tmp_path):
     fake_pool.write_text(json.dumps(pool))
     fake_lock = tmp_path / "pool.lock"
 
-    with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
-         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock), \
-         patch("owrap.utils.pool._is_alive", return_value=True), \
-         patch("owrap.utils.pool._is_responsive", return_value=True), \
-         patch("owrap.utils.pool._active_load", return_value=0), \
+    with patch("owrap.utils.dispatch.pool.POOL_FILE", fake_pool), \
+         patch("owrap.utils.dispatch.pool.POOL_LOCK_FILE", fake_lock), \
+         patch("owrap.utils.dispatch.pool._is_alive", return_value=True), \
+         patch("owrap.utils.dispatch.pool._is_responsive", return_value=True), \
+         patch("owrap.utils.dispatch.pool._active_load", return_value=0), \
          patch("os.kill"):
         shutdown_idle(idle_s=0, min_n=0)
 
@@ -130,7 +130,7 @@ def test_shutdown_idle_preserves_reserved_entries(tmp_path):
 
 
 def test_record_unresponsive_kills_at_threshold(tmp_path):
-    from owrap.utils.pool import record_unresponsive
+    from owrap.utils.dispatch.pool import record_unresponsive
     from unittest.mock import patch
 
     pool = [{"pid": os.getpid(), "url": "http://localhost:4096", "port": 4096, "last_used": 0}]
@@ -138,8 +138,8 @@ def test_record_unresponsive_kills_at_threshold(tmp_path):
     fake_pool.write_text(json.dumps(pool))
     fake_lock = tmp_path / "pool.lock"
 
-    with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
-         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock):
+    with patch("owrap.utils.dispatch.pool.POOL_FILE", fake_pool), \
+         patch("owrap.utils.dispatch.pool.POOL_LOCK_FILE", fake_lock):
         first = record_unresponsive("http://localhost:4096", threshold=2)
         assert first is False
         remaining = json.loads(fake_pool.read_text())
@@ -155,7 +155,7 @@ def test_record_unresponsive_kills_at_threshold(tmp_path):
 
 
 def test_record_unresponsive_custom_threshold_one(tmp_path):
-    from owrap.utils.pool import record_unresponsive
+    from owrap.utils.dispatch.pool import record_unresponsive
     from unittest.mock import patch
 
     pool = [{"pid": os.getpid(), "url": "http://localhost:4096", "port": 4096, "last_used": 0}]
@@ -163,8 +163,8 @@ def test_record_unresponsive_custom_threshold_one(tmp_path):
     fake_pool.write_text(json.dumps(pool))
     fake_lock = tmp_path / "pool.lock"
 
-    with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
-         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock):
+    with patch("owrap.utils.dispatch.pool.POOL_FILE", fake_pool), \
+         patch("owrap.utils.dispatch.pool.POOL_LOCK_FILE", fake_lock):
         result = record_unresponsive("http://localhost:4096", threshold=1)
         assert result is True
         remaining = json.loads(fake_pool.read_text())
@@ -173,7 +173,7 @@ def test_record_unresponsive_custom_threshold_one(tmp_path):
 
 
 def test_record_responsive_resets_counter(tmp_path):
-    from owrap.utils.pool import record_responsive
+    from owrap.utils.dispatch.pool import record_responsive
     from unittest.mock import patch
 
     pool = [{"pid": os.getpid(), "url": "http://localhost:4096", "port": 4096, "last_used": 0, "unresponsive_count": 1}]
@@ -181,8 +181,8 @@ def test_record_responsive_resets_counter(tmp_path):
     fake_pool.write_text(json.dumps(pool))
     fake_lock = tmp_path / "pool.lock"
 
-    with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
-         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock):
+    with patch("owrap.utils.dispatch.pool.POOL_FILE", fake_pool), \
+         patch("owrap.utils.dispatch.pool.POOL_LOCK_FILE", fake_lock):
         record_responsive("http://localhost:4096")
 
     remaining = json.loads(fake_pool.read_text())
@@ -190,7 +190,7 @@ def test_record_responsive_resets_counter(tmp_path):
 
 
 def test_record_unresponsive_unknown_url_noop(tmp_path):
-    from owrap.utils.pool import record_unresponsive
+    from owrap.utils.dispatch.pool import record_unresponsive
     from unittest.mock import patch
 
     pool = [{"pid": os.getpid(), "url": "http://localhost:4096", "port": 4096, "last_used": 0}]
@@ -198,8 +198,8 @@ def test_record_unresponsive_unknown_url_noop(tmp_path):
     fake_pool.write_text(json.dumps(pool))
     fake_lock = tmp_path / "pool.lock"
 
-    with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
-         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock), \
+    with patch("owrap.utils.dispatch.pool.POOL_FILE", fake_pool), \
+         patch("owrap.utils.dispatch.pool.POOL_LOCK_FILE", fake_lock), \
          patch("os.kill") as mock_kill:
         result = record_unresponsive("http://localhost:9999", threshold=1)
         assert result is False
@@ -210,7 +210,7 @@ def test_record_unresponsive_unknown_url_noop(tmp_path):
 
 
 def test_pick_server_force_kills_stale_hung_entry(tmp_path):
-    from owrap.utils.pool import pick_server
+    from owrap.utils.dispatch.pool import pick_server
     from unittest.mock import patch
 
     stale_pid = 424242
@@ -227,16 +227,16 @@ def test_pick_server_force_kills_stale_hung_entry(tmp_path):
         "pid": 55555, "last_used": time.time(),
     }
 
-    with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
-         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock), \
-         patch("owrap.utils.pool._pool_active", return_value=True), \
-         patch("owrap.utils.pool._ensure_keepalive"), \
-         patch("owrap.utils.pool.ensure_min_servers"), \
-         patch("owrap.utils.pool._is_alive", side_effect=[True, True, False, False]), \
-         patch("owrap.utils.pool._is_responsive", return_value=False), \
-         patch("owrap.utils.pool._next_port", return_value=4096), \
-         patch("owrap.utils.pool._start_server", return_value=new_entry), \
-         patch("owrap.utils.pool._wait_responsive"), \
+    with patch("owrap.utils.dispatch.pool.POOL_FILE", fake_pool), \
+         patch("owrap.utils.dispatch.pool.POOL_LOCK_FILE", fake_lock), \
+         patch("owrap.utils.dispatch.pool._pool_active", return_value=True), \
+         patch("owrap.utils.dispatch.pool._ensure_daemon"), \
+         patch("owrap.utils.dispatch.pool.ensure_min_servers"), \
+         patch("owrap.utils.dispatch.pool._is_alive", side_effect=[True, True, False, False]), \
+         patch("owrap.utils.dispatch.pool._is_responsive", return_value=False), \
+         patch("owrap.utils.dispatch.pool._next_port", return_value=4096), \
+         patch("owrap.utils.dispatch.pool._start_server", return_value=new_entry), \
+         patch("owrap.utils.dispatch.pool._wait_responsive"), \
          patch("os.kill") as mock_kill:
         url = pick_server("msg")
 
@@ -249,7 +249,7 @@ def test_pick_server_force_kills_stale_hung_entry(tmp_path):
 
 
 def test_pick_server_escalates_to_sigkill_if_stale_wont_die(tmp_path):
-    from owrap.utils.pool import pick_server
+    from owrap.utils.dispatch.pool import pick_server
     from unittest.mock import patch
 
     stale_pid = 424243
@@ -270,18 +270,18 @@ def test_pick_server_escalates_to_sigkill_if_stale_wont_die(tmp_path):
     def fake_time():
         return next(time_values, 999.0)
 
-    with patch("owrap.utils.pool.POOL_FILE", fake_pool), \
-         patch("owrap.utils.pool.POOL_LOCK_FILE", fake_lock), \
-         patch("owrap.utils.pool._pool_active", return_value=True), \
-         patch("owrap.utils.pool._ensure_keepalive"), \
-         patch("owrap.utils.pool.ensure_min_servers"), \
-         patch("owrap.utils.pool._is_alive", return_value=True), \
-         patch("owrap.utils.pool._is_responsive", return_value=False), \
-         patch("owrap.utils.pool._next_port", return_value=4096), \
-         patch("owrap.utils.pool._start_server", return_value=new_entry), \
-         patch("owrap.utils.pool._wait_responsive"), \
-         patch("owrap.utils.pool.time.time", side_effect=fake_time), \
-         patch("owrap.utils.pool.time.sleep"), \
+    with patch("owrap.utils.dispatch.pool.POOL_FILE", fake_pool), \
+         patch("owrap.utils.dispatch.pool.POOL_LOCK_FILE", fake_lock), \
+         patch("owrap.utils.dispatch.pool._pool_active", return_value=True), \
+         patch("owrap.utils.dispatch.pool._ensure_daemon"), \
+         patch("owrap.utils.dispatch.pool.ensure_min_servers"), \
+         patch("owrap.utils.dispatch.pool._is_alive", return_value=True), \
+         patch("owrap.utils.dispatch.pool._is_responsive", return_value=False), \
+         patch("owrap.utils.dispatch.pool._next_port", return_value=4096), \
+         patch("owrap.utils.dispatch.pool._start_server", return_value=new_entry), \
+         patch("owrap.utils.dispatch.pool._wait_responsive"), \
+         patch("owrap.utils.dispatch.pool.time.time", side_effect=fake_time), \
+         patch("owrap.utils.dispatch.pool.time.sleep"), \
          patch("os.kill") as mock_kill:
         pick_server("msg")
 

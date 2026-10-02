@@ -47,14 +47,15 @@ class TestStageAll:
         from pathlib import Path
 
         fixed_config = {
-            "allow_all": True,
-            "owrap_enabled": True,
-            "oread": False,
-            "context_enabled": True,
+            "runner_allow_all": True,
+            "owrap_runner_enabled": True,
+            "owrap_context_manager_enabled": True,
+            "runner_use_oread": False,
+            "context_injection_enabled": True,
             "research_root": str(tmp_path / "docs" / "research"),
             "workspace": str(tmp_path / "marl"),
             "exec_model": "opencode-go/qwen3.6-plus",
-            "keepalive_interval_s": 10,
+            "daemon_interval_s": 10,
             "bin_dir": "~/bin",
             "updr_every_orun": 15,
             "max_requests": 10,
@@ -85,4 +86,4 @@ class TestStageAll:
         content = claude_path.read_text()
 
         assert "## Allowed" in content
-        assert "## Dispatch Tooling" in content
+        assert "## Runner Tooling" in content

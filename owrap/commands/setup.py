@@ -4,6 +4,7 @@ from pathlib import Path
 
 from ..staging import stage_all
 from ..utils.paths import CONFIGS_DIR, DOCS_DIR, BASE_CONFIG_FILE, project_config_path
+from ..utils.dispatch.model_catalog import discover_free_model
 
 
 def _read_base() -> dict:
@@ -57,9 +58,16 @@ class SetupRunner:
             cfg["research_root"] = str(Path(research_root).expanduser().resolve())
         else:
             cfg.setdefault("research_root", str(ws / "docs" / "research"))
-        cfg.setdefault("allow_all", False if allow_all is None else allow_all)
-        cfg.setdefault("oread", True if oread is None else oread)
-        cfg.setdefault("context_enabled", True)
+        cfg.setdefault("runner_allow_all", False if allow_all is None else allow_all)
+        cfg.setdefault("runner_use_oread", True if oread is None else oread)
+        cfg.setdefault("context_injection_enabled", True)
+        cfg.setdefault("permit_bypass_all", False)
+        # runner_model has no safe universal default — left for the user to set.
+        free_model = discover_free_model()
+        if free_model:
+            cfg.setdefault("context_manager_model", free_model)
+            cfg.setdefault("context_fallback_model", free_model)
+            cfg.setdefault("daemon_default_model", free_model)
         with open(cfg_path, "w") as f:
             json.dump(cfg, f, indent=2)
 

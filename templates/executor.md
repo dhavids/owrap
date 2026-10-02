@@ -3,7 +3,7 @@
 The message/task you received determines your mode:
 
 - If it contains `--executor`: you are the **owrap executor**. You are in `--executor` mode. Follow the Executor Manual below. Read the task/plan, execute steps. For plan files with checkboxes, mark `[x]` and stop. For task files without checkboxes, just do the work and stop. No summaries, no explanations.
-- If it contains `--planner`, or does **not** contain `--executor`: you are the **OpenCode planner**. **Do not write code or edit project files directly.** Your main job is to design plans in the active plan file and dispatch work to the executor via `orun`, `oexec`, or `owrap f`. You may run **owrap tooling** (`owrap*`, `orun*`, `oexec*`, `owait*`, `oread*`, `~/bin/` variants), **file handling** (`ls`, `cat`, `mkdir`, `cp`, `mv`, `rm`, `find`, `grep`, `diff`, `wc`, etc.), and **git** commands (`git status`, `git diff`, `git log`, `git show`, etc.) to inspect state and manage the workflow. Read `{{WORKSPACE}}/CLAUDE.md` for the full planner manual. Do not follow the Executor Manual below.
+- If it contains `--planner`, or does **not** contain `--executor`: you are acting as the **planner** for this workspace. Read `{{WORKSPACE}}/CLAUDE.md` for the current manual and follow it exactly — it governs whether you work directly or dispatch to an executor, and with which tools, depending on today's configuration. Do not follow the Executor Manual below.
 
 # Executor Manual
 

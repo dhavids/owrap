@@ -1,4 +1,3 @@
-import fcntl
 import json
 import logging
 import os
@@ -11,8 +10,8 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from .utils.terminal import Terminal
-from .utils.logger import get_logger
+from .utils.dispatch.terminal import Terminal
+from .utils.log.logger import get_logger
 from .utils.paths import (
     TASKS_DIR, STATE_FILE, SESSION_DIR, SERVERS_DIR, DOCS_DIR,
     SESSIONS_DIR, RUNNING_DIR, SERVER_LOGS_DIR,
@@ -27,9 +26,10 @@ from .utils.paths import (
     session_tasks_dir, session_msg_output_dir,
     session_task_output_dir, session_agent_full_log_dir,
 )
-from .utils.trash import sweep_trash, move_to_trash
-from .utils import rtlog
-from .utils.session_resolver import (
+from .utils.session.trash import sweep_trash, move_to_trash
+from .utils.filelock import file_lock
+from .utils.log import rtlog
+from .utils.session.session_resolver import (
     _parse as _parse_session, _clear_anchor,
     BY_CCSID_DIR, BY_OPENCODE_RUN_ID_DIR,
 )
@@ -454,13 +454,12 @@ class Manager:
         self._cap_context_sections(cp)
 
     def update_server_last_used(self, url: str):
-        from .utils.pool import update_last_used
+        from .utils.dispatch.pool import update_last_used
         update_last_used(url)
 
-    def get_keepalive_model(self) -> str:
+    def get_daemon_model(self) -> str | None:
         config = _read_config()
-        model = config.get("keepalive_model") or config.get("fast_model")
-        return model or "opencode/deepseek-v4-flash-free"
+        return config.get("daemon_default_model")
 
     def append_context_recent(
         self, title: str, rc: int, ctx: bool = True, kind: str = "msg",
@@ -473,9 +472,7 @@ class Manager:
         if not cp.exists():
             return
         try:
-            fd = os.open(str(lock), os.O_CREAT | os.O_WRONLY)
-            fcntl.flock(fd, fcntl.LOCK_EX)
-            try:
+            with file_lock(lock):
                 text = cp.read_text()
                 lines = text.splitlines()
                 recent_idx = None
@@ -524,9 +521,6 @@ class Manager:
                 new_lines = before + recent_lines + [""] + after
                 cp.write_text("\n".join(new_lines) + "\n")
                 self._cap_context_sections(cp)
-            finally:
-                fcntl.flock(fd, fcntl.LOCK_UN)
-                os.close(fd)
         except Exception:
             pass
 
@@ -540,9 +534,7 @@ class Manager:
         if not cp.exists() or not read_log.exists():
             return
         try:
-            fd = os.open(str(lock), os.O_CREAT | os.O_WRONLY)
-            fcntl.flock(fd, fcntl.LOCK_EX)
-            try:
+            with file_lock(lock):
                 content = read_log.read_text()
                 counts = {}
                 for line in content.splitlines():
@@ -573,9 +565,6 @@ class Manager:
                 new_lines = before + entries + [""] + after
                 cp.write_text("\n".join(new_lines) + "\n")
                 self._cap_context_sections(cp)
-            finally:
-                fcntl.flock(fd, fcntl.LOCK_UN)
-                os.close(fd)
         except Exception:
             pass
 
@@ -610,9 +599,7 @@ class Manager:
         plan_snippet = "\n".join(steps) if steps else "(no active steps)"
         lock = context_lock_path(self.session_id)
         try:
-            fd = os.open(str(lock), os.O_CREAT | os.O_WRONLY)
-            fcntl.flock(fd, fcntl.LOCK_EX)
-            try:
+            with file_lock(lock):
                 text = cp.read_text()
                 new_text = re.sub(
                     r"(## Active Plan\n).*?(\n## )",
@@ -624,9 +611,6 @@ class Manager:
                 )
                 cp.write_text(new_text)
                 self._cap_context_sections(cp)
-            finally:
-                fcntl.flock(fd, fcntl.LOCK_UN)
-                os.close(fd)
         except Exception:
             pass
 
@@ -657,13 +641,10 @@ class Manager:
                     if has_active:
                         continue
                     lock = context_lock_path(self.session_id)
-                    fd = os.open(str(lock), os.O_CREAT | os.O_WRONLY)
-                    fcntl.flock(fd, fcntl.LOCK_SH)
-                    snapshot = cp.read_text()
-                    mtime = cp.stat().st_mtime
-                    fcntl.flock(fd, fcntl.LOCK_UN)
-                    os.close(fd)
-                    from .utils.pool import (
+                    with file_lock(lock, shared=True):
+                        snapshot = cp.read_text()
+                        mtime = cp.stat().st_mtime
+                    from .utils.dispatch.pool import (
                         _pool_active, get_pool, _active_load,
                     )
                     if not _pool_active():
@@ -697,16 +678,11 @@ class Manager:
                     compressed = (result.get("stdout") or "").strip()
                     if not compressed:
                         continue
-                    fd = os.open(str(lock), os.O_CREAT | os.O_WRONLY)
-                    fcntl.flock(fd, fcntl.LOCK_EX)
-                    try:
+                    with file_lock(lock):
                         current_mtime = cp.stat().st_mtime
                         if current_mtime == mtime:
                             cp.write_text(compressed + "\n")
                             self._cap_context_sections(cp)
-                    finally:
-                        fcntl.flock(fd, fcntl.LOCK_UN)
-                        os.close(fd)
                 except Exception:
                     pass
         t = threading.Thread(target=_watchdog_loop, daemon=True)

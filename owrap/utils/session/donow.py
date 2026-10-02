@@ -3,18 +3,20 @@ import json
 import re
 from pathlib import Path
 
-from .paths import context_path, _read_config, get_plan_path, SESSION_DIR
-from ..constants import NO_CONTEXT_MSG, NO_AREA_SECTION_MSG
+from ..paths import context_path, _read_config, get_plan_path, SESSION_DIR
+from ...constants import NO_CONTEXT_MSG, NO_AREA_SECTION_MSG
 
 COUNTERS_DIR = SESSION_DIR / "sessions"
 
 
-def _counters_path(session_id: str) -> Path:
+def _counters_path(session_id: str, ccsid: str = None) -> Path:
+    if ccsid:
+        return COUNTERS_DIR / f"{session_id}.{ccsid}.counters.json"
     return COUNTERS_DIR / f"{session_id}.counters.json"
 
 
-def _read_counters(session_id: str) -> dict:
-    p = _counters_path(session_id)
+def _read_counters(session_id: str, ccsid: str = None) -> dict:
+    p = _counters_path(session_id, ccsid)
     if p.exists():
         try:
             with open(p) as f:
@@ -24,8 +26,8 @@ def _read_counters(session_id: str) -> dict:
     return {}
 
 
-def _write_counters(session_id: str, data: dict):
-    p = _counters_path(session_id)
+def _write_counters(session_id: str, data: dict, ccsid: str = None):
+    p = _counters_path(session_id, ccsid)
     p.parent.mkdir(parents=True, exist_ok=True)
     with open(p, "w") as f:
         json.dump(data, f)
@@ -95,11 +97,11 @@ def check_donow(
     research_root = config.get("research_root", "")
 
     # Context file missing
-    if kind != "precompact" and not cp.exists():
+    if not cp.exists():
         return NO_CONTEXT_MSG.format(sid=session_id)
 
     # Area section missing in memory or projects
-    if kind != "precompact" and research_root and research:
+    if research_root and research:
         base = Path(research_root)
         memory_path = base / "memory" / f"{research}.md"
         projects_path = base / "projects" / f"{research}.md"

@@ -63,31 +63,18 @@ class FakeTerminal:
 
 
 class TestFallbackRun:
-    def test_no_path_system_exit(self):
+    @pytest.mark.parametrize("kind", ["none", "empty", "nonexistent"])
+    def test_bad_path_system_exit(self, kind, tmp_path):
         from owrap.commands.fallback import FallbackRunner
         runner = FallbackRunner()
+        path = {
+            "none": None,
+            "empty": "",
+            "nonexistent": str(tmp_path / "missing_task.md"),
+        }[kind]
         with patch("owrap.commands.fallback.Terminal") as mock_cls:
             with pytest.raises(SystemExit) as exc_info:
-                runner.run(None)
-            assert exc_info.value.code == 1
-            mock_cls.assert_not_called()
-
-    def test_empty_path_system_exit(self):
-        from owrap.commands.fallback import FallbackRunner
-        runner = FallbackRunner()
-        with patch("owrap.commands.fallback.Terminal") as mock_cls:
-            with pytest.raises(SystemExit) as exc_info:
-                runner.run("")
-            assert exc_info.value.code == 1
-            mock_cls.assert_not_called()
-
-    def test_nonexistent_path_system_exit(self, tmp_path):
-        from owrap.commands.fallback import FallbackRunner
-        runner = FallbackRunner()
-        missing = tmp_path / "missing_task.md"
-        with patch("owrap.commands.fallback.Terminal") as mock_cls:
-            with pytest.raises(SystemExit) as exc_info:
-                runner.run(str(missing))
+                runner.run(path)
             assert exc_info.value.code == 1
             mock_cls.assert_not_called()
 

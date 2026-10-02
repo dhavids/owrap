@@ -9,12 +9,12 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from .paths import (
+from ..paths import (
     _read_config, SERVERS_DIR, RUNNING_DIR,
-    KEEPALIVE_PID_FILE, POOL_FILE, POOL_LOCK_FILE,
+    DAEMON_PID_FILE, POOL_FILE, POOL_LOCK_FILE,
     SERVER_LOGS_DIR,
 )
-from . import rtlog
+from ..log import rtlog
 
 MIN_SERVERS = 2
 
@@ -92,7 +92,7 @@ def _is_responsive(url) -> bool:
 
 
 def _start_server(port: int) -> dict:
-    from ..manager import Manager
+    from ...manager import Manager
     m = Manager(port=port)
     url = m.start(port=port)
     state = m._read_state() or {}
@@ -205,7 +205,7 @@ def pick_server(call_type: str) -> str:
     """
     if not _pool_active():
         raise RuntimeError("pool is not active")
-    _ensure_keepalive()  # self-heals keepalive on every pooled dispatch
+    _ensure_daemon()  # self-heals daemon on every pooled dispatch
     ensure_min_servers()
     with _pool_lock():
         pool = _read_pool()
@@ -380,7 +380,7 @@ def record_unresponsive(url: str, threshold: int | None = None) -> bool:
     isn't cut off. Returns True if the server was newly marked
     draining, False otherwise.
     """
-    from ..constants import UNRESPONSIVE_KILL_THRESHOLD
+    from ...constants import UNRESPONSIVE_KILL_THRESHOLD
     if threshold is None:
         threshold = int(
             _read_config().get("unresponsive_kill_threshold", UNRESPONSIVE_KILL_THRESHOLD)
@@ -550,8 +550,8 @@ def _estimate_remaining(url: str, now: float | None = None) -> float:
     """
     if now is None:
         now = time.time()
-    from ..constants import EXPECTED_DURATION_S
-    from .paths import _read_config as _rc
+    from ...constants import EXPECTED_DURATION_S
+    from ..paths import _read_config as _rc
     total = 0.0
     if not RUNNING_DIR.exists():
         return total
@@ -581,22 +581,22 @@ def _estimate_remaining(url: str, now: float | None = None) -> float:
     return total
 
 
-def _ensure_keepalive():
-    keepalive_pid_file = KEEPALIVE_PID_FILE
+def _ensure_daemon():
+    daemon_pid_file = DAEMON_PID_FILE
     owrap_dir = Path.home() / "marl" / "owrap"
-    if keepalive_pid_file.exists():
+    if daemon_pid_file.exists():
         try:
-            pid = int(keepalive_pid_file.read_text().strip())
+            pid = int(daemon_pid_file.read_text().strip())
             os.kill(pid, 0)
             return
         except (ValueError, OSError):
             pass
-    # start keepalive
+    # start daemon
     proc = subprocess.Popen(
-        ["owrap", "keepalive"],
+        ["owrap", "daemon"],
         start_new_session=True,
         cwd=str(owrap_dir) if owrap_dir.exists() else None,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    keepalive_pid_file.write_text(str(proc.pid))
+    daemon_pid_file.write_text(str(proc.pid))

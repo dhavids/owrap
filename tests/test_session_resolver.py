@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from owrap.utils.session_resolver import (
+from owrap.utils.session.session_resolver import (
     SESSIONS_DIR,
     BY_CCSID_DIR,
     BY_OPENCODE_RUN_ID_DIR,
@@ -15,14 +15,16 @@ from owrap.utils.session_resolver import (
     remove_session,
     list_sessions,
     resolve_attach_target,
+    detach,
+    attached_ccsids,
 )
 
 
 class TestResolveOpencodeRunId:
     def test_resolve_finds_session_by_opencode_run_id(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr("owrap.utils.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
-        monkeypatch.setattr("owrap.utils.session_resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
+        monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr("owrap.utils.session.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
+        monkeypatch.setattr("owrap.utils.session.session_resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
         monkeypatch.setenv("OPENCODE_RUN_ID", "run-abc")
         monkeypatch.delenv("SESSION_ID", raising=False)
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
@@ -37,9 +39,9 @@ class TestResolveOpencodeRunId:
         assert source == "opencode_run_id"
 
     def test_resolve_opencode_run_id_stale_pointer_removed(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr("owrap.utils.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
-        monkeypatch.setattr("owrap.utils.session_resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
+        monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr("owrap.utils.session.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
+        monkeypatch.setattr("owrap.utils.session.session_resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
         monkeypatch.setenv("OPENCODE_RUN_ID", "run-abc")
         monkeypatch.delenv("SESSION_ID", raising=False)
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
@@ -52,9 +54,9 @@ class TestResolveOpencodeRunId:
         assert not opencode_run_id_pointer("run-abc").exists()
 
     def test_start_creates_opencode_run_id_pointer(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr("owrap.utils.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
-        monkeypatch.setattr("owrap.utils.session_resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
+        monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr("owrap.utils.session.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
+        monkeypatch.setattr("owrap.utils.session.session_resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
         monkeypatch.setenv("OPENCODE_RUN_ID", "run-xyz")
         monkeypatch.delenv("SESSION_ID", raising=False)
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
@@ -67,9 +69,9 @@ class TestResolveOpencodeRunId:
 
 class TestAttachSingleAnchor:
     def test_attach_ccsid_only(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr("owrap.utils.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
-        monkeypatch.setattr("owrap.utils.session_resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
+        monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr("owrap.utils.session.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
+        monkeypatch.setattr("owrap.utils.session.session_resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "ccsid-123")
         monkeypatch.delenv("OPENCODE_RUN_ID", raising=False)
 
@@ -85,9 +87,9 @@ class TestAttachSingleAnchor:
         assert d.get("opencode_run_id") == ""
 
     def test_attach_oid_only(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr("owrap.utils.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
-        monkeypatch.setattr("owrap.utils.session_resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
+        monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr("owrap.utils.session.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
+        monkeypatch.setattr("owrap.utils.session.session_resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
         monkeypatch.setenv("OPENCODE_RUN_ID", "run-xyz")
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
 
@@ -103,9 +105,9 @@ class TestAttachSingleAnchor:
         assert d.get("claude_session_id") == ""
 
     def test_attach_both_ccsid_wins(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr("owrap.utils.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
-        monkeypatch.setattr("owrap.utils.session_resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
+        monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr("owrap.utils.session.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
+        monkeypatch.setattr("owrap.utils.session.session_resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "ccsid-123")
         monkeypatch.setenv("OPENCODE_RUN_ID", "run-xyz")
 
@@ -126,9 +128,9 @@ class TestAttachSingleAnchor:
         assert d.get("opencode_run_id") == ""
 
     def test_attach_neither_clears_both(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr("owrap.utils.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
-        monkeypatch.setattr("owrap.utils.session_resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
+        monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr("owrap.utils.session.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
+        monkeypatch.setattr("owrap.utils.session.session_resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
         monkeypatch.delenv("OPENCODE_RUN_ID", raising=False)
 
@@ -151,9 +153,9 @@ class TestAttachSingleAnchor:
 
 class TestAttachOpencodeRunId:
     def test_attach_binds_opencode_run_id(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr("owrap.utils.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
-        monkeypatch.setattr("owrap.utils.session_resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
+        monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr("owrap.utils.session.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
+        monkeypatch.setattr("owrap.utils.session.session_resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
         monkeypatch.setenv("OPENCODE_RUN_ID", "run-abc")
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
 
@@ -168,9 +170,9 @@ class TestAttachOpencodeRunId:
         assert d.get("opencode_run_id") == "run-abc"
 
     def test_attach_rebinds_opencode_run_id_one_to_one(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr("owrap.utils.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
-        monkeypatch.setattr("owrap.utils.session_resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
+        monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr("owrap.utils.session.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
+        monkeypatch.setattr("owrap.utils.session.session_resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
         monkeypatch.setenv("OPENCODE_RUN_ID", "run-abc")
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
 
@@ -188,11 +190,97 @@ class TestAttachOpencodeRunId:
         assert old_d.get("opencode_run_id") == ""
 
 
+class TestMultiAttach:
+    def test_two_ccsids_can_attach_to_same_session(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr(
+            "owrap.utils.session.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid",
+        )
+        monkeypatch.setattr(
+            "owrap.utils.session.session_resolver.BY_OPENCODE_RUN_ID_DIR",
+            tmp_path / "by_opencode_run_id",
+        )
+        monkeypatch.delenv("OPENCODE_RUN_ID", raising=False)
+
+        sf = tmp_path / "abc123.session"
+        sf.write_text("session_id=abc123\n")
+
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "ccsid-a")
+        attach("abc123")
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "ccsid-b")
+        attach("abc123")
+
+        assert sorted(attached_ccsids("abc123")) == ["ccsid-a", "ccsid-b"]
+
+    def test_attaching_elsewhere_still_releases_that_ccsids_previous_session(
+        self, tmp_path, monkeypatch,
+    ):
+        monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr(
+            "owrap.utils.session.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid",
+        )
+        monkeypatch.setattr(
+            "owrap.utils.session.session_resolver.BY_OPENCODE_RUN_ID_DIR",
+            tmp_path / "by_opencode_run_id",
+        )
+        monkeypatch.delenv("OPENCODE_RUN_ID", raising=False)
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "ccsid-a")
+
+        (tmp_path / "old.session").write_text("session_id=old\n")
+        (tmp_path / "new.session").write_text("session_id=new\n")
+
+        attach("old")
+        attach("new")
+
+        assert attached_ccsids("old") == []
+        assert attached_ccsids("new") == ["ccsid-a"]
+
+
+class TestDetach:
+    def test_detach_releases_only_that_window(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr(
+            "owrap.utils.session.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid",
+        )
+        monkeypatch.setattr(
+            "owrap.utils.session.session_resolver.BY_OPENCODE_RUN_ID_DIR",
+            tmp_path / "by_opencode_run_id",
+        )
+        monkeypatch.delenv("OPENCODE_RUN_ID", raising=False)
+
+        (tmp_path / "abc123.session").write_text("session_id=abc123\n")
+
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "ccsid-a")
+        attach("abc123")
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "ccsid-b")
+        attach("abc123")
+
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "ccsid-a")
+        detached_sid = detach()
+
+        assert detached_sid == "abc123"
+        assert attached_ccsids("abc123") == ["ccsid-b"]
+
+    def test_detach_when_not_attached_returns_none(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr(
+            "owrap.utils.session.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid",
+        )
+        monkeypatch.setattr(
+            "owrap.utils.session.session_resolver.BY_OPENCODE_RUN_ID_DIR",
+            tmp_path / "by_opencode_run_id",
+        )
+        monkeypatch.delenv("OPENCODE_RUN_ID", raising=False)
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "ccsid-never-attached")
+
+        assert detach() is None
+
+
 class TestRemoveSession:
     def test_remove_session_clears_opencode_run_id_pointer(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr("owrap.utils.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
-        monkeypatch.setattr("owrap.utils.session_resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
+        monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr("owrap.utils.session.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
+        monkeypatch.setattr("owrap.utils.session.session_resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
 
         sf = tmp_path / "abc123.session"
         sf.write_text("session_id=abc123\n")
@@ -206,9 +294,9 @@ class TestRemoveSession:
 
 class TestListSessions:
     def test_list_sessions_owned_by_opencode_run_id(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr("owrap.utils.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
-        monkeypatch.setattr("owrap.utils.session_resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
+        monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr("owrap.utils.session.session_resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
+        monkeypatch.setattr("owrap.utils.session.session_resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
         monkeypatch.setenv("OPENCODE_RUN_ID", "run-abc")
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
 
@@ -237,7 +325,7 @@ class TestResolveAttachTarget:
             )
 
     def test_exact_session_id(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path)
         self._write_sessions(tmp_path, [("9f5f96", "owrap", "main")])
 
         status, payload = resolve_attach_target("9f5f96")
@@ -245,7 +333,7 @@ class TestResolveAttachTarget:
         assert payload == "9f5f96"
 
     def test_unique_research_match(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path)
         self._write_sessions(tmp_path, [("9f5f96", "owrap", "main")])
 
         status, payload = resolve_attach_target("owrap")
@@ -253,7 +341,7 @@ class TestResolveAttachTarget:
         assert payload["session_id"] == "9f5f96"
 
     def test_unique_area_match(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path)
         self._write_sessions(tmp_path, [
             ("b0d5b3", "translator", "data-gen"),
             ("66e748", "translator", "results"),
@@ -264,7 +352,7 @@ class TestResolveAttachTarget:
         assert payload["session_id"] == "66e748"
 
     def test_ambiguous_research_differs_by_area(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path)
         self._write_sessions(tmp_path, [
             ("b0d5b3", "translator", "data-gen"),
             ("79f7f6", "translator", "data-gen-rewards"),
@@ -278,7 +366,7 @@ class TestResolveAttachTarget:
         assert {s["session_id"] for s in matches} == {"b0d5b3", "79f7f6", "66e748"}
 
     def test_ambiguous_area_differs_by_research(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path)
         self._write_sessions(tmp_path, [
             ("9f5f96", "owrap", "main"),
             ("cc6885", "mpe_learner", "main"),
@@ -292,7 +380,7 @@ class TestResolveAttachTarget:
         assert {s["session_id"] for s in matches} == {"9f5f96", "cc6885", "dfe743"}
 
     def test_area_exact_match_excludes_similar_area(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path)
         self._write_sessions(tmp_path, [
             ("b0d5b3", "translator", "data-gen"),
             ("79f7f6", "translator", "data-gen-rewards"),
@@ -303,7 +391,7 @@ class TestResolveAttachTarget:
         assert payload["session_id"] == "b0d5b3"
 
     def test_no_match_returns_typo_suggestion(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path)
         self._write_sessions(tmp_path, [("9f5f96", "owrap", "main")])
 
         status, payload = resolve_attach_target("owrapp")
@@ -311,7 +399,7 @@ class TestResolveAttachTarget:
         assert "owrap" in payload
 
     def test_no_match_no_suggestion(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("owrap.utils.session_resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path)
         self._write_sessions(tmp_path, [("9f5f96", "owrap", "main")])
 
         status, payload = resolve_attach_target("bogusxyz")

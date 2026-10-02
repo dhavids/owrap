@@ -197,7 +197,7 @@ def test_get_config(tmp_path, monkeypatch, capsys):
     sid = "testsid"
     sf = sessions_dir / f"{sid}.session"
     sf.write_text("session_id=testsid\nresearch=myresearch\narea=main\nworkspace=marl\n")
-    cfg = {"research_root": "/some/path", "oread": True}
+    cfg = {"research_root": "/some/path", "runner_use_oread": True}
     (configs_dir / "marl.json").write_text(_json.dumps(cfg))
     monkeypatch.setenv("SESSION_ID", sid)
     monkeypatch.setattr("owrap.commands.get_cmd.RUNTIME_HOME", tmp_path)

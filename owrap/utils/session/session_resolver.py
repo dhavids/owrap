@@ -1,10 +1,11 @@
 import difflib
 import os
 import secrets
+import sys
 import time
 from pathlib import Path
 
-from .paths import SESSION_DIR
+from ..paths import SESSION_DIR
 
 SESSIONS_DIR = SESSION_DIR / "sessions"
 BY_CCSID_DIR = SESSIONS_DIR / "by_ccsid"
@@ -43,6 +44,23 @@ def opencode_run_id_pointer(oid: str) -> Path:
 
 def mint_session_id() -> str:
     return secrets.token_hex(3)
+
+
+def owrap_sid_for_ccsid(ccsid: str) -> str | None:
+    """
+    Resolve the owrap session id a given ccsid is attached to.
+
+    Looks up the by_ccsid/<ccsid> pointer directly rather than scanning
+    .session files for a claude_session_id field match — under multi-attach,
+    that field only ever holds the most recently attached ccsid, so a scan
+    silently misses every other window attached to the same session.
+    """
+    if not ccsid:
+        return None
+    ptr = ccsid_pointer(ccsid)
+    if ptr.exists():
+        return ptr.read_text().strip() or None
+    return None
 
 
 def list_sessions() -> list:
@@ -130,24 +148,17 @@ def _bind_anchor(
     session_key: str,
 ) -> str | None:
     """
-    Bind target_sid to a single environment anchor (CCSID or
-    OPENCODE_RUN_ID), enforcing 1-1.
+    Bind target_sid to an environment anchor (CCSID or OPENCODE_RUN_ID).
+
+    Many anchors of the same type may point at target_sid at once (multi-
+    attach); each individual anchor still points at only one session, so
+    binding it elsewhere first releases its previous session.
 
     Returns the previous session id pointed at by this anchor, if any.
     """
     if not env_value:
         return None
     pointer_dir.mkdir(parents=True, exist_ok=True)
-
-    # De-own target_sid from any previous anchor of this type
-    if pointer_dir.exists():
-        for ptr in pointer_dir.iterdir():
-            if (
-                ptr.is_file()
-                and ptr.read_text().strip() == target_sid
-                and ptr.name != env_value
-            ):
-                ptr.unlink(missing_ok=True)
 
     # Release current anchor from any session it currently points at (1-1 the other way)
     prev_sid = None
@@ -174,6 +185,35 @@ def _clear_anchor(target_sid: str, pointer_dir: Path):
     for ptr in pointer_dir.iterdir():
         if ptr.is_file() and ptr.read_text().strip() == target_sid:
             ptr.unlink(missing_ok=True)
+
+
+def attached_ccsids(session_id: str) -> list:
+    """
+    Return every ccsid whose by_ccsid pointer currently targets session_id.
+    """
+    if not BY_CCSID_DIR.exists():
+        return []
+    return [
+        p.name for p in BY_CCSID_DIR.iterdir()
+        if p.is_file() and p.read_text().strip() == session_id
+    ]
+
+
+def all_attached_ccsid_pairs() -> list:
+    """
+    Return (ccsid, owrap_sid) for every currently-attached window, across
+    every owrap session — the reverse direction of `attached_ccsids`.
+    """
+    if not BY_CCSID_DIR.exists():
+        return []
+    pairs = []
+    for p in BY_CCSID_DIR.iterdir():
+        if not p.is_file():
+            continue
+        sid = p.read_text().strip()
+        if sid:
+            pairs.append((p.name, sid))
+    return pairs
 
 
 def _suggest_attach_targets(token: str, sessions: list) -> list:
@@ -243,15 +283,78 @@ def resolve_attach_target(token: str) -> tuple:
     return "ambiguous", (differential, matches)
 
 
+def format_ambiguous_attach_error(target: str, differential: str, matches: list) -> str:
+    """
+    Format the standard AMBIGUOUS error for a resolve_attach_target()
+    ambiguous result, listing each match by its differing field and
+    session id so the caller knows what to re-run with.
+    """
+    lines = [
+        f"AMBIGUOUS: '{target}' matches {len(matches)} sessions "
+        f"(differing by {differential}) - results:",
+    ]
+    for s in matches:
+        if differential == "area":
+            label = s.get("area", "-")
+        elif differential == "research":
+            label = s.get("research", "-")
+        else:
+            label = f"research={s.get('research', '-')} area={s.get('area', '-')}"
+        lines.append(f"  {label:<24} session={s['session_id']}")
+    return "\n".join(lines)
+
+
+def print_known_sessions():
+    """
+    Print the session id/research/area table for all known sessions.
+    """
+    print("Known sessions:")
+    for s in list_sessions():
+        ccsid_val = s.get("claude_session_id", "-")
+        _cc = ccsid_val[:8] if ccsid_val != "-" else "-"
+        print(
+            f"  {s['session_id']}  research={s.get('research', '-')}  "
+            f"area={s.get('area', '-')}  started={s.get('started', '-')}  ccsid={_cc}",
+        )
+
+
+def resolve_session_or_exit(token: str, print_known_on_none: bool = False) -> str:
+    """
+    Resolve a user-typed session id/research/area target to a session id,
+    printing the standard error and exiting(2) on an unknown or ambiguous
+    match. The single point every caller should go through instead of
+    branching on resolve_attach_target()'s status itself.
+    """
+    status, payload = resolve_attach_target(token)
+    if status == "session_id":
+        return token
+    if status == "unique":
+        return payload["session_id"]
+    if status == "none":
+        print(f"ERROR: no session found matching '{token}'.")
+        if payload:
+            print(f"Did you mean: {', '.join(payload)}?")
+        if print_known_on_none:
+            print()
+            print_known_sessions()
+        sys.exit(2)
+    differential, matches = payload
+    print(format_ambiguous_attach_error(token, differential, matches))
+    sys.exit(2)
+
+
 def attach(target_sid: str) -> tuple:
-    """Bind target_sid to exactly ONE identity anchor, enforcing single ownership.
+    """
+    Bind target_sid to the caller's identity anchor.
 
     Priority: ccsid (CLAUDE_CODE_SESSION_ID) > oid (OPENCODE_RUN_ID) > parent
     PID (same-call fallback only — never persisted as a resolvable pointer).
-    Whichever anchor type wins, any existing pointer of the OTHER type that
+    Multiple ccsids (or multiple oids) may attach to the same target_sid at
+    once — multi-attach is allowed within one anchor type. Whichever anchor
+    type wins for this call, any existing pointer of the OTHER type that
     references this session is cleared, and its field in the session file is
-    cleared too — a session is owned by exactly one anchor at a time, never
-    both.
+    cleared too — a session is claimed by one anchor type at a time, ccsid or
+    oid, never both.
 
     Returns (target_sid, target_session_file, prev_sid_for_the_winning_anchor).
     Raises FileNotFoundError if target session file missing.
@@ -291,6 +394,43 @@ def attach(target_sid: str) -> tuple:
     d["last_attach"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     _write(sf, d)
     return target_sid, sf, prev_sid
+
+
+def detach() -> str | None:
+    """
+    Release the caller's ccsid/oid pointer from whatever session it is
+    attached to, leaving any other window still attached to that session
+    untouched.
+
+    Returns the session id detached from, or None if not attached to any.
+    """
+    ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
+    oid = os.environ.get("OPENCODE_RUN_ID", "").strip()
+
+    sid = None
+    if ccsid:
+        ptr = ccsid_pointer(ccsid)
+        if ptr.exists():
+            sid = ptr.read_text().strip()
+            ptr.unlink(missing_ok=True)
+    if not sid and oid:
+        ptr = opencode_run_id_pointer(oid)
+        if ptr.exists():
+            sid = ptr.read_text().strip()
+            ptr.unlink(missing_ok=True)
+    if not sid:
+        return None
+
+    sf = session_file(sid)
+    if sf.exists():
+        d = _parse(sf)
+        if ccsid and d.get("claude_session_id") == ccsid:
+            remaining = [c for c in attached_ccsids(sid) if c != ccsid]
+            d["claude_session_id"] = remaining[-1] if remaining else ""
+        if oid and d.get("opencode_run_id") == oid:
+            d["opencode_run_id"] = ""
+        _write(sf, d)
+    return sid
 
 
 def update_session_field(session_id: str, key: str, value: str):
