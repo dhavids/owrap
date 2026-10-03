@@ -10,6 +10,7 @@ from owrap.utils.session.session_resolver import (
     BY_OPENCODE_RUN_ID_DIR,
     ccsid_pointer,
     opencode_run_id_pointer,
+    codex_session_id_pointer,
     resolve,
     attach,
     remove_session,
@@ -65,6 +66,43 @@ class TestResolveOpencodeRunId:
         assert source == "minted"
         assert opencode_run_id_pointer("run-xyz").exists()
         assert opencode_run_id_pointer("run-xyz").read_text() == sid
+
+
+class TestCodexSession:
+    def test_attach_resolve_and_detach(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path,
+        )
+        monkeypatch.setattr(
+            "owrap.utils.session.session_resolver.BY_CODEX_SESSION_ID_DIR",
+            tmp_path / "by_codex_session_id",
+        )
+        monkeypatch.setenv("CODEX_SESSION_ID", "codex-123")
+        monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+        monkeypatch.delenv("OPENCODE_RUN_ID", raising=False)
+        (tmp_path / "abc123.session").write_text("session_id=abc123\n")
+
+        attach("abc123")
+        assert codex_session_id_pointer("codex-123").read_text() == "abc123"
+        assert resolve("refresh")[0] == "abc123"
+        assert detach() == "abc123"
+        assert resolve("refresh")[0] is None
+
+    def test_start_mints_codex_pointer(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "owrap.utils.session.session_resolver.SESSIONS_DIR", tmp_path,
+        )
+        monkeypatch.setattr(
+            "owrap.utils.session.session_resolver.BY_CODEX_SESSION_ID_DIR",
+            tmp_path / "by_codex_session_id",
+        )
+        monkeypatch.setenv("CODEX_SESSION_ID", "codex-456")
+        monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+        monkeypatch.delenv("OPENCODE_RUN_ID", raising=False)
+
+        sid, _, source = resolve("start")
+        assert source == "minted"
+        assert codex_session_id_pointer("codex-456").read_text() == sid
 
 
 class TestAttachSingleAnchor:

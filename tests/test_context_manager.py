@@ -88,6 +88,10 @@ def _patch_dirs(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "owrap.utils.session.session_resolver.BY_CCSID_DIR", sessions_dir / "by_ccsid",
     )
+    monkeypatch.setattr(
+        "owrap.utils.session.session_resolver.BY_CODEX_SESSION_ID_DIR",
+        sessions_dir / "by_codex_session_id",
+    )
     monkeypatch.setattr("owrap.utils.session.donow.COUNTERS_DIR", sessions_dir)
     return docs_dir, sessions_dir
 
@@ -752,6 +756,7 @@ def test_stage_all_includes_sessionstart_and_ctx_hook(tmp_path, monkeypatch):
     configs_dir = tmp_path / "owrap_configs"
 
     monkeypatch.setattr("owrap.utils.paths.CONFIGS_DIR", configs_dir)
+    monkeypatch.setattr("owrap.staging.CONFIGS_DIR", configs_dir)
     monkeypatch.setattr("owrap.utils.paths.TEMPLATES_DIR", Path(__file__).parents[1] / "templates")
     monkeypatch.setattr(
         "owrap.staging.staged_dir",
@@ -1068,6 +1073,220 @@ def test_run_manual_combined_mode_requires_research_and_area(tmp_path, monkeypat
     with pytest.raises(SystemExit) as exc_info:
         CtxWorkerRunner().run_manual(mode=None)
     assert exc_info.value.code == 1
+
+
+@pytest.mark.parametrize(
+    ("mode", "area", "expected_blocks"),
+    [
+        ("ctx", None, ("# Context",)),
+        ("updr", "custom", ("# Memory", "# Project")),
+        (None, None, ("# Context", "# Memory", "# Project")),
+    ],
+)
+def test_codex_manual_modes_dispatch_from_rollout(
+    tmp_path, monkeypatch, mode, area, expected_blocks,
+):
+    _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
+    cid = "codex-manual"
+    sid = "manual03"
+    (sessions_dir / f"{sid}.session").parent.mkdir(parents=True)
+    (sessions_dir / f"{sid}.session").write_text(
+        f"session_id={sid}\nresearch=testr\narea=testarea\n"
+    )
+    pointer = sessions_dir / "by_codex_session_id" / cid
+    pointer.parent.mkdir(parents=True)
+    pointer.write_text(sid)
+    transcript = tmp_path / "rollout.jsonl"
+    _make_transcript_jsonl(transcript, [
+        {"type": "event_msg", "payload": {"type": "item_completed", "item": {
+            "type": "AgentMessage", "content": [
+                {"type": "text", "text": "Implemented Codex support"},
+            ],
+        }}},
+        {"type": "event_msg", "payload": {"type": "item_completed", "item": {
+            "type": "CommandExecution", "command": ["git", "status"],
+            "aggregated_output": " M owrap/README.md",
+        }}},
+        {"type": "event_msg", "payload": {"type": "item_completed", "item": {
+            "type": "FileChange", "changes": {"/tmp/project/file.py": {}},
+        }}},
+    ])
+    monkeypatch.setenv("CODEX_SESSION_ID", cid)
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.codex_transcript_path",
+        lambda session_id: transcript,
+    )
+
+    mock_popen = MagicMock()
+    with patch("owrap.commands.context_manager.subprocess.Popen", mock_popen):
+        CtxWorkerRunner().run_manual(mode=mode, area=area)
+
+    mock_popen.assert_called_once()
+    input_path = Path(mock_popen.call_args[0][0][3])
+    payload = json.loads(input_path.read_text())
+    assert payload["source"] == "codex"
+    assert payload["mode"] == mode
+    assert payload["area"] == area
+
+    mock_terminal_cls, mock_run = _patch_terminal()
+    with patch("owrap.commands.context_manager.Terminal", mock_terminal_cls):
+        CtxWorkerRunner().run(input_path=input_path)
+
+    mock_run.assert_called_once()
+    ctx_dir = sessions_dir / sid / "ctx" / cid
+    task = (ctx_dir / "input.md").read_text()
+    excerpt = (ctx_dir / "transcript.txt").read_text()
+    for block in expected_blocks:
+        assert block in task
+    assert ("# Context" in task) == (mode != "updr")
+    assert "Implemented Codex support" in excerpt
+    assert "$ git status" in excerpt
+    assert "[FileChange] /tmp/project/file.py" in excerpt
+
+
+def test_codex_rollout_extracts_assistant_messages_and_patch_paths():
+    lines = [json.dumps(entry) for entry in [
+        {"type": "response_item", "payload": {
+            "type": "message", "role": "user",
+            "content": [{"type": "input_text", "text": "Do the work"}],
+        }},
+        {"type": "response_item", "payload": {
+            "type": "message", "role": "assistant",
+            "content": [{"type": "output_text", "text": "Updated permit handling"}],
+        }},
+        {"type": "event_msg", "payload": {
+            "type": "patch_apply_end", "success": True,
+            "changes": {"/tmp/project/permit.py": {}},
+        }},
+    ]]
+
+    excerpt = CtxWorkerRunner()._extract_codex_excerpt_lines(lines, 0)
+
+    assert excerpt == [
+        "Updated permit handling",
+        "[FileChange] /tmp/project/permit.py",
+    ]
+
+
+def test_codex_rollout_ignores_context_update_turn():
+    lines = [json.dumps(entry) for entry in [
+        {"type": "event_msg", "payload": {
+            "type": "user_message", "message": "do another --uall to confirm",
+        }},
+        {"type": "response_item", "payload": {
+            "type": "message", "role": "assistant",
+            "content": [{"type": "output_text", "text": "I'll run it once more"}],
+        }},
+        {"type": "event_msg", "payload": {
+            "type": "patch_apply_end", "success": True,
+            "changes": {"/tmp/project/context_manager.py": {}},
+        }},
+        {"type": "event_msg", "payload": {
+            "type": "user_message", "message": "Fix the permit response",
+        }},
+        {"type": "response_item", "payload": {
+            "type": "message", "role": "assistant",
+            "content": [{"type": "output_text", "text": "Fixed permit response"}],
+        }},
+    ]]
+
+    excerpt = CtxWorkerRunner()._extract_codex_excerpt_lines(lines, 1)
+
+    assert excerpt == [
+        "[FileChange] /tmp/project/context_manager.py",
+        "Fixed permit response",
+    ]
+
+
+def test_claude_excerpt_ignores_context_update_turn_and_command():
+    lines = [json.dumps(entry) for entry in [
+        {"type": "user", "message": {"content": [
+            {"type": "text", "text": "run --ctx to update context"},
+        ]}},
+        {"type": "assistant", "message": {"content": [
+            {"type": "text", "text": "I'll run context update"},
+            {"type": "tool_use", "id": "ctx1", "name": "Bash",
+             "input": {"command": "~/bin/owrap updr --ctx"}},
+            {"type": "tool_use", "id": "edit1", "name": "Edit",
+             "input": {"file_path": "/tmp/project/context_manager.py"}},
+        ]}},
+        {"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "ctx1",
+             "content": "ctx+updr dispatch queued"},
+        ]}},
+        {"type": "user", "message": {"content": [
+            {"type": "text", "text": "Fix the permit response"},
+        ]}},
+        {"type": "assistant", "message": {"content": [
+            {"type": "text", "text": "Fixed permit response"},
+        ]}},
+    ]]
+
+    excerpt = CtxWorkerRunner()._extract_excerpt_lines(lines, 1)
+
+    assert excerpt == [
+        "[Edit] /tmp/project/context_manager.py",
+        "Fixed permit response",
+    ]
+
+
+def test_context_update_command_is_ignored_inside_other_work():
+    lines = [json.dumps(entry) for entry in [
+        {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "ctx1", "name": "Bash",
+             "input": {"command": "~/bin/owrap updr --ctx"}},
+            {"type": "tool_use", "id": "test1", "name": "Bash",
+             "input": {"command": "python3 -m pytest tests/test_permit.py"}},
+        ]}},
+        {"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "ctx1",
+             "content": "ctx+updr dispatch queued"},
+            {"type": "tool_result", "tool_use_id": "test1",
+             "content": "15 passed"},
+        ]}},
+    ]]
+
+    excerpt = CtxWorkerRunner()._extract_excerpt_lines(lines, 0)
+
+    assert excerpt == [
+        "$ python3 -m pytest tests/test_permit.py",
+        "-> 15 passed",
+    ]
+
+
+def test_codex_update_only_transcript_advances_offset(tmp_path, monkeypatch):
+    _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
+    sid, cid = "update01", "codex-update"
+    (sessions_dir / f"{sid}.session").parent.mkdir(parents=True)
+    (sessions_dir / f"{sid}.session").write_text(
+        f"session_id={sid}\nresearch=testr\narea=testarea\n"
+    )
+    pointer = sessions_dir / "by_codex_session_id" / cid
+    pointer.parent.mkdir(parents=True)
+    pointer.write_text(sid)
+    transcript = tmp_path / "rollout.jsonl"
+    _make_transcript_jsonl(transcript, [
+        {"type": "event_msg", "payload": {
+            "type": "user_message", "message": "do another --uall to confirm",
+        }},
+        {"type": "response_item", "payload": {
+            "type": "message", "role": "assistant",
+            "content": [{"type": "output_text", "text": "I'll run it again"}],
+        }},
+    ])
+    input_path = tmp_path / "hook_input.json"
+    input_path.write_text(json.dumps({
+        "session_id": cid, "transcript_path": str(transcript),
+        "source": "codex",
+    }))
+
+    with patch("owrap.commands.context_manager.Terminal") as terminal:
+        CtxWorkerRunner().run(input_path=input_path)
+
+    terminal.assert_not_called()
+    counters = json.loads((sessions_dir / f"{sid}.{cid}.counters.json").read_text())
+    assert counters["transcript_offset"] == 2
 
 
 def test_ctx_worker_run_honors_mode_ctx_only(tmp_path, monkeypatch):

@@ -9,7 +9,7 @@ from ..utils.session.session_resolver import resolve, _parse
 
 class SyncRunner:
     """
-    Re-stage templates and write planner files directly.
+    Stage workspace configuration and sync agent settings.
     """
 
     def run(self):
@@ -44,6 +44,12 @@ class SyncRunner:
             settings_json_path = Path(workspace) / ".claude" / "settings.json"
             if settings_json_path.exists():
                 settings_json_path.write_text(staged_settings.read_text())
+
+        staged_codex_hooks = staged / "codex_hooks.json"
+        if staged_codex_hooks.exists():
+            target_codex_hooks = Path(workspace) / ".codex" / "hooks.json"
+            target_codex_hooks.parent.mkdir(parents=True, exist_ok=True)
+            target_codex_hooks.write_text(staged_codex_hooks.read_text())
 
         print(f"staged: {staged}")
         print(f"workspace: {workspace}")

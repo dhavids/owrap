@@ -404,6 +404,15 @@ def claude_transcript_path(ccsid: str, workspace_path: Path) -> Path:
     return Path.home() / ".claude" / "projects" / project_dir / f"{ccsid}.jsonl"
 
 
+def codex_transcript_path(cid: str) -> Path | None:
+    """
+    Find the local Codex rollout file for a session ID.
+    """
+    codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+    matches = list((codex_home / "sessions").glob(f"**/rollout-*-{cid}.jsonl"))
+    return max(matches, key=lambda path: path.stat().st_mtime) if matches else None
+
+
 def _resolve_research_root() -> str | None:
     config = _read_config()
     ws_name = config.get("default_workspace", "")

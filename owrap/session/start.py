@@ -23,6 +23,7 @@ from ..utils.session.session_resolver import (
     resolve, update_session_field, migrate_legacy_files,
     session_file as _sf, ccsid_pointer, _write as _sr_write,
     SESSIONS_DIR, BY_CCSID_DIR, BY_OPENCODE_RUN_ID_DIR,
+    BY_CODEX_SESSION_ID_DIR, codex_session_id_pointer,
     list_sessions, _parse, attach, mint_session_id,
     opencode_run_id_pointer, _clear_anchor, resolve_session_or_exit,
     detach, attached_ccsids, print_known_sessions,
@@ -94,18 +95,21 @@ def _mint_from(old_sid, parent_sid=None):
     write fresh pointers. Returns (new_sid, new_path)."""
     _clear_anchor(old_sid, BY_CCSID_DIR)
     _clear_anchor(old_sid, BY_OPENCODE_RUN_ID_DIR)
+    _clear_anchor(old_sid, BY_CODEX_SESSION_ID_DIR)
     ccsid_env = os.environ.get(
         "CLAUDE_CODE_SESSION_ID", "",
     ).strip()
     oid_env = os.environ.get(
         "OPENCODE_RUN_ID", "",
     ).strip()
+    cid_env = os.environ.get("CODEX_SESSION_ID", "").strip()
     new_sid = mint_session_id()
     new_path = _sf(new_sid)
     data = {
         "session_id": new_sid,
         "claude_session_id": ccsid_env,
         "opencode_run_id": oid_env,
+        "codex_session_id": cid_env,
         "started": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     if parent_sid is not None:
@@ -119,6 +123,9 @@ def _mint_from(old_sid, parent_sid=None):
             parents=True, exist_ok=True,
         )
         opencode_run_id_pointer(oid_env).write_text(new_sid)
+    if cid_env:
+        BY_CODEX_SESSION_ID_DIR.mkdir(parents=True, exist_ok=True)
+        codex_session_id_pointer(cid_env).write_text(new_sid)
     return new_sid, new_path
 
 
@@ -149,14 +156,19 @@ class StartRunner(BaseRunner):
             else:
                 is_new_session = True
                 ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
+                cid = os.environ.get("CODEX_SESSION_ID", "").strip()
                 _sr_write(sf_path, {
                     "session_id": session_id,
                     "claude_session_id": ccsid,
+                    "codex_session_id": cid,
                     "started": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 })
                 if ccsid:
                     BY_CCSID_DIR.mkdir(parents=True, exist_ok=True)
                     ccsid_pointer(ccsid).write_text(session_id)
+                if cid:
+                    BY_CODEX_SESSION_ID_DIR.mkdir(parents=True, exist_ok=True)
+                    codex_session_id_pointer(cid).write_text(session_id)
                 session_path = sf_path
         elif child:
             parent_sid, parent_path, _ = resolve(mode="start")

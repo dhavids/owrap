@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -9,11 +10,13 @@ from pathlib import Path
 from ..utils.paths import (
     context_path, _read_config, session_ctx_dir, session_ctx_transcript_path,
     get_model_chain, get_workspace_path, claude_transcript_path,
+    codex_transcript_path,
     context_lock_path, memory_lock_path, projects_lock_path,
     session_ctx_touched_path,
 )
 from ..utils.session.session_resolver import (
     _parse, session_file, owrap_sid_for_ccsid, all_attached_ccsid_pairs,
+    owrap_sid_for_codex_session_id,
 )
 from ..utils.parser.sections import (
     extract_section, replace_section, split_top_sections, merge_log_entries,
@@ -27,6 +30,7 @@ from ..constants import (
 )
 
 MAX_EXCERPT_CHARS = 4000
+MAX_CODEX_EXCERPT_CHARS = 12000
 MAX_RESULT_CHARS = 100
 
 
@@ -65,11 +69,15 @@ class CtxWorkerRunner:
 
         hook_data = json.loads(input_path.read_text())
         ccsid = hook_data.get("session_id", "")
+        source = hook_data.get("source", "claude")
         transcript_path = hook_data.get("transcript_path", "")
         mode = hook_data.get("mode")
         area = hook_data.get("area")
 
-        owrap_sid = owrap_sid_for_ccsid(ccsid) if ccsid else None
+        if source == "codex":
+            owrap_sid = owrap_sid_for_codex_session_id(ccsid)
+        else:
+            owrap_sid = owrap_sid_for_ccsid(ccsid)
         if not owrap_sid:
             print("ctx-worker: no matching owrap session", file=sys.stderr)
             sys.exit(0)
@@ -78,6 +86,7 @@ class CtxWorkerRunner:
             owrap_sid, ccsid, transcript_path, config,
             do_context=(mode != "updr"), do_protocol=(mode != "ctx"),
             area_override=area,
+            source=source,
         )
 
     def run_manual(self, mode: str = None, area: str = None):
@@ -103,19 +112,30 @@ class CtxWorkerRunner:
             sys.exit(1)
 
         ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
+        source = "claude"
         if not ccsid:
-            print("No CLAUDE_CODE_SESSION_ID — run this from an attached window")
+            ccsid = os.environ.get("CODEX_SESSION_ID", "").strip()
+            source = "codex"
+        if not ccsid:
+            print("No Claude or Codex session ID — run this from an attached window")
             sys.exit(1)
 
-        owrap_sid = owrap_sid_for_ccsid(ccsid)
+        if source == "codex":
+            owrap_sid = owrap_sid_for_codex_session_id(ccsid)
+        else:
+            owrap_sid = owrap_sid_for_ccsid(ccsid)
         if not owrap_sid:
             print("No owrap session attached to this window — run `owrap attach` first")
             sys.exit(1)
 
-        transcript_path = str(claude_transcript_path(ccsid, get_workspace_path()))
-        if not Path(transcript_path).exists():
-            print(f"No transcript found at {transcript_path}")
+        transcript = (
+            codex_transcript_path(ccsid) if source == "codex"
+            else claude_transcript_path(ccsid, get_workspace_path())
+        )
+        if transcript is None or not transcript.exists():
+            print(f"No transcript found for {source} session {ccsid}")
             sys.exit(1)
+        transcript_path = str(transcript)
 
         if mode != "ctx":
             sf_path = session_file(owrap_sid)
@@ -134,7 +154,7 @@ class CtxWorkerRunner:
         payload_path = ctx_dir / "manual.json"
         payload_path.write_text(json.dumps({
             "session_id": ccsid, "transcript_path": transcript_path,
-            "mode": mode, "area": area,
+            "mode": mode, "area": area, "source": source,
         }))
 
         log_path = ctx_dir / "ctx.log"
@@ -184,7 +204,7 @@ class CtxWorkerRunner:
 
     def _dispatch_tracked(
         self, owrap_sid, ccsid, transcript_path, config,
-        do_context, do_protocol, area_override=None,
+        do_context, do_protocol, area_override=None, source="claude",
     ) -> int:
         """
         Run `_dispatch` with ctx_status tracking in context.md: pending
@@ -199,6 +219,7 @@ class CtxWorkerRunner:
                 owrap_sid, ccsid, transcript_path, config,
                 do_context=do_context, do_protocol=do_protocol,
                 area_override=area_override,
+                source=source,
             )
         except Exception:
             self._set_ctx_status(owrap_sid, real_context_path, "failed")
@@ -237,7 +258,7 @@ class CtxWorkerRunner:
 
     def _dispatch(
         self, owrap_sid, ccsid, transcript_path, config,
-        do_context, do_protocol, area_override=None,
+        do_context, do_protocol, area_override=None, source="claude",
     ) -> int:
         """
         Build the scoped sandbox, dispatch to the model, and apply its
@@ -272,9 +293,14 @@ class CtxWorkerRunner:
         attach_floor = self._last_attach_line(transcript_lines, owrap_sid)
         effective_offset = max(transcript_offset, attach_floor)
 
-        new_assistant_texts = self._extract_excerpt_lines(
-            transcript_lines, effective_offset,
-        )
+        if source == "codex":
+            new_assistant_texts = self._extract_codex_excerpt_lines(
+                transcript_lines, effective_offset,
+            )
+        else:
+            new_assistant_texts = self._extract_excerpt_lines(
+                transcript_lines, effective_offset,
+            )
         touched_entries = self._load_touched_entries(owrap_sid, ccsid)
         touched_lines = [
             f"[Touched] {e['path']}" + (f" — {e['note']}" if e.get("note") else "")
@@ -284,13 +310,19 @@ class CtxWorkerRunner:
 
         if not combined_texts:
             print("ctx-worker: nothing to summarize", flush=True)
-            counters["transcript_offset"] = total_lines
-            self._write_counters(owrap_sid, counters, ccsid)
+            if self._has_recognized_transcript_entries(
+                transcript_lines, effective_offset, source,
+            ):
+                counters["transcript_offset"] = total_lines
+                self._write_counters(owrap_sid, counters, ccsid)
             return 0
 
         excerpt = "\n\n".join(combined_texts)
-        if len(excerpt) > MAX_EXCERPT_CHARS:
-            excerpt = excerpt[-MAX_EXCERPT_CHARS:]
+        excerpt_limit = (
+            MAX_CODEX_EXCERPT_CHARS if source == "codex" else MAX_EXCERPT_CHARS
+        )
+        if len(excerpt) > excerpt_limit:
+            excerpt = excerpt[-excerpt_limit:]
 
         # Scoped sandbox — the model never sees a real path.
         ctx_dir = session_ctx_dir(owrap_sid, ccsid)
@@ -626,6 +658,47 @@ class CtxWorkerRunner:
                 last_idx = i
         return last_idx + 1 if last_idx >= 0 else 0
 
+    @staticmethod
+    def _is_context_update_request(text: str) -> bool:
+        command = r"(?:--uall|--ctx|--updr|owrap\s+(?:ctx|updr))\b"
+        return bool(
+            re.search(rf"^\s*`?{command}", text, re.IGNORECASE)
+            or re.search(
+                rf"\b(?:run|do|try|execute|rerun|another)\b[^\n]{{0,80}}{command}",
+                text, re.IGNORECASE,
+            )
+        )
+
+    @staticmethod
+    def _is_context_update_command(command: str) -> bool:
+        return bool(re.search(
+            r"(?:^|[/\s])owrap\s+(?:ctx|updr|ctx-hook|ctx-worker)\b",
+            command,
+        ))
+
+    @staticmethod
+    def _has_recognized_transcript_entries(
+        lines: list, offset: int, source: str,
+    ) -> bool:
+        for line in lines[offset:]:
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            payload = entry.get("payload", {})
+            if source == "codex":
+                if (entry.get("type") == "response_item"
+                        and payload.get("type") == "message"):
+                    return True
+                if (entry.get("type") == "event_msg"
+                        and payload.get("type") in (
+                            "user_message", "item_completed", "patch_apply_end",
+                        )):
+                    return True
+            elif entry.get("type") in ("assistant", "user"):
+                return True
+        return False
+
     def _extract_excerpt_lines(self, lines: list, offset: int) -> list:
         """
         Return excerpt lines from transcript JSONL lines after `offset`:
@@ -636,7 +709,8 @@ class CtxWorkerRunner:
         """
         texts = []
         pending = {}
-        for line in lines[offset:]:
+        skip_update_turn = False
+        for index, line in enumerate(lines):
             if not line.strip():
                 continue
             try:
@@ -647,6 +721,15 @@ class CtxWorkerRunner:
             content = entry.get("message", {}).get("content", [])
             if not isinstance(content, list):
                 continue
+            if entry_type == "user":
+                prompt = " ".join(
+                    block.get("text", "") for block in content
+                    if isinstance(block, dict) and block.get("type") == "text"
+                )
+                if prompt.strip():
+                    skip_update_turn = self._is_context_update_request(prompt)
+            if index < offset:
+                continue
             if entry_type == "assistant":
                 for block in content:
                     if not isinstance(block, dict):
@@ -654,19 +737,20 @@ class CtxWorkerRunner:
                     btype = block.get("type")
                     if btype == "text":
                         t = block.get("text", "")
-                        if t.strip():
+                        if t.strip() and not skip_update_turn:
                             texts.append(t)
                     elif btype == "tool_use":
                         name = block.get("name", "")
                         tool_input = block.get("input", {})
                         if name == "Bash":
                             cmd = tool_input.get("command", "")
-                            if cmd.strip():
+                            if (cmd.strip() and not skip_update_turn
+                                    and not self._is_context_update_command(cmd)):
                                 texts.append(f"$ {cmd}")
                                 pending[block.get("id")] = name
                         elif name in ("Edit", "Write", "Read"):
                             path = tool_input.get("file_path", "")
-                            if path:
+                            if path and (not skip_update_turn or name != "Read"):
                                 texts.append(f"[{name}] {path}")
                                 pending[block.get("id")] = name
             elif entry_type == "user":
@@ -691,6 +775,82 @@ class CtxWorkerRunner:
                     if result:
                         useful = extract_useful_lines(result, MAX_RESULT_CHARS)
                         texts.append(f"-> {useful}")
+        return texts
+
+    def _extract_codex_excerpt_lines(self, lines: list, offset: int) -> list:
+        """
+        Extract assistant messages and file changes from Codex rollouts.
+        """
+        texts = []
+        skip_update_turn = False
+        for index, line in enumerate(lines):
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            payload = entry.get("payload", {})
+            if entry.get("type") == "event_msg" and payload.get("type") == "user_message":
+                message = payload.get("message", "")
+                if isinstance(message, str):
+                    skip_update_turn = self._is_context_update_request(message)
+            elif entry.get("type") == "response_item" and payload.get("type") == "message":
+                if payload.get("role") == "user":
+                    message = " ".join(
+                        block.get("text", "") for block in payload.get("content", [])
+                        if isinstance(block, dict)
+                        and block.get("type") == "input_text"
+                    )
+                    if message.strip():
+                        skip_update_turn = self._is_context_update_request(message)
+            if index < offset:
+                continue
+            if entry.get("type") == "response_item":
+                if payload.get("type") != "message" or payload.get("role") != "assistant":
+                    continue
+                if skip_update_turn:
+                    continue
+                for block in payload.get("content", []):
+                    if isinstance(block, dict) and block.get("type") == "output_text":
+                        value = block.get("text", "")
+                        if value.strip():
+                            texts.append(value)
+                continue
+            if entry.get("type") != "event_msg":
+                continue
+            if payload.get("type") == "patch_apply_end" and payload.get("success"):
+                for path in payload.get("changes", {}):
+                    texts.append(f"[FileChange] {path}")
+                continue
+            if payload.get("type") != "item_completed":
+                continue
+            item = payload.get("item", {})
+            item_type = item.get("type")
+            if item_type == "AgentMessage":
+                if skip_update_turn:
+                    continue
+                for block in item.get("content", []):
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        value = block.get("text", "")
+                        if value.strip():
+                            texts.append(value)
+            elif item_type == "CommandExecution":
+                command = item.get("command", [])
+                include_command = (
+                    not skip_update_turn
+                    and not (isinstance(command, list) and command
+                             and self._is_context_update_command(shlex.join(command)))
+                )
+                if include_command and isinstance(command, list) and command:
+                    texts.append(f"$ {shlex.join(command)}")
+                if include_command:
+                    result = item.get("aggregated_output", "")
+                    if isinstance(result, str) and result.strip():
+                        texts.append(
+                            f"-> {extract_useful_lines(result, MAX_RESULT_CHARS)}"
+                        )
+            elif item_type == "FileChange":
+                for path in item.get("changes", {}):
+                    texts.append(f"[FileChange] {path}")
         return texts
 
     def _read_counters(self, session_id: str, ccsid: str) -> dict:

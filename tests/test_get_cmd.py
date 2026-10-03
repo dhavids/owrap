@@ -5,6 +5,20 @@ from unittest.mock import patch
 import pytest
 
 
+def test_get_resolves_codex_session_pointer(tmp_path, monkeypatch):
+    from owrap.commands.get_cmd import GetRunner
+
+    pointer = tmp_path / "sessions" / "by_codex_session_id" / "codex-123"
+    pointer.parent.mkdir(parents=True)
+    pointer.write_text("abc123")
+    monkeypatch.setenv("CODEX_SESSION_ID", "codex-123")
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    monkeypatch.delenv("SESSION_ID", raising=False)
+    monkeypatch.setattr("owrap.commands.get_cmd.RUNTIME_HOME", tmp_path)
+
+    assert GetRunner()._resolve_session_id(None) == "abc123"
+
+
 @pytest.fixture
 def get_runner(tmp_path):
     from owrap.commands.get_cmd import GetRunner

@@ -1,5 +1,6 @@
 import json
 import re
+import shlex
 import shutil
 from pathlib import Path
 from .utils.paths import (
@@ -208,12 +209,55 @@ def _strip_marker_block(dest_path: Path, marker: str):
     dest_path.write_text(before + after.lstrip("\n"))
 
 
+def render_codex_hooks(workspace: Path, workspace_name: str, bin_dir: str) -> str:
+    """
+    Render Codex hooks for Bash checks and approval requests.
+    """
+    hooks_path = workspace / ".codex" / "hooks.json"
+    data = json.loads(hooks_path.read_text()) if hooks_path.exists() else {}
+    if not isinstance(data, dict) or not isinstance(data.get("hooks", {}), dict):
+        raise ValueError(f"Invalid Codex hook configuration: {hooks_path}")
+
+    command = (
+        f"{shlex.quote(str(Path(bin_dir).expanduser() / 'owrap'))} p "
+        f"--workspace {shlex.quote(workspace_name)}"
+    )
+    for event in ("PreToolUse", "PermissionRequest"):
+        groups = data.setdefault("hooks", {}).setdefault(event, [])
+        if not isinstance(groups, list):
+            raise ValueError(f"Invalid Codex {event} hooks: {hooks_path}")
+        retained = []
+        for group in groups:
+            if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
+                retained.append(group)
+                continue
+            hooks = [
+                hook for hook in group["hooks"]
+                if not (
+                    isinstance(hook, dict)
+                    and hook.get("statusMessage") == "Checking owrap permission"
+                )
+            ]
+            if hooks:
+                retained.append({**group, "hooks": hooks})
+        groups[:] = retained
+        groups.append({
+            "matcher": "^Bash$",
+            "hooks": [{
+                "type": "command",
+                "command": command,
+                "timeout": 20,
+                "statusMessage": "Checking owrap permission",
+            }],
+        })
+    return json.dumps(data, indent=2) + "\n"
+
+
 def stage_all(workspace_name: str) -> Path:
     """
-    Read workspace config, copy all templates to staged dir with
-    conditionals processed and placeholders substituted. Then merge
-    planner into CLAUDE.md and executor into AGENTS.md in the workspace.
-    Returns staged dir.
+    Stage workspace templates and permission hooks, then merge agent files.
+
+    Returns the staged directory.
     """
     config = get_workspace_config(workspace_name)
     placeholders = resolve_placeholders(config, workspace_name)
@@ -269,6 +313,9 @@ def stage_all(workspace_name: str) -> Path:
     ws = config.get("workspace")
     if ws:
         ws_path = Path(ws)
+        (out_dir / "codex_hooks.json").write_text(
+            render_codex_hooks(ws_path, workspace_name, bin_dir)
+        )
         planner_staged = out_dir / "planner.md"
         executor_staged = out_dir / "executor.md"
         self_staged = out_dir / "self.md"

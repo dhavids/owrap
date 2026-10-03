@@ -6,7 +6,9 @@ import pytest
 
 class TestRenderRuleArray:
     def test_allow_groups_no_oread_contains_expected_rules(self):
-        from owrap.staging import load_permission_groups, render_rule_array, resolve_placeholders
+        from owrap.staging import (
+            load_permission_groups, render_rule_array, resolve_placeholders,
+        )
         from owrap.utils.paths import get_workspace_config
 
         config = get_workspace_config("marl")
@@ -23,7 +25,9 @@ class TestRenderRuleArray:
 
 class TestRenderAllowedSection:
     def test_no_oread_produces_3_command_lines_6_file_lines(self):
-        from owrap.staging import load_permission_groups, render_allowed_section, resolve_placeholders
+        from owrap.staging import (
+            load_permission_groups, render_allowed_section, resolve_placeholders,
+        )
         from owrap.utils.paths import get_workspace_config
 
         config = get_workspace_config("marl")
@@ -42,7 +46,7 @@ class TestRenderAllowedSection:
 
 
 class TestStageAll:
-    def test_stage_all_marl_produces_valid_settings_and_merged_claude(self, tmp_path):
+    def test_stage_all_marl_produces_settings_hooks_and_merged_agents(self, tmp_path):
         from owrap.staging import stage_all
         from pathlib import Path
 
@@ -63,9 +67,27 @@ class TestStageAll:
 
         fake_configs = tmp_path / "configs"
         fake_configs.mkdir()
+        ws_path = tmp_path / "marl"
+        codex_dir = ws_path / ".codex"
+        codex_dir.mkdir(parents=True)
+        other_hook = {"type": "command", "command": "check-bash"}
+        (codex_dir / "hooks.json").write_text(json.dumps({
+            "hooks": {"PreToolUse": [{
+                "matcher": "^Bash$",
+                "hooks": [
+                    other_hook,
+                    {
+                        "type": "command",
+                        "command": "old-owrap",
+                        "statusMessage": "Checking owrap permission",
+                    },
+                ],
+            }]},
+        }))
 
         with patch("owrap.staging.get_workspace_config", return_value=fixed_config), \
-             patch("owrap.staging.CONFIGS_DIR", fake_configs):
+             patch("owrap.staging.CONFIGS_DIR", fake_configs), \
+             patch("owrap.staging.staged_dir", return_value=tmp_path / "staged"):
             out_dir = stage_all("marl")
 
         settings_path = out_dir / "settings.json"
@@ -80,7 +102,21 @@ class TestStageAll:
         permit_data = json.loads(permit_path.read_text())
         assert "Bash(cd *)" in permit_data["rules"]
 
-        ws_path = tmp_path / "marl"
+        codex_hooks = json.loads((out_dir / "codex_hooks.json").read_text())
+        groups = codex_hooks["hooks"]["PreToolUse"]
+        assert len(groups) == 2
+        assert groups[0]["hooks"] == [other_hook]
+        assert groups[1]["matcher"] == "^Bash$"
+        assert groups[1]["hooks"][0]["command"] == (
+            f"{Path.home() / 'bin' / 'owrap'} p --workspace marl"
+        )
+        approval_groups = codex_hooks["hooks"]["PermissionRequest"]
+        assert len(approval_groups) == 1
+        assert approval_groups[0]["matcher"] == "^Bash$"
+        assert approval_groups[0]["hooks"][0]["command"] == (
+            f"{Path.home() / 'bin' / 'owrap'} p --workspace marl"
+        )
+
         claude_path = ws_path / "CLAUDE.md"
         assert claude_path.exists()
         content = claude_path.read_text()

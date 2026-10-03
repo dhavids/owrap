@@ -55,6 +55,104 @@ class TestPermitRunner:
         out = json.loads(capsys.readouterr().out)
         assert out["hookSpecificOutput"]["permissionDecision"] == expected
 
+    @pytest.mark.parametrize("bypass_all,expected", [
+        (True, "allow"),
+        (False, "deny"),
+    ])
+    def test_codex_permission_request(
+        self, permit_setup, capsys, monkeypatch, bypass_all, expected,
+    ):
+        configs_dir, _ = permit_setup
+        _permit_path(configs_dir).write_text(json.dumps({
+            "rules": [], "bypass_all": bypass_all,
+        }))
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({
+            "hook_event_name": "PermissionRequest",
+            "tool_name": "Bash",
+            "tool_input": {"command": "owrap ctx"},
+            "cwd": "/tmp/testws",
+        })))
+
+        PermitRunner().run(workspace_name="testws")
+
+        output = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+        assert output["hookEventName"] == "PermissionRequest"
+        assert output["decision"]["behavior"] == expected
+
+    def test_session_id_selects_codex_permission_response(
+        self, permit_setup, capsys, monkeypatch, tmp_path,
+    ):
+        configs_dir, _ = permit_setup
+        _permit_path(configs_dir).write_text(json.dumps({"bypass_all": True}))
+        pointer_dir = tmp_path / "by_codex_session_id"
+        pointer_dir.mkdir()
+        (pointer_dir / "codex-123").write_text("abc123")
+        monkeypatch.setattr(
+            "owrap.utils.session.session_resolver.BY_CODEX_SESSION_ID_DIR",
+            pointer_dir,
+        )
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({
+            "session_id": "codex-123",
+            "hook_event_name": "PermissionRequest",
+            "tool_name": "Bash",
+            "tool_input": {"command": "owrap ctx"},
+        })))
+
+        PermitRunner().run()
+
+        output = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+        assert output == {
+            "hookEventName": "PermissionRequest",
+            "decision": {"behavior": "allow"},
+        }
+
+    def test_claude_session_id_keeps_pre_tool_use_response(
+        self, permit_setup, capsys, monkeypatch, tmp_path,
+    ):
+        configs_dir, _ = permit_setup
+        _permit_path(configs_dir).write_text(json.dumps({"bypass_all": True}))
+        pointer_dir = tmp_path / "by_ccsid"
+        pointer_dir.mkdir()
+        (pointer_dir / "claude-123").write_text("abc123")
+        monkeypatch.setattr(
+            "owrap.utils.session.session_resolver.BY_CCSID_DIR",
+            pointer_dir,
+        )
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({
+            "session_id": "claude-123",
+            "hook_event_name": "PermissionRequest",
+            "tool_name": "Bash",
+            "tool_input": {"command": "owrap ctx"},
+        })))
+
+        PermitRunner().run()
+
+        output = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+        assert output == {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+        }
+
+    @pytest.mark.parametrize("bypass_all", [True, False])
+    def test_codex_pre_tool_use_allows_without_output(
+        self, permit_setup, capsys, monkeypatch, bypass_all,
+    ):
+        configs_dir, _ = permit_setup
+        _permit_path(configs_dir).write_text(json.dumps({
+            "rules": ["Bash(git status)"], "bypass_all": bypass_all,
+        }))
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({
+            "session_id": "codex-123",
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "git status"},
+            "cwd": "/tmp/testws",
+        })))
+
+        PermitRunner().run(workspace_name="testws")
+
+        assert capsys.readouterr().out == ""
+
 
 class TestPermitCmdRunner:
     def test_status_no_permit_file(self, permit_setup, capsys):

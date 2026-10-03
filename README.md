@@ -28,6 +28,18 @@ owrap start <research> [area] [child]  # generate session ID, start server, prin
 
 `setup` writes a workspace config under `OWRAP_HOME/configs/`, installs templates, and prints the FILES/SETTINGS block the planner needs. `start` generates a session ID, resolves or starts a server, and prints the orientation block. `area` scopes work within a research project; `child` creates/binds a child area (`<area>-<child>`).
 
+### Use `owrap p` in Codex
+
+1. Run `owrap sync`.
+2. Add this to `~/.codex/config.toml`, using your workspace's absolute path:
+
+   ```toml
+   [projects."/absolute/path/to/workspace"]
+   trust_level = "trusted"
+   ```
+
+3. Start a new Codex session, open `/hooks`, and trust the `owrap p` hooks.
+
 ## OWRAP_HOME
 
 `OWRAP_HOME` resolves in this order: `$OWRAP_HOME` env var (if set) > contents of `~/.owrap_home` pointer file (if it exists) > default `~/.owrap`. Both the Python package and every bash shim (`owrap`, `orun`, `oexec`, `owait`, `oread`) resolve it the same way. 

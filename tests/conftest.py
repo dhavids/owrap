@@ -28,10 +28,19 @@ def live_config():
 
 
 @pytest.fixture(autouse=True)
+def isolate_session_env(monkeypatch):
+    """Hide live session IDs; monkeypatch restores them after each test."""
+    for name in (
+        "SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID",
+        "OPENCODE_RUN_ID", "OWRAP_SESSION", "OWRAP_SESSION_ID",
+        "OWRAP_RESEARCH",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def isolate_owrap_dirs(tmp_path, monkeypatch):
     """Redirect all owrap output dirs to tmp_path so tests don't pollute live state."""
-    monkeypatch.delenv("OWRAP_SESSION", raising=False)
-    monkeypatch.delenv("OWRAP_RESEARCH", raising=False)
     monkeypatch.setenv("OWRAP_TEST_MODE", "1")
     dirs = {
         "RUNNING_DIR":      tmp_path / "running",
@@ -115,6 +124,25 @@ def isolate_owrap_dirs(tmp_path, monkeypatch):
               dirs["FALLBACK_EXEC_OUTPUT"]),
         patch("owrap.commands.get_cmd.FALLBACK_TASK_OUTPUT",
               dirs["FALLBACK_TASK_OUTPUT"]),
+        patch("owrap.utils.session.session_resolver.SESSIONS_DIR",
+              dirs["SESSIONS_DIR"]),
+        patch("owrap.utils.session.session_resolver.BY_CCSID_DIR",
+              dirs["SESSIONS_DIR"] / "by_ccsid"),
+        patch("owrap.utils.session.session_resolver.BY_OPENCODE_RUN_ID_DIR",
+              dirs["SESSIONS_DIR"] / "by_opencode_run_id"),
+        patch(
+            "owrap.utils.session.session_resolver.BY_CODEX_SESSION_ID_DIR",
+            dirs["SESSIONS_DIR"] / "by_codex_session_id",
+        ),
+        patch("owrap.session.start.SESSIONS_DIR", dirs["SESSIONS_DIR"]),
+        patch("owrap.session.start.BY_CCSID_DIR",
+              dirs["SESSIONS_DIR"] / "by_ccsid"),
+        patch("owrap.session.start.BY_OPENCODE_RUN_ID_DIR",
+              dirs["SESSIONS_DIR"] / "by_opencode_run_id"),
+        patch("owrap.session.start.BY_CODEX_SESSION_ID_DIR",
+              dirs["SESSIONS_DIR"] / "by_codex_session_id"),
+        patch("owrap.session.stop.BY_CCSID_DIR",
+              dirs["SESSIONS_DIR"] / "by_ccsid"),
     ]
 
     for p in patches:

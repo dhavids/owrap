@@ -905,8 +905,9 @@ def main():
     daemon_parser = subparsers.add_parser("daemon", help="Run the owrap daemon")
 
     p_parser = subparsers.add_parser(
-        "p", help="PreToolUse permission check (reads staged permit.json)",
+        "p", help="Hook permission check (reads staged permit.json)",
     )
+    p_parser.add_argument("--workspace", default=None)
 
     permit_cmd_parser = subparsers.add_parser(
         "permit", help="Inspect or toggle the permit auto-approve-all bypass",
@@ -970,7 +971,7 @@ def main():
 
     if args.command == "p":
         from .commands.permit import PermitRunner
-        PermitRunner().run()
+        PermitRunner().run(workspace_name=args.workspace)
         sys.exit(0)
 
     if args.command == "permit":

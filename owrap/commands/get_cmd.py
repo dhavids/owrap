@@ -306,6 +306,11 @@ class GetRunner:
             ptr = RUNTIME_HOME / "sessions" / "by_ccsid" / ccsid
             if ptr.exists():
                 return ptr.read_text().strip()
+        cid = os.environ.get("CODEX_SESSION_ID", "").strip()
+        if cid:
+            ptr = RUNTIME_HOME / "sessions" / "by_codex_session_id" / cid
+            if ptr.exists():
+                return ptr.read_text().strip()
         return None
 
     def _parse_session_file(self, path):
