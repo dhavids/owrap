@@ -29,6 +29,8 @@ Agents started inside `owrap-dev` read `AGENTS.md` or `CLAUDE.md` for the dev-on
 
 ## Deploy a tested version
 
+Promotion from `dev` to `live` requires an explicit request from the user. A passing test suite, a good commit, or a completed migration todo does not authorize promotion.
+
 1. Commit the intended changes on `dev`, test that commit with dev state and workspace, and record the current live commit for rollback. Check `owrap p`, setup, session start, and server startup in dev.
 2. Build and test a release candidate under `owrap-dev/files/deploy` using the intended dev commit. Check the exact code and any launcher or hook template changes there. Do not use the live state for candidate tests.
 3. When the candidate passes, bring that commit into the `live` branch in `/home/humble/marl/owrap`. Resolve and test any merge differences before updating live. Update shared launchers from the live checkout only if their templates changed.

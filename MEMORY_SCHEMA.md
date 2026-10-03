@@ -51,19 +51,19 @@ kind: project
 id: owrap
 title: owrap
 main: main.md
-repositories: [owrap]
+repositories: [owrap-dev]
 subprojects:
   memory-migration:
     kind: regular
     file: memory-migration.md
     parent: main
-    repositories: [owrap]
+    repositories: [owrap-dev]
   memory-migration-trial:
     kind: branch
     file: memory-migration-trial.md
     parent: memory-migration
-    repositories: [owrap]
-    branch_repository: owrap
+    repositories: [owrap-dev]
+    branch_repository: owrap-dev
     branch_ref: trial/memory-migration
 ```
 
