@@ -54,6 +54,14 @@ def test_context_lock_path_under_context_dir():
     assert p == SESSIONS_DIR / "abc123" / "context.lock"
 
 
+def test_context_jobs_share_session_directory():
+    from owrap.utils.paths import SESSIONS_DIR, session_ctx_jobs_dir
+
+    assert session_ctx_jobs_dir("abc123") == (
+        SESSIONS_DIR / "abc123" / "ctx" / "jobs"
+    )
+
+
 def test_memory_lock_path_under_locks_dir():
     from owrap.utils.paths import memory_lock_path, LOCKS_DIR
     p = memory_lock_path("myresearch")

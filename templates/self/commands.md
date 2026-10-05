@@ -21,7 +21,7 @@ only during migration.
 | `owrap branch cleanup --session <id> [--apply]` | Remove merged branch worktrees |
 | `owrap attach <id>` | Bind this window to a session |
 | `owrap refresh` | Refresh session context and orientation |
-| `owrap stat` | Show sessions, types, tasks, and server status |
+| `owrap stat` | Show sessions, types, recent tasks, live stages, and server status |
 | `owrap get <kind>` | Read the active session's resource |
 | `owrap end` | End the current session |
 

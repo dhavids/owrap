@@ -412,15 +412,17 @@ class CtxWorkerRunner:
         if len(excerpt) > excerpt_limit:
             excerpt = excerpt[-excerpt_limit:]
 
-        # Scoped sandbox — the model never sees a real path.
-        ctx_dir = session_ctx_dir(owrap_sid, ccsid)
+        job_dir = getattr(self, "_job_dir", None)
+        # Keep each model attempt isolated from other windows and jobs.
+        ctx_dir = job_dir / "work" if job_dir else session_ctx_dir(owrap_sid, ccsid)
         ctx_dir.mkdir(parents=True, exist_ok=True)
         # A stray opencode.json here disqualifies OpenCode's free-tier models.
         (ctx_dir / "opencode.json").unlink(missing_ok=True)
 
         transcript_tmp = session_ctx_transcript_path(owrap_sid, ccsid)
+        if job_dir:
+            transcript_tmp = ctx_dir / "transcript.txt"
         transcript_tmp.write_text(excerpt)
-        job_dir = getattr(self, "_job_dir", None)
         if job_dir:
             (job_dir / "transcript.txt").write_text(excerpt)
             context_jobs.update(job_dir, stage="building task")

@@ -156,14 +156,32 @@ def session_exec_output_path(session_id: str) -> Path:
     return session_dir(session_id) / "exec" / "output.log"
 
 
+def session_ctx_root(session_id: str) -> Path:
+    """
+    Return the session's context workspace root.
+    """
+    return session_dir(session_id) / "ctx"
+
+
 def session_ctx_dir(session_id: str, ccsid: str) -> Path:
     """
-    Return the per-window context-manager scratch directory.
+    Return the per-window context-manager state directory.
 
-    It is scoped by ccsid because
-    multiple Claude Code windows (ccsids) can attach to one owrap session.
+    Existing per-window directories remain readable after the layout change.
     """
-    return session_dir(session_id) / "ctx" / ccsid
+    root = session_ctx_root(session_id)
+    current = root / "windows" / ccsid
+    legacy = root / ccsid
+    if legacy.exists() and not current.exists():
+        return legacy
+    return current
+
+
+def session_ctx_jobs_dir(session_id: str) -> Path:
+    """
+    Return the session-wide context job directory.
+    """
+    return session_ctx_root(session_id) / "jobs"
 
 
 def session_ctx_input_path(session_id: str, ccsid: str) -> Path:

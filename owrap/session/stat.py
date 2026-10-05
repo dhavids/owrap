@@ -87,6 +87,9 @@ def _print_context_jobs(jobs, show_session=True):
             recent = time.time() - job.get("queued", 0) < 5
             if not recent and (not pid or not _is_alive(pid)):
                 status = "stale/crashed"
+        stage = job.get("stage", "")
+        if status in ("queued", "running") and stage:
+            status = f"{status} ({stage})"
         if status == "succeeded":
             status = "done(ok)"
         elif status == "failed":
@@ -98,7 +101,12 @@ def _print_context_jobs(jobs, show_session=True):
         sid = job.get("session_id", "?")
         job_id = job.get("job_id", "?")[:8]
         session = f"[{sid}]  " if show_session else ""
-        print(f"  {kind}  {session}{job_id}  {status}  {elapsed:.0f}s")
+        age = ""
+        if job.get("finished"):
+            age = f"  {_age_str(job['finished'])} ago"
+        print(
+            f"  {kind}  {session}{job_id}  {status}{age}  {elapsed:.0f}s"
+        )
         log_path = Path(job.get("log_path", ""))
         print(f"    output: {log_path}")
         transcript = Path(job.get("transcript_path", ""))

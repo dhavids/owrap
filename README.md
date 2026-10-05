@@ -32,6 +32,10 @@ can target the same project or subproject.
 session's project target. Legacy research/area sessions retain their existing
 `spawn` behavior during migration.
 `owrap stat` shows each session's type: `normal`, `spawn`, `branch`, or `temp`.
+Context jobs show their live stage while running. Completed jobs remain visible
+for two minutes, then leave the status view. Their output and transcript are
+stored under `sessions/<session>/ctx/jobs/<job>/`; harness session IDs remain
+internal metadata and do not appear in these paths.
 
 Session-aware bridge between the planner (currently Claude Code) and opencode (executor). A planner instance designs plans and dispatches work; an opencode-backed executor does the actual reading, writing, and running. owrap provides background agents and task dispatch, parallel session isolation, and graceful server lifecycle management.
 

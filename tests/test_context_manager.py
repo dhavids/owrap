@@ -1,4 +1,5 @@
 import json
+import os
 import shlex
 from pathlib import Path
 from types import SimpleNamespace
@@ -400,10 +401,15 @@ def test_ctx_worker_nothing_new(tmp_path, monkeypatch):
     # No opencode dispatch
     mock_run.assert_not_called()
     # No task file
-    task_file = sessions_dir / owrap_sid / "ctx" / ccsid / "input.md"
+    task_file = (
+        sessions_dir / owrap_sid / "ctx" / "windows" / ccsid / "input.md"
+    )
     assert not task_file.exists()
     # No transcript tmp file
-    transcript_tmp = sessions_dir / owrap_sid / "ctx" / ccsid / "transcript.txt"
+    transcript_tmp = (
+        sessions_dir / owrap_sid / "ctx" / "windows" / ccsid
+        / "transcript.txt"
+    )
     assert not transcript_tmp.exists()
     # Offset unchanged
     updated = json.loads(cp.read_text())
@@ -447,13 +453,14 @@ def test_ctx_worker_with_new_text(tmp_path, monkeypatch):
         runner.run(input_path=input_path)
 
     # Transcript tmp file written
-    transcript_tmp = sessions_dir / owrap_sid / "ctx" / ccsid / "transcript.txt"
+    ctx_dir = sessions_dir / owrap_sid / "ctx" / "windows" / ccsid
+    transcript_tmp = ctx_dir / "transcript.txt"
     assert transcript_tmp.exists()
     excerpt = transcript_tmp.read_text()
     assert "new answer here for context update" in excerpt
 
     # Task file references only local filenames, never a real absolute path.
-    task_file = sessions_dir / owrap_sid / "ctx" / ccsid / "input.md"
+    task_file = ctx_dir / "input.md"
     assert task_file.exists()
     task_text = task_file.read_text()
     assert "transcript.txt" in task_text
@@ -462,7 +469,7 @@ def test_ctx_worker_with_new_text(tmp_path, monkeypatch):
     assert str(transcript_tmp) not in task_text
 
     # No copy of context.md is prepared — the model only ever sees the transcript.
-    assert not (sessions_dir / owrap_sid / "ctx" / ccsid / "context.md").exists()
+    assert not (ctx_dir / "context.md").exists()
 
     # Dispatched directly against the scoped dir under a pty, no pool/orun.
     mock_run.assert_called_once()
@@ -470,7 +477,7 @@ def test_ctx_worker_with_new_text(tmp_path, monkeypatch):
     assert cmd[0] == "opencode"
     assert "--dir" in cmd
     assert "--dangerously-skip-permissions" not in cmd
-    assert not (sessions_dir / owrap_sid / "ctx" / ccsid / "opencode.json").exists()
+    assert not (ctx_dir / "opencode.json").exists()
 
     # Offset updated to total lines (5)
     updated = json.loads(cp.read_text())
@@ -630,7 +637,7 @@ def test_ctx_worker_skips_protocol_for_legacy_session(
         runner = CtxWorkerRunner()
         runner.run(input_path=input_path)
 
-    ctx_dir = sessions_dir / owrap_sid / "ctx" / ccsid
+    ctx_dir = sessions_dir / owrap_sid / "ctx" / "windows" / ccsid
     task_file = ctx_dir / "input.md"
     assert task_file.exists()
     task_text = task_file.read_text()
@@ -682,8 +689,14 @@ def test_ctx_worker_isolated_per_ccsid_under_multi_attach(tmp_path, monkeypatch)
         CtxWorkerRunner().run(input_path=input_a)
         CtxWorkerRunner().run(input_path=input_b)
 
-    transcript_tmp_a = sessions_dir / owrap_sid / "ctx" / ccsid_a / "transcript.txt"
-    transcript_tmp_b = sessions_dir / owrap_sid / "ctx" / ccsid_b / "transcript.txt"
+    transcript_tmp_a = (
+        sessions_dir / owrap_sid / "ctx" / "windows" / ccsid_a
+        / "transcript.txt"
+    )
+    transcript_tmp_b = (
+        sessions_dir / owrap_sid / "ctx" / "windows" / ccsid_b
+        / "transcript.txt"
+    )
     assert transcript_tmp_a.exists()
     assert transcript_tmp_b.exists()
     assert "from window A" in transcript_tmp_a.read_text()
@@ -750,7 +763,10 @@ def test_ctx_worker_excludes_text_before_session_switch(tmp_path, monkeypatch):
     with patch("owrap.commands.context_manager.Terminal", mock_terminal_cls):
         CtxWorkerRunner().run(input_path=input_path)
 
-    transcript_tmp = sessions_dir / owrap_sid_b / "ctx" / ccsid / "transcript.txt"
+    transcript_tmp = (
+        sessions_dir / owrap_sid_b / "ctx" / "windows" / ccsid
+        / "transcript.txt"
+    )
     assert transcript_tmp.exists()
     excerpt = transcript_tmp.read_text()
     assert "work done on project B" in excerpt
@@ -859,7 +875,10 @@ def test_excerpt_capped_at_max_chars(tmp_path, monkeypatch):
         runner = CtxWorkerRunner()
         runner.run(input_path=input_path)
 
-    transcript_tmp = sessions_dir / owrap_sid / "ctx" / ccsid / "transcript.txt"
+    transcript_tmp = (
+        sessions_dir / owrap_sid / "ctx" / "windows" / ccsid
+        / "transcript.txt"
+    )
     assert transcript_tmp.exists()
     excerpt = transcript_tmp.read_text()
     assert len(excerpt) <= MAX_EXCERPT_CHARS
@@ -1027,6 +1046,54 @@ def test_context_jobs_keep_separate_payloads(tmp_path, monkeypatch):
     assert second.exists()
     assert (first.parent / "status.json").exists()
     assert (second.parent / "status.json").exists()
+
+
+def test_context_jobs_are_not_nested_under_window_id(tmp_path, monkeypatch):
+    _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
+    from owrap.utils.log import context_jobs
+
+    job_dir = context_jobs.create("session01", "window01", "ctx")
+
+    assert job_dir.parent == sessions_dir / "session01" / "ctx" / "jobs"
+    status = json.loads((job_dir / "status.json").read_text())
+    assert status["window_id"] == "window01"
+    assert status["transcript_path"] == str(job_dir / "transcript.txt")
+
+
+def test_finished_context_jobs_expire_from_stat_history(tmp_path, monkeypatch):
+    _patch_dirs(monkeypatch, tmp_path)
+    from owrap.constants import RECENT_TASK_RETENTION_S
+    from owrap.utils.log import context_jobs
+
+    job_dir = context_jobs.create("session01", "window01", "ctx")
+    context_jobs.finish(job_dir, 0)
+    finished = json.loads((job_dir / "status.json").read_text())["finished"]
+    monkeypatch.setattr(
+        context_jobs.time, "time",
+        lambda: finished + RECENT_TASK_RETENTION_S + 1,
+    )
+
+    assert context_jobs.recent("session01") == []
+
+
+def test_context_stat_shows_live_stage_without_window_path(
+    tmp_path, monkeypatch, capsys,
+):
+    from owrap.session.stat import StatRunner
+    from owrap.utils.log import context_jobs
+
+    _patch_dirs(monkeypatch, tmp_path)
+    job_dir = context_jobs.create("session01", "window-secret", "ctx")
+    context_jobs.update(
+        job_dir, status="running", pid=os.getpid(), stage="running model",
+    )
+
+    StatRunner(None).run(SimpleNamespace(filter="session01"))
+    output = capsys.readouterr().out
+
+    assert "running (running model)" in output
+    assert "window-secret" not in output
+    assert "/ctx/jobs/" in output
 
 
 def test_ctx_worker_command_exits_with_dispatch_result(tmp_path):
@@ -1207,7 +1274,9 @@ def test_ctx_worker_run_honors_combined_mode(tmp_path, monkeypatch):
         CtxWorkerRunner().run(input_path=input_path)
 
     mock_run.assert_called_once()
-    task_md = (sessions_dir / owrap_sid / "ctx" / ccsid / "input.md").read_text()
+    task_md = (
+        sessions_dir / owrap_sid / "ctx" / "windows" / ccsid / "input.md"
+    ).read_text()
     assert "# Context" in task_md
     assert "# Project" in task_md
     assert "# Memory" not in task_md
@@ -1319,7 +1388,7 @@ def test_codex_manual_modes_dispatch_from_rollout(
         CtxWorkerRunner().run(input_path=input_path)
 
     mock_run.assert_called_once()
-    ctx_dir = sessions_dir / sid / "ctx" / cid
+    ctx_dir = input_path.parent / "work"
     task = (ctx_dir / "input.md").read_text()
     excerpt = (ctx_dir / "transcript.txt").read_text()
     for block in expected_blocks:
@@ -1504,7 +1573,9 @@ def test_ctx_worker_run_honors_mode_ctx_only(tmp_path, monkeypatch):
     cmd_str = mock_run.call_args[0][0]
     assert "-m" in shlex.split(cmd_str) or True  # model flag presence not the point here
     # The Context-only template never asks for a ## area Project/Memory block.
-    task_md = (sessions_dir / owrap_sid / "ctx" / ccsid / "input.md").read_text()
+    task_md = (
+        sessions_dir / owrap_sid / "ctx" / "windows" / ccsid / "input.md"
+    ).read_text()
     assert "# Context" in task_md
     assert "# Memory" not in task_md
     assert "# Project" not in task_md

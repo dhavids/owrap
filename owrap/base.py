@@ -7,6 +7,7 @@ import time
 from abc import ABC, abstractmethod
 from typing import Optional
 
+from .constants import RECENT_TASK_RETENTION_S
 from .utils.log import rtlog
 
 
@@ -284,7 +285,7 @@ class BaseRunner(ABC):
 
         if not RECENTLY_DONE_DIR.exists():
             return
-        cutoff = time.time() - 120
+        cutoff = time.time() - RECENT_TASK_RETENTION_S
         for f in RECENTLY_DONE_DIR.iterdir():
             try:
                 data = json.loads(f.read_text())
