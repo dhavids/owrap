@@ -2,14 +2,17 @@ import json
 import sys
 from pathlib import Path
 
-from ..staging import stage_all, resolve_flags
+from ..utils.harness import (
+    merge_claude_settings, merge_codex_hooks, remove_owrap_hooks,
+)
+from ..staging import stage_all, resolve_flags, resolve_role_files
 from ..utils.paths import get_workspace_config, _read_config
-from ..utils.session.session_resolver import resolve, _parse
+from ..utils.session.resolver import resolve, _parse
 
 
 class SyncRunner:
     """
-    Re-stage templates and write planner files directly.
+    Stage workspace configuration and sync agent settings.
     """
 
     def run(self):
@@ -27,33 +30,69 @@ class SyncRunner:
 
         staged = stage_all(workspace_name)
         workspace = config["workspace"]
-        research_root = config.get("research_root") or f"{workspace}/docs/research"
+        docs_root = (
+            config.get("docs_root") or config.get("research_root")
+            or f"{workspace}/docs/research"
+        )
 
         flags = resolve_flags(config)
         self._sync_global_read_permission(bool(flags.get("OREAD")))
 
-        # stage_all() already merged planner.md -> CLAUDE.md and
-        # executor.md -> AGENTS.md; self.md -> docs/research/self.md
-
-        staged_settings = staged / "settings.json"
-        if staged_settings.exists():
-            target_local = f"{workspace}/.claude/settings.local.json"
-            Path(target_local).parent.mkdir(parents=True, exist_ok=True)
-            Path(target_local).write_text(staged_settings.read_text())
-
-            settings_json_path = Path(workspace) / ".claude" / "settings.json"
-            if settings_json_path.exists():
-                settings_json_path.write_text(staged_settings.read_text())
+        workspace_path = Path(workspace)
+        for harness, install in (
+            ("claude", self._sync_claude),
+            ("codex", self._sync_codex),
+        ):
+            harness_dir = staged / harness
+            if harness_dir.is_dir():
+                install(workspace_path, harness_dir)
 
         print(f"staged: {staged}")
         print(f"workspace: {workspace}")
-        print(f"research_root: {research_root}")
+        print(f"docs_root: {docs_root}")
         print()
         if flags.get("RUNNER_ENABLED"):
-            print("sync complete — reread CLAUDE.md if needed")
+            planner_files = resolve_role_files(config)["planner"]
+            print(f"sync complete — reread {', '.join(planner_files)} if needed")
         else:
             print("owrap runner has now been disabled — work directly.")
         sys.exit(0)
+
+    def _sync_claude(self, workspace: Path, staged: Path):
+        """
+        Install Claude settings while keeping user settings.
+        """
+        staged_settings = staged / "settings.json"
+        if staged_settings.exists():
+            local_path = workspace / ".claude" / "settings.local.json"
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            managed_settings = staged_settings.read_text()
+            current = local_path.read_text() if local_path.exists() else "{}"
+            local_path.write_text(merge_claude_settings(current, managed_settings))
+
+            settings_json_path = workspace / ".claude" / "settings.json"
+            if settings_json_path.exists():
+                current = settings_json_path.read_text()
+                cleaned = remove_owrap_hooks(current)
+                if cleaned != current:
+                    settings_json_path.write_text(cleaned)
+
+    def _sync_codex(self, workspace: Path, staged: Path):
+        """
+        Install Codex hooks from the staged harness directory.
+        """
+        staged_codex_hooks = staged / "hooks.json"
+        if staged_codex_hooks.exists():
+            target_codex_hooks = workspace / ".codex" / "hooks.json"
+            target_codex_hooks.parent.mkdir(parents=True, exist_ok=True)
+            current = (
+                target_codex_hooks.read_text()
+                if target_codex_hooks.exists()
+                else "{}"
+            )
+            target_codex_hooks.write_text(merge_codex_hooks(
+                current, staged_codex_hooks.read_text(),
+            ))
 
     def _active_workspace(self):
         """

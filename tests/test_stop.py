@@ -1,13 +1,14 @@
 import os
 import sys
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 
 
 def test_stop_force_kills_servers_via_kill_servers_runner(tmp_path):
-    """--force must actually kill servers (was calling undefined Manager.stop_all and crashing)."""
+    """
+    Force stopping a session also stops its servers.
+    """
     from owrap.session.stop import StopRunner
 
     fake_session_dir = tmp_path / "owrap_home"
@@ -26,7 +27,9 @@ def test_stop_force_kills_servers_via_kill_servers_runner(tmp_path):
 
 
 def test_trim_command_removed():
-    """owrap trim was removed (it only ever called an undefined Manager.trim_idle_servers)."""
+    """
+    Keep the removed trim command out of the parser.
+    """
     with patch.object(sys, "argv", ["owrap", "trim"]):
         from owrap.runner import main as runner_main
         with pytest.raises(SystemExit) as exc_info:

@@ -40,7 +40,7 @@ class AbortRunner(BaseRunner):
             session_id = self.manager.session_id or os.environ.get("OWRAP_SESSION", "")
 
         if not RUNNING_DIR.exists():
-            print(f"owrap abort: no running jobs found")
+            print("owrap abort: no running jobs found")
             sys.exit(1)
 
         matched = []

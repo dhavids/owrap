@@ -6,9 +6,9 @@ import pytest
 def _patch_dirs(monkeypatch, tmp_path):
     sessions_dir = tmp_path / "sessions"
     monkeypatch.setattr("owrap.utils.paths.SESSIONS_DIR", sessions_dir)
-    monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", sessions_dir)
+    monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", sessions_dir)
     monkeypatch.setattr(
-        "owrap.utils.session.session_resolver.BY_CCSID_DIR", sessions_dir / "by_ccsid",
+        "owrap.utils.session.resolver.BY_CCSID_DIR", sessions_dir / "by_ccsid",
     )
     return sessions_dir
 
@@ -20,7 +20,7 @@ def _attach(sessions_dir, ccsid, owrap_sid):
 
 
 def test_touched_errors_without_ccsid(monkeypatch, tmp_path):
-    from owrap.commands.touched_cmd import TouchedRunner
+    from owrap.commands.touched import TouchedRunner
     _patch_dirs(monkeypatch, tmp_path)
     monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
 
@@ -30,7 +30,7 @@ def test_touched_errors_without_ccsid(monkeypatch, tmp_path):
 
 
 def test_touched_errors_without_attached_session(monkeypatch, tmp_path):
-    from owrap.commands.touched_cmd import TouchedRunner
+    from owrap.commands.touched import TouchedRunner
     _patch_dirs(monkeypatch, tmp_path)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "claude-1")
 
@@ -40,7 +40,7 @@ def test_touched_errors_without_attached_session(monkeypatch, tmp_path):
 
 
 def test_touched_writes_entries(monkeypatch, tmp_path):
-    from owrap.commands.touched_cmd import TouchedRunner
+    from owrap.commands.touched import TouchedRunner
     from owrap.utils.paths import session_ctx_touched_path
     sessions_dir = _patch_dirs(monkeypatch, tmp_path)
     _attach(sessions_dir, "claude-1", "sid01")
@@ -56,7 +56,7 @@ def test_touched_writes_entries(monkeypatch, tmp_path):
 
 
 def test_touched_appends_to_existing_entries(monkeypatch, tmp_path):
-    from owrap.commands.touched_cmd import TouchedRunner
+    from owrap.commands.touched import TouchedRunner
     from owrap.utils.paths import session_ctx_touched_path
     sessions_dir = _patch_dirs(monkeypatch, tmp_path)
     _attach(sessions_dir, "claude-1", "sid01")

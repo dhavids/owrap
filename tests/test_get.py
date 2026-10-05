@@ -1,21 +1,35 @@
-import sys
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 
+def test_get_resolves_codex_session_pointer(tmp_path, monkeypatch):
+    from owrap.commands.get import GetRunner
+
+    pointer = tmp_path / "sessions" / "by_codex_session_id" / "codex-123"
+    pointer.parent.mkdir(parents=True)
+    pointer.write_text("abc123")
+    monkeypatch.setenv("CODEX_SESSION_ID", "codex-123")
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    monkeypatch.delenv("SESSION_ID", raising=False)
+    monkeypatch.setattr("owrap.commands.get.RUNTIME_HOME", tmp_path)
+
+    assert GetRunner()._resolve_session_id(None) == "abc123"
+
+
 @pytest.fixture
 def get_runner(tmp_path):
-    from owrap.commands.get_cmd import GetRunner
+    from owrap.commands.get import GetRunner
     return GetRunner()
 
 
 @pytest.fixture
 def fake_owrap(tmp_path):
-    """Set up fake RUNTIME_HOME with session, plan, input, context, memory, projects files."""
+    """
+    Set up a private runtime home and session files.
+    """
     sessions = tmp_path / "sessions"
-    sessions.mkdir()
+    sessions.mkdir(exist_ok=True)
     session_file = sessions / "abc123.session"
     session_file.write_text(
         "session_id=abc123\n"
@@ -34,7 +48,7 @@ def fake_owrap(tmp_path):
         "workspace": "/fake/ws",
     }))
 
-    sess = tmp_path / "docs" / "sessions" / "abc123"
+    sess = tmp_path / "sessions" / "abc123"
     sess.mkdir(parents=True)
     sess.joinpath("exec/plan.md").parent.mkdir(parents=True, exist_ok=True)
     sess.joinpath("exec/plan.md").write_text("## plan\n\nStep 1: do something\n")
@@ -58,7 +72,7 @@ def fake_owrap(tmp_path):
 
 
 def test_get_plan_with_content(get_runner, fake_owrap, capsys):
-    with patch("owrap.commands.get_cmd.RUNTIME_HOME", fake_owrap), \
+    with patch("owrap.commands.get.RUNTIME_HOME", fake_owrap), \
          patch.dict("os.environ", {"SESSION_ID": ""}, clear=True), \
          patch("os.environ", {}):
         get_runner.run("plan", session_id="abc123")
@@ -67,10 +81,20 @@ def test_get_plan_with_content(get_runner, fake_owrap, capsys):
     assert "Step 1: do something" in captured.out
 
 
+def test_get_self_without_session(get_runner, tmp_path, capsys):
+    self_path = tmp_path / "self.md"
+    self_path.write_text("# Staged reference\n")
+    with patch("owrap.commands.get.get_self_path", return_value=self_path):
+        get_runner.run("self")
+    captured = capsys.readouterr()
+    assert f"# self: {self_path}" in captured.out
+    assert "# Staged reference" in captured.out
+
+
 def test_get_plan_empty(get_runner, fake_owrap, capsys):
-    empty_plan = fake_owrap / "docs" / "sessions" / "abc123" / "exec" / "plan.md"
+    empty_plan = fake_owrap / "sessions" / "abc123" / "exec" / "plan.md"
     empty_plan.write_text("\n")
-    with patch("owrap.commands.get_cmd.RUNTIME_HOME", fake_owrap), \
+    with patch("owrap.commands.get.RUNTIME_HOME", fake_owrap), \
          patch.dict("os.environ", {}, clear=True):
         get_runner.run("plan", session_id="abc123")
     captured = capsys.readouterr()
@@ -78,9 +102,9 @@ def test_get_plan_empty(get_runner, fake_owrap, capsys):
 
 
 def test_get_context_missing(get_runner, fake_owrap, capsys):
-    ctx_file = fake_owrap / "docs" / "sessions" / "abc123" / "context.md"
+    ctx_file = fake_owrap / "sessions" / "abc123" / "context.md"
     ctx_file.unlink()
-    with patch("owrap.commands.get_cmd.RUNTIME_HOME", fake_owrap), \
+    with patch("owrap.commands.get.RUNTIME_HOME", fake_owrap), \
          patch.dict("os.environ", {}, clear=True):
         with pytest.raises(SystemExit):
             get_runner.run("context", session_id="abc123")
@@ -89,7 +113,7 @@ def test_get_context_missing(get_runner, fake_owrap, capsys):
 
 
 def test_get_session(get_runner, fake_owrap, capsys):
-    with patch("owrap.commands.get_cmd.RUNTIME_HOME", fake_owrap), \
+    with patch("owrap.commands.get.RUNTIME_HOME", fake_owrap), \
          patch.dict("os.environ", {}, clear=True):
         get_runner.run("session", session_id="abc123")
     captured = capsys.readouterr()
@@ -102,7 +126,7 @@ def test_get_session(get_runner, fake_owrap, capsys):
 def test_get_memory_no_research(get_runner, fake_owrap, capsys):
     sf = fake_owrap / "sessions" / "abc123.session"
     sf.write_text("session_id=abc123\nworkspace=fakews\n")
-    with patch("owrap.commands.get_cmd.RUNTIME_HOME", fake_owrap), \
+    with patch("owrap.commands.get.RUNTIME_HOME", fake_owrap), \
          patch.dict("os.environ", {}, clear=True):
         with pytest.raises(SystemExit):
             get_runner.run("memory", session_id="abc123")
@@ -111,7 +135,7 @@ def test_get_memory_no_research(get_runner, fake_owrap, capsys):
 
 
 def test_get_memory_with_area(get_runner, fake_owrap, capsys):
-    with patch("owrap.commands.get_cmd.RUNTIME_HOME", fake_owrap), \
+    with patch("owrap.commands.get.RUNTIME_HOME", fake_owrap), \
          patch.dict("os.environ", {}, clear=True):
         get_runner.run("memory", session_id="abc123")
     captured = capsys.readouterr()
@@ -124,7 +148,7 @@ def test_get_memory_with_area(get_runner, fake_owrap, capsys):
 def test_get_project_missing(get_runner, fake_owrap, capsys):
     proj_file = fake_owrap / "research" / "projects" / "mytest.md"
     proj_file.unlink()
-    with patch("owrap.commands.get_cmd.RUNTIME_HOME", fake_owrap), \
+    with patch("owrap.commands.get.RUNTIME_HOME", fake_owrap), \
          patch.dict("os.environ", {}, clear=True):
         with pytest.raises(SystemExit):
             get_runner.run("project", session_id="abc123")
@@ -133,7 +157,7 @@ def test_get_project_missing(get_runner, fake_owrap, capsys):
 
 
 def test_session_resolution_env(get_runner, fake_owrap, capsys):
-    with patch("owrap.commands.get_cmd.RUNTIME_HOME", fake_owrap), \
+    with patch("owrap.commands.get.RUNTIME_HOME", fake_owrap), \
          patch.dict("os.environ", {"SESSION_ID": "abc123"}, clear=True):
         get_runner.run("session")
     captured = capsys.readouterr()
@@ -144,7 +168,7 @@ def test_session_resolution_by_ccsid(get_runner, fake_owrap, capsys):
     by_ccsid = fake_owrap / "sessions" / "by_ccsid"
     by_ccsid.mkdir()
     by_ccsid.joinpath("ccc-111").write_text("abc123")
-    with patch("owrap.commands.get_cmd.RUNTIME_HOME", fake_owrap), \
+    with patch("owrap.commands.get.RUNTIME_HOME", fake_owrap), \
          patch.dict("os.environ", {"SESSION_ID": "", "CLAUDE_CODE_SESSION_ID": "ccc-111"}, clear=True):
         get_runner.run("session")
     captured = capsys.readouterr()
@@ -152,7 +176,7 @@ def test_session_resolution_by_ccsid(get_runner, fake_owrap, capsys):
 
 
 def test_unknown_what(get_runner, fake_owrap, capsys):
-    with patch("owrap.commands.get_cmd.RUNTIME_HOME", fake_owrap), \
+    with patch("owrap.commands.get.RUNTIME_HOME", fake_owrap), \
          patch.dict("os.environ", {}, clear=True):
         with pytest.raises(SystemExit):
             get_runner.run("bogus", session_id="abc123")
@@ -162,13 +186,13 @@ def test_unknown_what(get_runner, fake_owrap, capsys):
 
 def test_get_area(tmp_path, monkeypatch, capsys):
     sessions_dir = tmp_path / "sessions"
-    sessions_dir.mkdir(parents=True)
+    sessions_dir.mkdir(parents=True, exist_ok=True)
     sid = "testsid"
     sf = sessions_dir / f"{sid}.session"
     sf.write_text("session_id=testsid\nresearch=myresearch\narea=main\nworkspace=marl\n")
     monkeypatch.setenv("SESSION_ID", sid)
-    monkeypatch.setattr("owrap.commands.get_cmd.RUNTIME_HOME", tmp_path)
-    from owrap.commands.get_cmd import GetRunner
+    monkeypatch.setattr("owrap.commands.get.RUNTIME_HOME", tmp_path)
+    from owrap.commands.get import GetRunner
     GetRunner().run("area")
     out = capsys.readouterr().out.strip()
     assert out == "main"
@@ -176,13 +200,13 @@ def test_get_area(tmp_path, monkeypatch, capsys):
 
 def test_get_research(tmp_path, monkeypatch, capsys):
     sessions_dir = tmp_path / "sessions"
-    sessions_dir.mkdir(parents=True)
+    sessions_dir.mkdir(parents=True, exist_ok=True)
     sid = "testsid"
     sf = sessions_dir / f"{sid}.session"
     sf.write_text("session_id=testsid\nresearch=myresearch\narea=main\nworkspace=marl\n")
     monkeypatch.setenv("SESSION_ID", sid)
-    monkeypatch.setattr("owrap.commands.get_cmd.RUNTIME_HOME", tmp_path)
-    from owrap.commands.get_cmd import GetRunner
+    monkeypatch.setattr("owrap.commands.get.RUNTIME_HOME", tmp_path)
+    from owrap.commands.get import GetRunner
     GetRunner().run("research")
     out = capsys.readouterr().out.strip()
     assert out == "myresearch"
@@ -192,7 +216,7 @@ def test_get_config(tmp_path, monkeypatch, capsys):
     import json as _json
     sessions_dir = tmp_path / "sessions"
     configs_dir = tmp_path / "configs"
-    sessions_dir.mkdir(parents=True)
+    sessions_dir.mkdir(parents=True, exist_ok=True)
     configs_dir.mkdir(parents=True)
     sid = "testsid"
     sf = sessions_dir / f"{sid}.session"
@@ -200,8 +224,8 @@ def test_get_config(tmp_path, monkeypatch, capsys):
     cfg = {"research_root": "/some/path", "runner_use_oread": True}
     (configs_dir / "marl.json").write_text(_json.dumps(cfg))
     monkeypatch.setenv("SESSION_ID", sid)
-    monkeypatch.setattr("owrap.commands.get_cmd.RUNTIME_HOME", tmp_path)
-    from owrap.commands.get_cmd import GetRunner
+    monkeypatch.setattr("owrap.commands.get.RUNTIME_HOME", tmp_path)
+    from owrap.commands.get import GetRunner
     GetRunner().run("config")
     out = capsys.readouterr().out
     assert "research_root" in out
@@ -210,17 +234,17 @@ def test_get_config(tmp_path, monkeypatch, capsys):
 
 def test_get_agent_with_content(tmp_path, monkeypatch, capsys):
     sessions_dir = tmp_path / "sessions"
-    sessions_dir.mkdir(parents=True)
+    sessions_dir.mkdir(parents=True, exist_ok=True)
     sid = "testsid"
     sf = sessions_dir / f"{sid}.session"
     sf.write_text("session_id=testsid\nresearch=myresearch\narea=main\nworkspace=marl\n")
-    agents_dir = tmp_path / "docs" / "sessions" / sid / "agents"
+    agents_dir = tmp_path / "sessions" / sid / "agents"
     agents_dir.mkdir(parents=True)
     log_file = agents_dir / "output.log"
     log_file.write_text("[a:test1]\ninput: test task\nlog: /path/to/log\nsummary: found nothing\n---\n\n")
     monkeypatch.setenv("SESSION_ID", sid)
-    monkeypatch.setattr("owrap.commands.get_cmd.RUNTIME_HOME", tmp_path)
-    from owrap.commands.get_cmd import GetRunner
+    monkeypatch.setattr("owrap.commands.get.RUNTIME_HOME", tmp_path)
+    from owrap.commands.get import GetRunner
     GetRunner().run("agents")
     out = capsys.readouterr().out
     assert "# agents:" in out
@@ -230,13 +254,13 @@ def test_get_agent_with_content(tmp_path, monkeypatch, capsys):
 
 def test_get_agent_missing(tmp_path, monkeypatch, capsys):
     sessions_dir = tmp_path / "sessions"
-    sessions_dir.mkdir(parents=True)
+    sessions_dir.mkdir(parents=True, exist_ok=True)
     sid = "testsid"
     sf = sessions_dir / f"{sid}.session"
     sf.write_text("session_id=testsid\nresearch=myresearch\narea=main\nworkspace=marl\n")
     monkeypatch.setenv("SESSION_ID", sid)
-    monkeypatch.setattr("owrap.commands.get_cmd.RUNTIME_HOME", tmp_path)
-    from owrap.commands.get_cmd import GetRunner
+    monkeypatch.setattr("owrap.commands.get.RUNTIME_HOME", tmp_path)
+    from owrap.commands.get import GetRunner
     with pytest.raises(SystemExit) as exc_info:
         GetRunner().run("agents")
     assert exc_info.value.code == 1

@@ -1,0 +1,5 @@
+/tests export-ignore
+/pytest.ini export-ignore
+/deploy.py export-ignore
+/.pytest_cache export-ignore
+/files export-ignore

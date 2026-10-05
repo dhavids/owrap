@@ -1,0 +1,54 @@
+{
+  "groups": [
+    {
+      "rules": [
+        "Bash(owrap*)",
+        "Bash(~/bin/owrap*)",
+        "Bash(orun*)",
+        "Bash(~/bin/orun*)",
+        "Bash(oexec*)",
+        "Bash(~/bin/oexec*)",
+        "Bash(oagent*)",
+        "Bash(~/bin/oagent*)",
+        "Bash(owait*)",
+        "Bash(~/bin/owait*)",
+        "Bash(~/bin/nbread *)",
+        "Bash(wait)",
+        "Bash(cd *)",
+        "Bash(diff *)"
+      ],
+      "condition": null
+    },
+    {
+      "rules": [
+        "Bash(git log *)",
+        "Bash(git log)",
+        "Bash(git diff *)",
+        "Bash(git diff)",
+        "Bash(git status)",
+        "Bash(git show *)"
+      ],
+      "condition": null
+    },
+    {
+      "rules": [
+        "Bash(opencode run *)",
+        "Bash(opencode --help)",
+        "Bash(oread*)",
+        "Bash(~/bin/oread*)"
+      ],
+      "condition": null
+    },
+    {
+      "rules": [
+        "Bash(grep *)",
+        "Bash(find *)",
+        "Bash(ls *)",
+        "Bash(cat *)",
+        "Bash(tail *)",
+        "Bash(wc *)"
+      ],
+      "condition": "NO_OREAD"
+    }
+  ]
+}

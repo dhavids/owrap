@@ -4,14 +4,18 @@ from pathlib import Path
 
 from ..utils.paths import (
     RUNTIME_HOME, RUNTIME_LOG, get_plan_path, session_input, context_path,
+    get_self_path,
     FALLBACK_PLAN, FALLBACK_TASK,
     FALLBACK_EXEC_OUTPUT, FALLBACK_TASK_OUTPUT,
     session_msg_output_dir, session_task_output_dir,
     session_agent_full_log_dir, session_agent_log_path,
     session_ctx_transcript_path,
 )
+from ..utils.memory.goals import read_goals
+from ..utils.memory.records import resolve_memory_target, session_repositories
 
 _EXEC_OUTPUT_MAX_LINES = 15
+
 
 class GetRunner:
     """
@@ -22,8 +26,20 @@ class GetRunner:
         """
         Print the requested resource to stdout.
         """
+        what = {
+            "proj": "project", "sub": "subproject", "subs": "subproject",
+            "repo": "repository", "repos": "repository",
+        }.get(what, what)
         if what == "home":
             print(RUNTIME_HOME)
+            return
+        if what == "self":
+            path = get_self_path()
+            print(f"# self: {path}")
+            if not path.exists():
+                print("No staged self file; run `owrap sync`")
+                sys.exit(1)
+            print(path.read_text().strip())
             return
 
         sid = self._resolve_session_id(session_id)
@@ -33,17 +49,47 @@ class GetRunner:
 
         sf = RUNTIME_HOME / "sessions" / f"{sid}.session"
         sdata = self._parse_session_file(sf)
+        target = None
+        if what in ("memory", "project", "todo"):
+            try:
+                target = resolve_memory_target(sdata)
+            except (OSError, ValueError) as exc:
+                print(f"ERROR: {exc}")
+                sys.exit(2)
 
         if what == "session":
             self._print_session(sid, sdata, sf)
             return
 
         if what in ("area", "research"):
-            val = sdata.get(what, "")
+            if sdata.get("target_kind") == "project":
+                val = (
+                    sdata.get("project_id", "") if what == "research"
+                    else sdata.get("subproject_id", "") or "main"
+                )
+            else:
+                val = sdata.get(what, "")
             if not val:
                 print(f"No {what} configured for session {sid}")
                 sys.exit(1)
             print(val)
+            return
+
+        if what in ("project-id", "subproject", "repository"):
+            field = {
+                "project-id": "project_id",
+                "subproject": "subproject_id",
+                "repository": "repository_id",
+            }[what]
+            value = sdata.get(field, "")
+            if what == "repository" and not value:
+                value = ", ".join(session_repositories(sdata))
+            if not value and what == "subproject" and sdata.get("project_id"):
+                value = "main"
+            if not value:
+                print(f"No {what} configured for session {sid}")
+                sys.exit(1)
+            print(value)
             return
 
         if what == "config":
@@ -91,6 +137,38 @@ class GetRunner:
             return
 
         if what in ("memory", "project", "todo"):
+            if target:
+                if what == "project":
+                    if not target.project_path:
+                        print("Repository-only session has no project file")
+                        sys.exit(2)
+                    paths = (target.project_path,)
+                elif what == "memory":
+                    paths = target.repository_paths
+                else:
+                    if not target.project_path:
+                        print("Repository-only session has no project goals")
+                        sys.exit(2)
+                    try:
+                        goals = read_goals(target.project_path)
+                    except (OSError, ValueError) as exc:
+                        print(f"ERROR: {exc}")
+                        sys.exit(2)
+                    print(f"# goals: {target.project_path}")
+                    for index, (done, goal) in enumerate(goals, 1):
+                        mark = "x" if done else " "
+                        print(f"{index}. [{mark}] {goal}")
+                    return
+                if not paths:
+                    print("No repositories associated with this project")
+                    sys.exit(2)
+                for path in paths:
+                    if not path.is_file():
+                        print(f"Record Markdown not found: {path}")
+                        sys.exit(2)
+                    print(f"# {what}: {path}")
+                    print(path.read_text().strip())
+                return
             research = sdata.get("research", "")
             if not research:
                 print(f"No research configured for session {sid}")
@@ -119,20 +197,21 @@ class GetRunner:
             "context": context_path(sid),
         }
         if what not in fmap:
-            print(f"Usage: owrap get <what> [--session <id>]")
+            print("Usage: owrap get <what> [--session <id>]")
             print("  plan     — current plan file")
             print("  input    — current input file")
             print("  context  — current context file")
             print("  session  — session fields table")
             print("  agents   — agents/output.log for this session")
             print("           (all subagent summaries)")
-            print("  memory   — memory/<research>.md (requires research)")
-            print("  project  — projects/<research>.md (requires research)")
-            print("  todo     — todo/<research>.md (requires research)")
-            print("  area     — current area name")
-            print("  research — current research name")
+            print("  memory   — linked repository record (legacy memory file)")
+            print("  project  — project or subproject record")
+            print("  todo     — goals for the project or subproject target")
+            print("  area, research — legacy aliases for subproject and project")
+            print("  project-id, subproject, repository — explicit identity")
             print("  config   — full workspace config JSON")
             print("  home     — resolved OWRAP_HOME (no session required)")
+            print("  self     — staged workspace reference (no session required)")
             sys.exit(1)
 
         research = sdata.get("research", "")
@@ -176,7 +255,8 @@ class GetRunner:
                 print(content)
 
     def run_output(self, kind, dispatch_id=None, head=5, tail=5, session_id=None):
-        """Resolve and display output for the given kind.
+        """
+        Resolve and display output for the given kind.
 
         Prints the resolved file path, then a head/tail preview of its
         contents.  If no matching output exists, prints a clear message
@@ -306,6 +386,11 @@ class GetRunner:
             ptr = RUNTIME_HOME / "sessions" / "by_ccsid" / ccsid
             if ptr.exists():
                 return ptr.read_text().strip()
+        cid = os.environ.get("CODEX_SESSION_ID", "").strip()
+        if cid:
+            ptr = RUNTIME_HOME / "sessions" / "by_codex_session_id" / cid
+            if ptr.exists():
+                return ptr.read_text().strip()
         return None
 
     def _parse_session_file(self, path):
@@ -323,8 +408,9 @@ class GetRunner:
             if cfg_path.exists():
                 import json
                 cfg = json.loads(cfg_path.read_text())
-                if "research_root" in cfg:
-                    return cfg["research_root"]
+                root = cfg.get("docs_root") or cfg.get("research_root")
+                if root:
+                    return root
         return f"{workspace}/docs/research" if workspace else ""
 
     def _print_session(self, sid, sdata, sf):
@@ -334,6 +420,8 @@ class GetRunner:
         header = f"# session: {sf}"
         base_keys = [
             "session_id", "research", "area", "child",
+            "target_kind", "project_id", "subproject_id",
+            "repository_id", "repositories",
             "workspace", "started", "last_refresh",
         ]
         header_len = max(len(k) for k in base_keys + list(sdata.keys()))
@@ -368,7 +456,8 @@ class GetRunner:
         return "".join(result).rstrip()
 
     def _resolve_most_recent_file(self, directory, pattern="*.log"):
-        """Return the most recently modified file matching *pattern* in
+        """
+        Return the most recently modified file matching *pattern* in
         *directory*, or None if the directory is empty or missing.
         """
         d = Path(directory)
@@ -380,7 +469,8 @@ class GetRunner:
         return max(files, key=lambda f: f.stat().st_mtime)
 
     def _resolve_msg_output(self, sid, dispatch_id):
-        """Resolve the msg output file path for the given session and
+        """
+        Resolve the msg output file path for the given session and
         optional dispatch id.
         """
         msg_dir = session_msg_output_dir(sid)
@@ -397,7 +487,8 @@ class GetRunner:
         return result
 
     def _resolve_task_output(self, sid, dispatch_id):
-        """Resolve the task output file path for the given session and
+        """
+        Resolve the task output file path for the given session and
         optional dispatch id.
         """
         task_dir = session_task_output_dir(sid)
@@ -421,7 +512,8 @@ class GetRunner:
         return result
 
     def _resolve_agent_output(self, sid, dispatch_id):
-        """Resolve the agent output file path for the given session and
+        """
+        Resolve the agent output file path for the given session and
         optional dispatch id.
 
         When *dispatch_id* is given, the summary log is scanned from the
@@ -474,7 +566,8 @@ class GetRunner:
         return blocks
 
     def _extract_log_path_from_line(self, line):
-        """Extract the path after ``**Log:**`` from a summary line, or
+        """
+        Extract the path after ``**Log:**`` from a summary line, or
         return None.
         """
         marker = "**Log:**"
@@ -484,7 +577,8 @@ class GetRunner:
         return line[idx + len(marker):].strip()
 
     def _print_head_tail(self, fpath, head, tail):
-        """Print the first *head* lines and last *tail* lines of *fpath*,
+        """
+        Print the first *head* lines and last *tail* lines of *fpath*,
         with a total-line-count footer.
 
         For msg/task logs that contain section markers (INPUT, EXECUTOR
@@ -495,7 +589,7 @@ class GetRunner:
         total = len(lines)
         if total == 0:
             print("(empty)")
-            print(f"total: 0 lines")
+            print("total: 0 lines")
             return
         head_lines = lines[:head]
         if total > head + tail:
@@ -518,7 +612,8 @@ class GetRunner:
         print(f"total: {total} lines")
 
     def _find_section_markers(self, lines):
-        """Find INPUT, EXECUTOR OUTPUT, and RESULT section boundaries.
+        """
+        Find INPUT, EXECUTOR OUTPUT, and RESULT section boundaries.
 
         Returns a dict with ``input_end``, ``exec_start``, ``exec_end``,
         ``result_start`` line indices, or None if markers are not found.

@@ -11,7 +11,9 @@ from .utils.log import rtlog
 
 
 def _increment_stat(key: str):
-    """Atomically increment a counter in the stats file using flock."""
+    """
+    Atomically increment a counter in the stats file using flock.
+    """
     import fcntl
     from .utils.paths import STATS_FILE
     STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -34,7 +36,9 @@ def _increment_stat(key: str):
 
 
 class BaseRunner(ABC):
-    """Abstract base for owrap subcommand runners."""
+    """
+    Abstract base for owrap subcommand runners.
+    """
 
     def __init__(self, manager, logger=None, allow_all=False):
         self.manager = manager
@@ -43,7 +47,9 @@ class BaseRunner(ABC):
 
     @abstractmethod
     def run(self, args) -> int:
-        """Execute the runner's subcommand. Returns exit code."""
+        """
+        Execute the runner's subcommand and return its exit code.
+        """
         ...
 
     def _get_server_url(self) -> Optional[str]:

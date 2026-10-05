@@ -6,22 +6,24 @@ from owrap.session.start import StartRunner, SpawnRunner
 
 
 @pytest.fixture
-def session_resolver_dir(tmp_path, monkeypatch):
-    """session_resolver.SESSIONS_DIR, BY_CCSID_DIR, and BY_OPENCODE_RUN_ID_DIR
+def resolver_dir(tmp_path, monkeypatch):
+    """
+    Redirect session resolver paths into a temporary directory.
+
     are all bound at import time (not covered by the isolate_owrap_dirs
     autouse fixture), and multiple modules (start.py, stop.py) hold their
     own separate direct-import bindings to BY_CCSID_DIR/BY_OPENCODE_RUN_ID_DIR
-    that patching session_resolver's copy alone does NOT affect — redirect
+    that patching resolver's copy alone does NOT affect — redirect
     every one of them to a tmp dir, in every module that imports them, or
     tests here can silently write into the REAL production session
     pointer directory."""
     sessions_dir = tmp_path / "sessions"
-    sessions_dir.mkdir()
+    sessions_dir.mkdir(exist_ok=True)
     by_ccsid_dir = sessions_dir / "by_ccsid"
     by_oid_dir = sessions_dir / "by_opencode_run_id"
-    monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", sessions_dir)
-    monkeypatch.setattr("owrap.utils.session.session_resolver.BY_CCSID_DIR", by_ccsid_dir)
-    monkeypatch.setattr("owrap.utils.session.session_resolver.BY_OPENCODE_RUN_ID_DIR", by_oid_dir)
+    monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", sessions_dir)
+    monkeypatch.setattr("owrap.utils.session.resolver.BY_CCSID_DIR", by_ccsid_dir)
+    monkeypatch.setattr("owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR", by_oid_dir)
     monkeypatch.setattr("owrap.session.start.BY_CCSID_DIR", by_ccsid_dir)
     monkeypatch.setattr("owrap.session.stop.BY_CCSID_DIR", by_ccsid_dir)
     return sessions_dir
@@ -44,10 +46,10 @@ def _read_session(sessions_dir, sid):
     return data
 
 
-# ---------------- StartRunner: child-area concatenation ----------------
+# StartRunner child area concatenation
 
 def test_start_child_without_area_errors(
-    session_resolver_dir, mock_manager, capsys,
+    resolver_dir, mock_manager, capsys,
 ):
     with pytest.raises(SystemExit) as exc:
         StartRunner(mock_manager).run(session_id="sid1", research="myres", child="kid")
@@ -56,7 +58,7 @@ def test_start_child_without_area_errors(
 
 
 def test_start_child_with_area_concatenates(
-    tmp_path, session_resolver_dir, mock_manager, monkeypatch,
+    tmp_path, resolver_dir, mock_manager, monkeypatch,
 ):
     monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
     mock_manager.create_context = MagicMock()
@@ -82,12 +84,12 @@ def test_start_child_with_area_concatenates(
             )
 
     assert exc.value.code == 0
-    assert _read_session(session_resolver_dir, "sid2")["area"] == "parent-kid"
+    assert _read_session(resolver_dir, "sid2")["area"] == "parent-kid"
 
 
-# ---------------- SpawnRunner ----------------
+# SpawnRunner
 
-def test_spawn_no_active_session_errors(session_resolver_dir, mock_manager, capsys):
+def test_spawn_no_active_session_errors(resolver_dir, mock_manager, capsys):
     with patch.dict("os.environ", {}, clear=True):
         with pytest.raises(SystemExit) as exc:
             SpawnRunner(mock_manager).run("kid")
@@ -95,8 +97,8 @@ def test_spawn_no_active_session_errors(session_resolver_dir, mock_manager, caps
     assert "no active session" in capsys.readouterr().err
 
 
-def test_spawn_without_area_errors(session_resolver_dir, mock_manager, capsys):
-    _write_session(session_resolver_dir, "spawnsid", research="myres")
+def test_spawn_without_area_errors(resolver_dir, mock_manager, capsys):
+    _write_session(resolver_dir, "spawnsid", research="myres")
     with patch.dict("os.environ", {"SESSION_ID": "spawnsid"}, clear=True):
         with pytest.raises(SystemExit) as exc:
             SpawnRunner(mock_manager).run("kid")
@@ -105,9 +107,9 @@ def test_spawn_without_area_errors(session_resolver_dir, mock_manager, capsys):
 
 
 def test_spawn_success_concatenates_and_prints(
-    tmp_path, session_resolver_dir, mock_manager, capsys,
+    tmp_path, resolver_dir, mock_manager, capsys,
 ):
-    _write_session(session_resolver_dir, "spawnsid", research="myres", area="parent")
+    _write_session(resolver_dir, "spawnsid", research="myres", area="parent")
     with patch.dict("os.environ", {"SESSION_ID": "spawnsid"}, clear=True), \
          patch("owrap.session.start._read_config",
                return_value={"research_root": str(tmp_path / "research")}), \
@@ -119,13 +121,13 @@ def test_spawn_success_concatenates_and_prints(
     msg = "Spawned child area 'parent-kid' (parent: parent) under research 'myres'"
     assert msg in out
     # Parent session must remain untouched
-    assert _read_session(session_resolver_dir, "spawnsid")["area"] == "parent"
+    assert _read_session(resolver_dir, "spawnsid")["area"] == "parent"
     # Find the newly minted child session (the .session file that is not spawnsid)
     child_files = [
-        f for f in session_resolver_dir.glob("*.session")
+        f for f in resolver_dir.glob("*.session")
         if f.stem != "spawnsid"
     ]
     assert len(child_files) == 1
-    child_data = _read_session(session_resolver_dir, child_files[0].stem)
+    child_data = _read_session(resolver_dir, child_files[0].stem)
     assert child_data["area"] == "parent-kid"
     assert child_data.get("parent_session_id") == "spawnsid"

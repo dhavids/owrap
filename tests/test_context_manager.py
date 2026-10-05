@@ -1,6 +1,7 @@
 import json
 import shlex
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -12,12 +13,13 @@ from owrap.utils.parser.sections import split_top_sections
 
 VALID_OUTPUT_MD = (
     "# Context\n## Focus\ntest focus\n\n"
-    "# Project\n## main\n### Status\ntest status\n"
+    "# Project: owrap\n## Status\ntest status\n"
 )
 
 
 def _patch_terminal(rc=0, output_text=VALID_OUTPUT_MD):
-    """Patch Terminal so context_manager dispatch never spawns a real
+    """
+    Patch Terminal so context_manager dispatch never spawns a real
     opencode process. When output_text is given (the default — a minimal
     output satisfying validation for both Context and Project), it's
     written to output.md in the dispatch's `cwd` on each call, so a
@@ -41,7 +43,7 @@ def _patch_terminal(rc=0, output_text=VALID_OUTPUT_MD):
     return mock_terminal_cls, mock_terminal.run
 
 
-# --- Helpers ---
+# Helpers
 
 def _make_hook_stdin(ccsid, transcript_path="/tmp/transcript.jsonl", cwd="/tmp"):
     return json.dumps({
@@ -52,7 +54,8 @@ def _make_hook_stdin(ccsid, transcript_path="/tmp/transcript.jsonl", cwd="/tmp")
 
 
 def _make_session_file(sessions_dir, owrap_sid, ccsid, research="testr", area="testarea"):
-    """Write a .session file plus the by_ccsid/<ccsid> pointer that attach()
+    """
+    Write a .session file plus the by_ccsid/<ccsid> pointer that attach()
     actually creates — context_manager.py resolves ownership via that
     pointer, not by scanning .session files for a field match, since under
     multi-attach the .session file's claude_session_id field only ever
@@ -73,6 +76,16 @@ def _make_session_file(sessions_dir, owrap_sid, ccsid, research="testr", area="t
     return sf
 
 
+def _make_project_session(sessions_dir, sid, ccsid):
+    session = _make_session_file(sessions_dir, sid, ccsid)
+    session.write_text(
+        f"session_id={sid}\nclaude_session_id={ccsid}\n"
+        "target_kind=project\nproject_id=owrap\n"
+        "subproject_id=\nworkspace=test\n"
+    )
+    return session
+
+
 def _make_transcript_jsonl(path, entries):
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = [json.dumps(e) for e in entries]
@@ -84,15 +97,18 @@ def _patch_dirs(monkeypatch, tmp_path):
     sessions_dir = tmp_path / "sessions"
     monkeypatch.setattr("owrap.utils.paths.DOCS_DIR", docs_dir)
     monkeypatch.setattr("owrap.utils.paths.SESSIONS_DIR", sessions_dir)
-    monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", sessions_dir)
+    monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", sessions_dir)
     monkeypatch.setattr(
-        "owrap.utils.session.session_resolver.BY_CCSID_DIR", sessions_dir / "by_ccsid",
+        "owrap.utils.session.resolver.BY_CCSID_DIR", sessions_dir / "by_ccsid",
     )
-    monkeypatch.setattr("owrap.utils.session.donow.COUNTERS_DIR", sessions_dir)
+    monkeypatch.setattr(
+        "owrap.utils.session.resolver.BY_CODEX_SESSION_ID_DIR",
+        sessions_dir / "by_codex_session_id",
+    )
     return docs_dir, sessions_dir
 
 
-# --- Test 1: CtxHookRunner with matching session ---
+# CtxHookRunner with matching session
 
 def test_ctx_hook_spawns_worker(tmp_path, monkeypatch):
     docs_dir, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
@@ -110,24 +126,23 @@ def test_ctx_hook_spawns_worker(tmp_path, monkeypatch):
         assert exc_info.value.code == 0
 
     # Check that the input JSON was written, scoped by ccsid
-    input_json = sessions_dir / owrap_sid / "ctx" / ccsid / "hook.json"
+    input_json = Path(mock_popen.call_args[0][0][-1])
     assert input_json.exists()
+    assert input_json.parent.parent.name == "jobs"
     data = json.loads(input_json.read_text())
     assert data["session_id"] == ccsid
 
     # Check Popen was called with correct args
     mock_popen.assert_called_once()
     call_args = mock_popen.call_args[0][0]
-    assert call_args[0] == "owrap"
-    assert call_args[1] == "ctx-worker"
-    assert call_args[2] == "--input"
-    assert call_args[3] == str(input_json)
+    assert call_args[1:5] == ["-m", "owrap.runner", "ctx-worker", "--input"]
+    assert call_args[5] == str(input_json)
     kw = mock_popen.call_args[1]
     assert kw["start_new_session"] is True
     assert kw["close_fds"] is True
 
 
-# --- Test 2: CtxHookRunner with no matching session ---
+# CtxHookRunner with no matching session
 
 def test_ctx_hook_no_matching_session(tmp_path, monkeypatch):
     _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
@@ -143,7 +158,28 @@ def test_ctx_hook_no_matching_session(tmp_path, monkeypatch):
     mock_popen.assert_not_called()
 
 
-# --- Test 3: Transcript parsing helper ---
+def test_ctx_hook_uses_codex_session_mapping(tmp_path, monkeypatch):
+    _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
+    cid = "codex-123"
+    sid = "abc123"
+    pointer = sessions_dir / "by_codex_session_id" / cid
+    pointer.parent.mkdir(parents=True)
+    pointer.write_text(sid)
+
+    with patch("owrap.commands.context_manager.subprocess.Popen") as popen, \
+         patch("owrap.commands.context_manager.sys.stdin.read") as stdin:
+        stdin.return_value = _make_hook_stdin(cid)
+        with pytest.raises(SystemExit) as exc:
+            CtxHookRunner().run()
+
+    assert exc.value.code == 0
+    input_path = Path(popen.call_args[0][0][-1])
+    assert input_path.parent.parent.name == "jobs"
+    assert json.loads(input_path.read_text())["source"] == "codex"
+    popen.assert_called_once()
+
+
+# Transcript parsing helper
 
 def test_extract_excerpt_lines():
     worker = CtxWorkerRunner()
@@ -251,9 +287,9 @@ def test_extract_excerpt_lines_ignores_untracked_tool_result():
     assert result == []
 
 
-# --- Test 4: CtxWorker with no new transcript lines ---
+# CtxWorker with no new transcript lines
 
-# --- Test: touched-paths handoff (item 14) ---
+# Touched paths handoff
 
 def test_dispatch_fires_for_touched_entries_with_no_new_transcript(tmp_path, monkeypatch):
     from owrap.utils.paths import session_ctx_touched_path, session_ctx_transcript_path
@@ -374,7 +410,7 @@ def test_ctx_worker_nothing_new(tmp_path, monkeypatch):
     assert updated["transcript_offset"] == 2
 
 
-# --- Test 5: CtxWorker with new assistant text ---
+# CtxWorker with new assistant text
 
 def test_ctx_worker_with_new_text(tmp_path, monkeypatch):
     _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
@@ -441,7 +477,7 @@ def test_ctx_worker_with_new_text(tmp_path, monkeypatch):
     assert updated["transcript_offset"] == 5
 
 
-# --- Test: ctx_status tracking ---
+# Context status tracking
 
 def _make_context_md(sessions_dir, owrap_sid):
     path = sessions_dir / owrap_sid / "context.md"
@@ -559,29 +595,26 @@ def test_ctx_status_failed_when_transcript_missing(tmp_path, monkeypatch):
     assert _ctx_status(context_md) == "failed"
 
 
-# --- Test 6: CtxWorker with updr due ---
+# CtxWorker with update due
 
-def test_ctx_worker_includes_update_protocol_when_research_and_area_set(
+def test_ctx_worker_skips_protocol_for_legacy_session(
     tmp_path, monkeypatch,
 ):
     _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
 
     ccsid = "claude-789"
     owrap_sid = "ghi012"
-    research = "testr"
-    area = "testarea"
-    _make_session_file(sessions_dir, owrap_sid, ccsid, research=research, area=area)
+    _make_session_file(sessions_dir, owrap_sid, ccsid)
 
     transcript = tmp_path / "transcript.jsonl"
     _make_transcript_jsonl(transcript, [
         {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "new stuff happened"}]}},
     ])
 
-    research_root = tmp_path / "research"
     base_config_path = tmp_path / "base_config.json"
     base_config_path.parent.mkdir(parents=True, exist_ok=True)
     base_config_path.write_text(json.dumps({
-        "default_workspace": "test", "research_root": str(research_root),
+        "default_workspace": "test",
     }))
 
     input_path = tmp_path / "hook_input.json"
@@ -602,19 +635,20 @@ def test_ctx_worker_includes_update_protocol_when_research_and_area_set(
     assert task_file.exists()
     task_text = task_file.read_text()
     assert "# Context" in task_text
-    assert "# Memory" in task_text
-    assert "# Project" in task_text
-    assert area in task_text
+    assert "# Memory" not in task_text
+    assert "# Project" not in task_text
 
     # No copies of memory.md/project.md are prepared either — same reason
     assert not (ctx_dir / "memory.md").exists()
     assert not (ctx_dir / "project.md").exists()
 
 
-# --- Test 7: multi-attach isolation ---
+# Multiple attachment isolation
 
 def test_ctx_worker_isolated_per_ccsid_under_multi_attach(tmp_path, monkeypatch):
-    """Two windows (ccsids) attached to the SAME owrap session must get
+    """
+    Two windows attached to the same owrap session get isolated files.
+
     independent counters/transcript/input files — this is the bug that
     full-session-scan resolution (matching the single claude_session_id
     field in .session) silently broke under multi-attach: only the most
@@ -661,7 +695,7 @@ def test_ctx_worker_isolated_per_ccsid_under_multi_attach(tmp_path, monkeypatch)
     assert counters_b["transcript_offset"] == 1
 
 
-# --- Test: same window, different research sessions in sequence ---
+# Same window across sessions
 
 def test_ctx_worker_excludes_text_before_session_switch(tmp_path, monkeypatch):
     """
@@ -723,11 +757,12 @@ def test_ctx_worker_excludes_text_before_session_switch(tmp_path, monkeypatch):
     assert "project A" not in excerpt
 
 
-# --- Test 8: Shared template test ---
+# Shared template
 
 def test_templates_reference_only_local_filenames():
     from owrap.constants import (
-        CTX_SCOPED_TASK_TEMPLATE, CTX_CONTEXT_BLOCK, CTX_PROTOCOL_BLOCK,
+        CTX_SCOPED_TASK_TEMPLATE, CTX_CONTEXT_BLOCK,
+        CTX_PROJECT_BLOCK, CTX_REPOSITORY_BLOCK,
     )
 
     # Must reference only local scoped filenames, never a real absolute path.
@@ -736,13 +771,14 @@ def test_templates_reference_only_local_filenames():
     assert "output.md" in task
     for text in (
         CTX_SCOPED_TASK_TEMPLATE, CTX_CONTEXT_BLOCK,
-        CTX_PROTOCOL_BLOCK.format(area="x"),
+        CTX_PROJECT_BLOCK.format(record_kind="Project", record_id="project"),
+        CTX_REPOSITORY_BLOCK.format(repo_id="repo"),
     ):
         assert 'self.md' not in text
         assert '/home/' not in text
 
 
-# --- Test 9: Staging test ---
+# Staging
 
 def test_stage_all_includes_sessionstart_and_ctx_hook(tmp_path, monkeypatch):
     from owrap.staging import stage_all
@@ -752,6 +788,7 @@ def test_stage_all_includes_sessionstart_and_ctx_hook(tmp_path, monkeypatch):
     configs_dir = tmp_path / "owrap_configs"
 
     monkeypatch.setattr("owrap.utils.paths.CONFIGS_DIR", configs_dir)
+    monkeypatch.setattr("owrap.staging.CONFIGS_DIR", configs_dir)
     monkeypatch.setattr("owrap.utils.paths.TEMPLATES_DIR", Path(__file__).parents[1] / "templates")
     monkeypatch.setattr(
         "owrap.staging.staged_dir",
@@ -774,7 +811,7 @@ def test_stage_all_includes_sessionstart_and_ctx_hook(tmp_path, monkeypatch):
         staged = stage_all("test_stage")
 
     # Check staged settings.json
-    staged_settings = staged / "settings.json"
+    staged_settings = staged / "claude" / "settings.json"
     assert staged_settings.exists()
     content = json.loads(staged_settings.read_text())
 
@@ -789,13 +826,12 @@ def test_stage_all_includes_sessionstart_and_ctx_hook(tmp_path, monkeypatch):
     assert "additionalContext" in ss_cmd
     assert "owrap refresh" in ss_cmd
 
-    # PreCompact hook command is ~/bin/owrap ctx-hook
     assert "PreCompact" in hooks
     pc = hooks["PreCompact"][0]["hooks"][0]
     assert pc["command"] == "~/bin/owrap ctx-hook"
 
 
-# --- Test: Excerpt capping ---
+# Excerpt capping
 
 def test_excerpt_capped_at_max_chars(tmp_path, monkeypatch):
     _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
@@ -913,13 +949,98 @@ def test_run_manual_ctx_queues_background_dispatch(tmp_path, monkeypatch):
 
     mock_popen.assert_called_once()
     cmd = mock_popen.call_args[0][0]
-    assert cmd[0] == "owrap" and cmd[1] == "ctx-worker" and cmd[2] == "--input"
-    payload = json.loads(Path(cmd[3]).read_text())
+    assert cmd[1:5] == ["-m", "owrap.runner", "ctx-worker", "--input"]
+    payload = json.loads(Path(cmd[5]).read_text())
     assert payload["mode"] == "ctx"
     assert payload["session_id"] == ccsid
 
+    job_dir = Path(payload["job_dir"])
+    status = json.loads((job_dir / "status.json").read_text())
+    assert status["kind"] == "ctx"
+    assert status["status"] == "queued"
+    assert status["session_id"] == owrap_sid
+    assert status["log_path"] == str(job_dir / "output.log")
 
-def test_run_manual_updr_includes_area_in_payload(tmp_path, monkeypatch):
+
+def test_context_job_failure_appears_in_stat(tmp_path, monkeypatch, capsys):
+    from owrap.session.stat import StatRunner
+
+    _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
+    ccsid = "claude-failing-job"
+    sid = "failing01"
+    _make_session_file(sessions_dir, sid, ccsid)
+    transcript = tmp_path / "transcript.jsonl"
+    _make_transcript_jsonl(transcript, [{
+        "type": "assistant", "message": {
+            "role": "assistant", "content": [{"type": "text", "text": "change"}],
+        },
+    }])
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", ccsid)
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.claude_transcript_path",
+        lambda cid, workspace: transcript,
+    )
+    with patch("owrap.commands.context_manager.subprocess.Popen") as popen:
+        CtxWorkerRunner().run_manual(mode="ctx")
+    payload_path = Path(popen.call_args[0][0][-1])
+    job_dir = payload_path.parent
+    (job_dir / "output.log").write_text("model attempt failed\n")
+
+    terminal, terminal_run = _patch_terminal(rc=1, output_text=None)
+    with patch("owrap.commands.context_manager.Terminal", terminal):
+        assert CtxWorkerRunner().run(input_path=payload_path) == 1
+    assert terminal_run.call_args.kwargs["capture_output"] is True
+    assert terminal_run.call_args.kwargs["print_output"] is True
+
+    status = json.loads((job_dir / "status.json").read_text())
+    assert status["status"] == "failed"
+    assert status["rc"] == 1
+    StatRunner(None).run(SimpleNamespace(filter=sid))
+    output = capsys.readouterr().out
+    assert f"ctx  {job_dir.name[:8]}  done(rc=1)" in output
+    assert str(job_dir / "output.log") in output
+    assert str(job_dir / "transcript.txt") in output
+    assert "model attempt failed" not in output
+
+
+def test_context_jobs_keep_separate_payloads(tmp_path, monkeypatch):
+    _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
+    ccsid = "claude-repeat"
+    sid = "repeat01"
+    _make_session_file(sessions_dir, sid, ccsid)
+    transcript = tmp_path / "transcript.jsonl"
+    _make_transcript_jsonl(transcript, [{"type": "assistant"}])
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", ccsid)
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.claude_transcript_path",
+        lambda cid, workspace: transcript,
+    )
+
+    with patch("owrap.commands.context_manager.subprocess.Popen") as popen:
+        CtxWorkerRunner().run_manual(mode="ctx")
+        first = Path(popen.call_args[0][0][-1])
+        CtxWorkerRunner().run_manual(mode="ctx")
+        second = Path(popen.call_args[0][0][-1])
+
+    assert first != second
+    assert first.exists()
+    assert second.exists()
+    assert (first.parent / "status.json").exists()
+    assert (second.parent / "status.json").exists()
+
+
+def test_ctx_worker_command_exits_with_dispatch_result(tmp_path):
+    from owrap.runner import _cmd_ctx_worker
+
+    payload = tmp_path / "job.json"
+    payload.write_text("{}")
+    with patch.object(CtxWorkerRunner, "run", return_value=1):
+        with pytest.raises(SystemExit) as exit_info:
+            _cmd_ctx_worker(SimpleNamespace(input=str(payload)), None, None, False)
+    assert exit_info.value.code == 1
+
+
+def test_run_manual_updr_rejects_legacy_session(tmp_path, monkeypatch):
     _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
     ccsid = "claude-manual-updr"
     owrap_sid = "manual02"
@@ -936,14 +1057,44 @@ def test_run_manual_updr_includes_area_in_payload(tmp_path, monkeypatch):
         lambda ccsid, workspace: transcript,
     )
 
+    with pytest.raises(SystemExit) as exc_info:
+        CtxWorkerRunner().run_manual(mode="updr", subproject="custom")
+
+    assert exc_info.value.code == 1
+
+
+def test_run_manual_updr_queues_subproject_target(tmp_path, monkeypatch):
+    _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
+    ccsid = "claude-project-updr"
+    sid = "project01"
+    session = _make_session_file(sessions_dir, sid, ccsid)
+    session.write_text(
+        f"session_id={sid}\nclaude_session_id={ccsid}\n"
+        "target_kind=project\nproject_id=owrap\n"
+        "subproject_id=\nworkspace=test\n"
+    )
+    transcript = tmp_path / "transcript.jsonl"
+    _make_transcript_jsonl(transcript, [{"type": "assistant"}])
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", ccsid)
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.claude_transcript_path",
+        lambda cid, workspace: transcript,
+    )
+    resolved = []
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.resolve_memory_target",
+        lambda data: resolved.append(data) or MagicMock(),
+    )
+
     mock_popen = MagicMock()
     with patch("owrap.commands.context_manager.subprocess.Popen", mock_popen):
-        CtxWorkerRunner().run_manual(mode="updr", area="customarea")
+        CtxWorkerRunner().run_manual(mode="updr", subproject="migration")
 
-    cmd = mock_popen.call_args[0][0]
-    payload = json.loads(Path(cmd[3]).read_text())
-    assert payload["mode"] == "updr"
-    assert payload["area"] == "customarea"
+    payload_path = Path(mock_popen.call_args[0][0][5])
+    payload = json.loads(payload_path.read_text())
+    assert resolved[0]["subproject_id"] == "migration"
+    assert payload["subproject"] == "migration"
+    assert "area" not in payload
 
 
 def test_run_manual_combined_mode_queues_single_dispatch(tmp_path, monkeypatch):
@@ -956,7 +1107,11 @@ def test_run_manual_combined_mode_queues_single_dispatch(tmp_path, monkeypatch):
     _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
     ccsid = "claude-combined"
     owrap_sid = "combined01"
-    _make_session_file(sessions_dir, owrap_sid, ccsid)
+    _make_project_session(sessions_dir, owrap_sid, ccsid)
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.resolve_memory_target",
+        lambda data: MagicMock(),
+    )
 
     transcript = tmp_path / "transcript.jsonl"
     _make_transcript_jsonl(transcript, [
@@ -975,7 +1130,7 @@ def test_run_manual_combined_mode_queues_single_dispatch(tmp_path, monkeypatch):
 
     mock_popen.assert_called_once()
     cmd = mock_popen.call_args[0][0]
-    payload = json.loads(Path(cmd[3]).read_text())
+    payload = json.loads(Path(cmd[5]).read_text())
     assert payload["mode"] is None
 
 
@@ -987,7 +1142,11 @@ def test_run_manual_combined_mode_prints_readable_label(tmp_path, monkeypatch, c
     _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
     ccsid = "claude-combined-label"
     owrap_sid = "combinedlabel01"
-    _make_session_file(sessions_dir, owrap_sid, ccsid)
+    _make_project_session(sessions_dir, owrap_sid, ccsid)
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.resolve_memory_target",
+        lambda data: MagicMock(),
+    )
 
     transcript = tmp_path / "transcript.jsonl"
     _make_transcript_jsonl(transcript, [
@@ -1017,7 +1176,21 @@ def test_ctx_worker_run_honors_combined_mode(tmp_path, monkeypatch):
     _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
     ccsid = "claude-combined-run"
     owrap_sid = "combinedrun01"
-    _make_session_file(sessions_dir, owrap_sid, ccsid)
+    _make_project_session(sessions_dir, owrap_sid, ccsid)
+    project_path = tmp_path / "project.md"
+    project_path.write_text("# Project\n\n## Status\nold\n")
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.resolve_memory_target",
+        lambda data: SimpleNamespace(
+            project_path=project_path,
+            project_id="owrap",
+            subproject_id=data.get("subproject_id", ""),
+        ),
+    )
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.touched_repository_paths",
+        lambda *args: {},
+    )
 
     transcript = tmp_path / "transcript.jsonl"
     _make_transcript_jsonl(transcript, [
@@ -1036,14 +1209,13 @@ def test_ctx_worker_run_honors_combined_mode(tmp_path, monkeypatch):
     mock_run.assert_called_once()
     task_md = (sessions_dir / owrap_sid / "ctx" / ccsid / "input.md").read_text()
     assert "# Context" in task_md
-    assert "# Memory" in task_md
     assert "# Project" in task_md
+    assert "# Memory" not in task_md
 
 
-def test_run_manual_combined_mode_requires_research_and_area(tmp_path, monkeypatch):
+def test_run_manual_combined_mode_requires_explicit_target(tmp_path, monkeypatch):
     """
-    Combined mode (None) still needs research/area for the Protocol half
-    — same validation `--updr` alone already requires.
+    Combined mode requires a project or repository for the Protocol half.
     """
     _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
     ccsid = "claude-combined-noarea"
@@ -1068,6 +1240,240 @@ def test_run_manual_combined_mode_requires_research_and_area(tmp_path, monkeypat
     with pytest.raises(SystemExit) as exc_info:
         CtxWorkerRunner().run_manual(mode=None)
     assert exc_info.value.code == 1
+
+
+@pytest.mark.parametrize(
+    ("mode", "subproject", "expected_blocks"),
+    [
+        ("ctx", None, ("# Context",)),
+        ("updr", "custom", ("# Subproject: custom",)),
+        (None, None, ("# Context", "# Project: owrap")),
+    ],
+)
+def test_codex_manual_modes_dispatch_from_rollout(
+    tmp_path, monkeypatch, mode, subproject, expected_blocks,
+):
+    _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
+    cid = "codex-manual"
+    sid = "manual03"
+    (sessions_dir / f"{sid}.session").parent.mkdir(
+        parents=True, exist_ok=True,
+    )
+    (sessions_dir / f"{sid}.session").write_text(
+        f"session_id={sid}\ntarget_kind=project\nproject_id=owrap\n"
+        "subproject_id=\nworkspace=test\n"
+    )
+    pointer = sessions_dir / "by_codex_session_id" / cid
+    pointer.parent.mkdir(parents=True)
+    pointer.write_text(sid)
+    transcript = tmp_path / "rollout.jsonl"
+    _make_transcript_jsonl(transcript, [
+        {"type": "event_msg", "payload": {"type": "item_completed", "item": {
+            "type": "AgentMessage", "content": [
+                {"type": "text", "text": "Implemented Codex support"},
+            ],
+        }}},
+        {"type": "event_msg", "payload": {"type": "item_completed", "item": {
+            "type": "CommandExecution", "command": ["git", "status"],
+            "aggregated_output": " M owrap/README.md",
+        }}},
+        {"type": "event_msg", "payload": {"type": "item_completed", "item": {
+            "type": "FileChange", "changes": {"/tmp/project/file.py": {}},
+        }}},
+    ])
+    monkeypatch.setenv("CODEX_SESSION_ID", cid)
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.codex_transcript_path",
+        lambda session_id: transcript,
+    )
+    project_path = tmp_path / "project.md"
+    project_path.write_text("# Project\n\n## Status\nold\n")
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.resolve_memory_target",
+        lambda data: SimpleNamespace(
+            project_path=project_path,
+            project_id="owrap",
+            subproject_id=data.get("subproject_id", ""),
+        ),
+    )
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.touched_repository_paths",
+        lambda *args: {},
+    )
+
+    mock_popen = MagicMock()
+    with patch("owrap.commands.context_manager.subprocess.Popen", mock_popen):
+        CtxWorkerRunner().run_manual(mode=mode, subproject=subproject)
+
+    mock_popen.assert_called_once()
+    input_path = Path(mock_popen.call_args[0][0][5])
+    payload = json.loads(input_path.read_text())
+    assert payload["source"] == "codex"
+    assert payload["mode"] == mode
+    assert payload["subproject"] == subproject
+    assert "area" not in payload
+
+    mock_terminal_cls, mock_run = _patch_terminal()
+    with patch("owrap.commands.context_manager.Terminal", mock_terminal_cls):
+        CtxWorkerRunner().run(input_path=input_path)
+
+    mock_run.assert_called_once()
+    ctx_dir = sessions_dir / sid / "ctx" / cid
+    task = (ctx_dir / "input.md").read_text()
+    excerpt = (ctx_dir / "transcript.txt").read_text()
+    for block in expected_blocks:
+        assert block in task
+    assert ("# Context" in task) == (mode != "updr")
+    assert "Implemented Codex support" in excerpt
+    assert "$ git status" in excerpt
+    assert "[FileChange] /tmp/project/file.py" in excerpt
+
+
+def test_codex_rollout_extracts_assistant_messages_and_patch_paths():
+    lines = [json.dumps(entry) for entry in [
+        {"type": "response_item", "payload": {
+            "type": "message", "role": "user",
+            "content": [{"type": "input_text", "text": "Do the work"}],
+        }},
+        {"type": "response_item", "payload": {
+            "type": "message", "role": "assistant",
+            "content": [{"type": "output_text", "text": "Updated permit handling"}],
+        }},
+        {"type": "event_msg", "payload": {
+            "type": "patch_apply_end", "success": True,
+            "changes": {"/tmp/project/permit.py": {}},
+        }},
+    ]]
+
+    excerpt = CtxWorkerRunner()._extract_codex_excerpt_lines(lines, 0)
+
+    assert excerpt == [
+        "Updated permit handling",
+        "[FileChange] /tmp/project/permit.py",
+    ]
+
+
+def test_codex_rollout_ignores_context_update_turn():
+    lines = [json.dumps(entry) for entry in [
+        {"type": "event_msg", "payload": {
+            "type": "user_message", "message": "do another --uall to confirm",
+        }},
+        {"type": "response_item", "payload": {
+            "type": "message", "role": "assistant",
+            "content": [{"type": "output_text", "text": "I'll run it once more"}],
+        }},
+        {"type": "event_msg", "payload": {
+            "type": "patch_apply_end", "success": True,
+            "changes": {"/tmp/project/context_manager.py": {}},
+        }},
+        {"type": "event_msg", "payload": {
+            "type": "user_message", "message": "Fix the permit response",
+        }},
+        {"type": "response_item", "payload": {
+            "type": "message", "role": "assistant",
+            "content": [{"type": "output_text", "text": "Fixed permit response"}],
+        }},
+    ]]
+
+    excerpt = CtxWorkerRunner()._extract_codex_excerpt_lines(lines, 1)
+
+    assert excerpt == [
+        "[FileChange] /tmp/project/context_manager.py",
+        "Fixed permit response",
+    ]
+
+
+def test_claude_excerpt_ignores_context_update_turn_and_command():
+    lines = [json.dumps(entry) for entry in [
+        {"type": "user", "message": {"content": [
+            {"type": "text", "text": "run --ctx to update context"},
+        ]}},
+        {"type": "assistant", "message": {"content": [
+            {"type": "text", "text": "I'll run context update"},
+            {"type": "tool_use", "id": "ctx1", "name": "Bash",
+             "input": {"command": "~/bin/owrap updr --ctx"}},
+            {"type": "tool_use", "id": "edit1", "name": "Edit",
+             "input": {"file_path": "/tmp/project/context_manager.py"}},
+        ]}},
+        {"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "ctx1",
+             "content": "ctx+updr dispatch queued"},
+        ]}},
+        {"type": "user", "message": {"content": [
+            {"type": "text", "text": "Fix the permit response"},
+        ]}},
+        {"type": "assistant", "message": {"content": [
+            {"type": "text", "text": "Fixed permit response"},
+        ]}},
+    ]]
+
+    excerpt = CtxWorkerRunner()._extract_excerpt_lines(lines, 1)
+
+    assert excerpt == [
+        "[Edit] /tmp/project/context_manager.py",
+        "Fixed permit response",
+    ]
+
+
+def test_context_update_command_is_ignored_inside_other_work():
+    lines = [json.dumps(entry) for entry in [
+        {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "ctx1", "name": "Bash",
+             "input": {"command": "~/bin/owrap updr --ctx"}},
+            {"type": "tool_use", "id": "test1", "name": "Bash",
+             "input": {"command": "python3 -m pytest tests/test_permit.py"}},
+        ]}},
+        {"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "ctx1",
+             "content": "ctx+updr dispatch queued"},
+            {"type": "tool_result", "tool_use_id": "test1",
+             "content": "15 passed"},
+        ]}},
+    ]]
+
+    excerpt = CtxWorkerRunner()._extract_excerpt_lines(lines, 0)
+
+    assert excerpt == [
+        "$ python3 -m pytest tests/test_permit.py",
+        "-> 15 passed",
+    ]
+
+
+def test_codex_update_only_transcript_advances_offset(tmp_path, monkeypatch):
+    _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
+    sid, cid = "update01", "codex-update"
+    (sessions_dir / f"{sid}.session").parent.mkdir(
+        parents=True, exist_ok=True,
+    )
+    (sessions_dir / f"{sid}.session").write_text(
+        f"session_id={sid}\nresearch=testr\narea=testarea\n"
+    )
+    pointer = sessions_dir / "by_codex_session_id" / cid
+    pointer.parent.mkdir(parents=True)
+    pointer.write_text(sid)
+    transcript = tmp_path / "rollout.jsonl"
+    _make_transcript_jsonl(transcript, [
+        {"type": "event_msg", "payload": {
+            "type": "user_message", "message": "do another --uall to confirm",
+        }},
+        {"type": "response_item", "payload": {
+            "type": "message", "role": "assistant",
+            "content": [{"type": "output_text", "text": "I'll run it again"}],
+        }},
+    ])
+    input_path = tmp_path / "hook_input.json"
+    input_path.write_text(json.dumps({
+        "session_id": cid, "transcript_path": str(transcript),
+        "source": "codex",
+    }))
+
+    with patch("owrap.commands.context_manager.Terminal") as terminal:
+        CtxWorkerRunner().run(input_path=input_path)
+
+    terminal.assert_not_called()
+    counters = json.loads((sessions_dir / f"{sid}.{cid}.counters.json").read_text())
+    assert counters["transcript_offset"] == 2
 
 
 def test_ctx_worker_run_honors_mode_ctx_only(tmp_path, monkeypatch):
@@ -1111,11 +1517,11 @@ def test_ctx_dispatch_omits_model_flag_when_nothing_configured(
     assert "-m" not in cmd
 
 
-# --- Test: output validation and retry/fallback (item 9) ---
+# Output validation and retry
 
 def test_validate_output_rejects_missing_focus():
     runner = CtxWorkerRunner()
-    output = "# Project\n## main\n### Status\nok\n"
+    output = "# Project: owrap\n## Status\nok\n"
     assert not runner._validate_output(output, do_context=True, do_protocol=False)
 
 
@@ -1208,7 +1614,7 @@ def test_dispatch_leaves_excerpt_queued_when_all_attempts_fail(tmp_path, monkeyp
     assert not counters_path.exists()
 
 
-# --- Test: deterministic merge of model output (no model judgment) ---
+# Deterministic model output merge
 
 def test_merge_context_full_replaces_focus_and_environment(tmp_path):
     context_path = tmp_path / "context.md"
@@ -1271,65 +1677,7 @@ def test_merge_context_caps_key_locations_at_5(tmp_path, monkeypatch):
     assert "new.py" in text
 
 
-def test_merge_memory_appends_components_no_cap(tmp_path):
-    memory_path = tmp_path / "memory.md"
-    memory_path.write_text("## main\n### Components\n- a.py — role a\n")
-    output = "# Memory\n## main\n### Components\n- b.py — role b\n"
-    runner = CtxWorkerRunner()
-    runner._merge_memory(
-        split_top_sections(output, ("Context", "Memory", "Project"))["Memory"],
-        memory_path, "main", "myresearch",
-    )
-    text = memory_path.read_text()
-    assert "a.py — role a" in text
-    assert "b.py — role b" in text
-
-
-def test_merge_memory_appends_new_subsystem_block(tmp_path):
-    memory_path = tmp_path / "memory.md"
-    memory_path.write_text("## main\n### Components\n- a.py — role a\n")
-    output = (
-        "# Memory\n## main\n### Pool\n"
-        "- Pool at pool.py:10 — manages the server pool\n"
-    )
-    runner = CtxWorkerRunner()
-    runner._merge_memory(
-        split_top_sections(output, ("Context", "Memory", "Project"))["Memory"],
-        memory_path, "main", "myresearch",
-    )
-    text = memory_path.read_text()
-    assert "### Components" in text
-    assert "### Pool" in text
-    assert "manages the server pool" in text
-
-
-def test_merge_project_replaces_status_and_dates_decisions(tmp_path):
-    projects_path = tmp_path / "projects.md"
-    projects_path.write_text(
-        "## main\n### Status\nold status\n\n### Decisions\n"
-        "| 2026-01-01 | old decision | old reason |\n",
-    )
-    output = (
-        "# Project\n## main\n### Status\nnew status\n"
-        "### Decisions\n- new decision — new reason\n"
-    )
-    runner = CtxWorkerRunner()
-    runner._merge_project(
-        split_top_sections(output, ("Context", "Memory", "Project"))["Project"],
-        projects_path, "main", "myresearch",
-    )
-    text = projects_path.read_text()
-    assert "new status" in text and "old status" not in text
-    # old decision preserved (Decisions is a log, not a snapshot)
-    assert "old decision" in text
-    # new decision gets dated by code, not the model, and prepended (newest-first)
-    import time
-    today = time.strftime("%Y-%m-%d")
-    assert f"| {today} | new decision | new reason |" in text
-    assert text.index("new decision") < text.index("old decision")
-
-
-# --- Test: Key Locations staleness pruning (item 12) ---
+# Key location pruning
 
 def test_key_location_still_exists_true_for_real_path(tmp_path, monkeypatch):
     monkeypatch.setattr(
@@ -1378,15 +1726,7 @@ def test_merge_context_prunes_stale_key_location(tmp_path, monkeypatch):
     assert "long_gone.py" not in text
 
 
-def test_merge_project_dedupes_decisions_by_text():
-    runner = CtxWorkerRunner()
-    today = "2026-10-01"
-    row = runner._decision_row("- same decision — some reason", today)
-    assert row == "| 2026-10-01 | same decision | some reason |"
-    assert runner._decision_row_key(row) == "same decision"
-
-
-# --- Test: merges are single-writer locked (item 5) ---
+# Merge locking
 
 def test_merge_context_acquires_context_lock(tmp_path):
     from owrap.utils.paths import context_lock_path
@@ -1399,29 +1739,3 @@ def test_merge_context_acquires_context_lock(tmp_path):
         context_path, "sid1",
     )
     assert context_lock_path("sid1").exists()
-
-
-def test_merge_memory_acquires_memory_lock(tmp_path):
-    from owrap.utils.paths import memory_lock_path
-    memory_path = tmp_path / "memory.md"
-    memory_path.write_text("## main\n### Components\n- a.py — role a\n")
-    output = "# Memory\n## main\n### Components\n- b.py — role b\n"
-    runner = CtxWorkerRunner()
-    runner._merge_memory(
-        split_top_sections(output, ("Context", "Memory", "Project"))["Memory"],
-        memory_path, "main", "myresearch",
-    )
-    assert memory_lock_path("myresearch").exists()
-
-
-def test_merge_project_acquires_projects_lock(tmp_path):
-    from owrap.utils.paths import projects_lock_path
-    projects_path = tmp_path / "projects.md"
-    projects_path.write_text("## main\n### Status\nold\n")
-    output = "# Project\n## main\n### Status\nnew\n"
-    runner = CtxWorkerRunner()
-    runner._merge_project(
-        split_top_sections(output, ("Context", "Memory", "Project"))["Project"],
-        projects_path, "main", "myresearch",
-    )
-    assert projects_lock_path("myresearch").exists()

@@ -2,15 +2,50 @@ import os
 import sys
 import subprocess
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
+
+
+def test_pytest_state_and_log_stay_in_dev_files():
+    from owrap.utils.paths import OWRAP_HOME, RUNTIME_LOG, POOL_FILE, _read_config
+
+    dev_root = Path(__file__).resolve().parents[1]
+    assert OWRAP_HOME.is_relative_to(dev_root / "files" / "test-runs")
+    assert RUNTIME_LOG == OWRAP_HOME / "runtime" / "runtime.log"
+    assert POOL_FILE == OWRAP_HOME / "runtime" / "pool.json"
+    assert _read_config()["server_port_base"] == 15096
 
 
 def test_context_path_under_context_dir():
     from owrap.utils.paths import context_path, SESSIONS_DIR
     p = context_path("abc123")
     assert p == SESSIONS_DIR / "abc123" / "context.md"
+
+
+def test_session_and_fallback_paths_share_session_root(isolate_owrap_dirs):
+    from owrap.utils.paths import (
+        EXEC_LOG, FALLBACK_DIR, READ_LOG, RUN_DIR, SESSIONS_DIR,
+    )
+
+    assert SESSIONS_DIR == isolate_owrap_dirs["SESSIONS_DIR"]
+    assert FALLBACK_DIR == SESSIONS_DIR / "f"
+    assert RUN_DIR == FALLBACK_DIR / "run"
+    assert EXEC_LOG == FALLBACK_DIR / "exec" / "log.md"
+    assert READ_LOG == FALLBACK_DIR / "read" / "log.md"
+
+
+def test_session_dir_reads_legacy_artifacts(tmp_path, monkeypatch):
+    from owrap.utils import paths
+
+    current = tmp_path / "sessions"
+    legacy = tmp_path / "docs" / "sessions"
+    (legacy / "abc123").mkdir(parents=True)
+    monkeypatch.setattr(paths, "SESSIONS_DIR", current)
+    monkeypatch.setattr(paths, "LEGACY_SESSIONS_DIR", legacy)
+
+    assert paths.session_dir("abc123") == legacy / "abc123"
+    assert paths.session_dir("new123") == current / "new123"
 
 
 def test_context_lock_path_under_context_dir():
@@ -50,13 +85,13 @@ def test_server_logs_dir_under_runtime_home():
 
 
 def test_resolve_general_instruction_path_returns_claude_md(tmp_path):
-    from owrap.utils.paths import resolve_general_instruction_path, get_claude_md_path
+    from owrap.utils.paths import resolve_general_instruction_path
     with patch("owrap.utils.paths._read_config", return_value={"default_workspace": "x"}):
         with patch("owrap.utils.paths.get_workspace_config", return_value={"workspace": str(tmp_path)}):
             (tmp_path / "CLAUDE.md").write_text("# test")
             (tmp_path / "AGENTS.md").write_text("# test")
-            with patch("owrap.utils.session.session_resolver._parse", return_value={"claude_session_id": "abc123"}):
-                with patch("owrap.utils.session.session_resolver.session_file", return_value=tmp_path / "sid.session"):
+            with patch("owrap.utils.session.resolver._parse", return_value={"claude_session_id": "abc123"}):
+                with patch("owrap.utils.session.resolver.session_file", return_value=tmp_path / "sid.session"):
                     result = resolve_general_instruction_path("test123")
                     assert result is not None
                     assert result.name == "CLAUDE.md"
@@ -67,8 +102,8 @@ def test_resolve_general_instruction_path_returns_agents_md(tmp_path):
     with patch("owrap.utils.paths._read_config", return_value={"default_workspace": "x"}):
         with patch("owrap.utils.paths.get_workspace_config", return_value={"workspace": str(tmp_path)}):
             (tmp_path / "AGENTS.md").write_text("# test")
-            with patch("owrap.utils.session.session_resolver._parse", return_value={}):
-                with patch("owrap.utils.session.session_resolver.session_file", return_value=tmp_path / "sid.session"):
+            with patch("owrap.utils.session.resolver._parse", return_value={}):
+                with patch("owrap.utils.session.resolver.session_file", return_value=tmp_path / "sid.session"):
                     result = resolve_general_instruction_path("test123")
                     assert result is not None
                     assert result.name == "AGENTS.md"

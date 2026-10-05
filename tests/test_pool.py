@@ -1,12 +1,33 @@
 import json
 import os
 import time
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from owrap.manager import Manager
+
+
+def test_dev_port_range_does_not_use_live_port():
+    from owrap.utils.dispatch.pool import _next_port
+
+    config = {"max_servers": 2, "server_port_base": 5096}
+    with patch("owrap.utils.dispatch.pool._read_config", return_value=config):
+        assert _next_port([]) == 5096
+        assert _next_port([{"port": 5096}]) == 5097
+
+
+def test_single_server_uses_configured_port():
+    manager = Manager.__new__(Manager)
+    with (
+        patch("owrap.manager._read_config", return_value={"server_port_base": 5096}),
+        patch.object(
+            manager, "_kill_port_occupant", side_effect=RuntimeError("stopped"),
+        ) as kill,
+    ):
+        with pytest.raises(RuntimeError, match="stopped"):
+            manager.start()
+    kill.assert_called_once_with(5096)
 
 
 def test_pool_active_false_when_no_pool_file():
@@ -22,7 +43,7 @@ def test_pool_active_true_when_configured():
 
 
 def test_shutdown_idle_respects_min_n(tmp_path):
-    from owrap.utils.dispatch.pool import shutdown_idle, POOL_FILE, POOL_LOCK_FILE
+    from owrap.utils.dispatch.pool import shutdown_idle
 
     pool = [
         {"pid": os.getpid(), "url": f"http://localhost:{4096+i}", "port": 4096+i, "last_used": 0}
@@ -44,7 +65,7 @@ def test_shutdown_idle_respects_min_n(tmp_path):
 
 
 def test_shutdown_idle_killed_counter(tmp_path):
-    from owrap.utils.dispatch.pool import shutdown_idle, POOL_FILE, POOL_LOCK_FILE
+    from owrap.utils.dispatch.pool import shutdown_idle
 
     pool = [
         {"pid": os.getpid(), "url": f"http://localhost:{4096+i}", "port": 4096+i, "last_used": 0}
@@ -66,7 +87,7 @@ def test_shutdown_idle_killed_counter(tmp_path):
 
 
 def test_update_last_used(tmp_path):
-    from owrap.utils.dispatch.pool import update_last_used, POOL_FILE, POOL_LOCK_FILE
+    from owrap.utils.dispatch.pool import update_last_used
 
     before = time.time() - 100
     pool = [{"pid": 999, "url": "http://localhost:4096", "port": 4096, "last_used": before}]
@@ -98,7 +119,7 @@ def test_trim_logs_keeps_max(tmp_path):
 
 
 def test_shutdown_idle_preserves_reserved_entries(tmp_path):
-    from owrap.utils.dispatch.pool import shutdown_idle, POOL_FILE, POOL_LOCK_FILE
+    from owrap.utils.dispatch.pool import shutdown_idle
 
     now = time.time()
     pool = [

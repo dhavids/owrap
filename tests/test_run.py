@@ -1,4 +1,3 @@
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -6,10 +5,10 @@ import pytest
 
 
 def test_run_runner_msg_validation_newlines(mock_manager):
-    from owrap.commands.run_cmd import RunRunner
+    from owrap.commands.run import RunRunner
 
-    with patch("owrap.commands.run_cmd.Terminal") as mock_terminal_cls, \
-         patch("owrap.commands.run_cmd._pool_active", return_value=False):
+    with patch("owrap.commands.run.Terminal") as mock_terminal_cls, \
+         patch("owrap.commands.run._pool_active", return_value=False):
         mock_terminal_cls.return_value = MagicMock()
         runner = RunRunner(mock_manager)
         with pytest.raises(SystemExit):
@@ -18,11 +17,11 @@ def test_run_runner_msg_validation_newlines(mock_manager):
 
 
 def test_run_runner_msg_validation_length(mock_manager):
-    from owrap.commands.run_cmd import RunRunner
+    from owrap.commands.run import RunRunner
     from owrap.constants import MSG_MAX_CHARS
 
-    with patch("owrap.commands.run_cmd.Terminal") as mock_terminal_cls, \
-         patch("owrap.commands.run_cmd._pool_active", return_value=False):
+    with patch("owrap.commands.run.Terminal") as mock_terminal_cls, \
+         patch("owrap.commands.run._pool_active", return_value=False):
         mock_terminal_cls.return_value = MagicMock()
         runner = RunRunner(mock_manager)
         with pytest.raises(SystemExit):
@@ -33,13 +32,13 @@ def test_run_runner_msg_validation_length(mock_manager):
 def test_run_runner_msg_mode_calls_opencode(mock_manager):
     mock_manager.ensure_running.return_value = "http://localhost:4096"
 
-    with patch("owrap.commands.run_cmd.Terminal") as mock_terminal_cls, \
-         patch("owrap.commands.run_cmd._pool_active", return_value=False):
+    with patch("owrap.commands.run.Terminal") as mock_terminal_cls, \
+         patch("owrap.commands.run._pool_active", return_value=False):
         mock_terminal = MagicMock()
         mock_terminal.run.return_value = {"returncode": 0, "stdout": ""}
         mock_terminal_cls.return_value = mock_terminal
 
-        from owrap.commands.run_cmd import RunRunner
+        from owrap.commands.run import RunRunner
 
         runner = RunRunner(mock_manager)
         runner.disablewd = True
@@ -58,13 +57,13 @@ def test_run_runner_msg_mode_fallback_without_url(tmp_path, mock_manager):
     task_dir = tmp_path / "run"
     task_dir.mkdir()
 
-    with patch("owrap.commands.run_cmd.Terminal") as mock_terminal_cls, \
-         patch("owrap.commands.run_cmd._pool_active", return_value=False):
+    with patch("owrap.commands.run.Terminal") as mock_terminal_cls, \
+         patch("owrap.commands.run._pool_active", return_value=False):
         mock_terminal = MagicMock()
         mock_terminal.run.return_value = {"returncode": 0, "stdout": ""}
         mock_terminal_cls.return_value = mock_terminal
 
-        from owrap.commands.run_cmd import RunRunner
+        from owrap.commands.run import RunRunner
 
         runner = RunRunner(mock_manager)
         runner.TASKS_DIR = task_dir
@@ -95,13 +94,13 @@ def test_run_runner_task_mode_creates_task_file(tmp_path, mock_manager):
 
     mock_manager.ensure_running.return_value = "http://localhost:4096"
 
-    with patch("owrap.commands.run_cmd.Terminal") as mock_terminal_cls, \
-         patch("owrap.commands.run_cmd._pool_active", return_value=False):
+    with patch("owrap.commands.run.Terminal") as mock_terminal_cls, \
+         patch("owrap.commands.run._pool_active", return_value=False):
         mock_terminal = MagicMock()
         mock_terminal.run.return_value = {"returncode": 0, "stdout": ""}
         mock_terminal_cls.return_value = mock_terminal
 
-        from owrap.commands.run_cmd import RunRunner
+        from owrap.commands.run import RunRunner
 
         runner = RunRunner(mock_manager)
         runner.INPUT_FILE = input_file
@@ -114,7 +113,7 @@ def test_run_runner_task_mode_creates_task_file(tmp_path, mock_manager):
 
         task_name = "task_20260613_120000_000001.md"
         task_file = tasks_dir / task_name
-        # _run_task deletes the task file on successful completion (run_cmd.py:394)
+        # _run_task deletes the task file on successful completion (run.py:394)
         assert not task_file.exists(), f"expected task file cleaned up at {task_file}"
         assert input_file.read_text() == ""
 
@@ -125,9 +124,11 @@ def test_run_runner_task_mode_creates_task_file(tmp_path, mock_manager):
 
 
 def test_run_runner_no_global_run_dir_side_effect(tmp_path, mock_manager):
-    """Regression: _run_task must not create the real ~/.owrap/docs/run/ directory."""
+    """
+    Keep task execution from creating a global run directory.
+    """
     import shutil
-    from owrap.commands.run_cmd import RunRunner
+    from owrap.commands.run import RunRunner
     from owrap.utils.paths import session_tasks_dir, session_task_output_dir
 
     sesh = mock_manager.session_id
@@ -145,8 +146,8 @@ def test_run_runner_no_global_run_dir_side_effect(tmp_path, mock_manager):
 
     mock_manager.ensure_running.return_value = "http://localhost:4096"
 
-    with patch("owrap.commands.run_cmd.Terminal") as mock_terminal_cls, \
-         patch("owrap.commands.run_cmd._pool_active", return_value=False):
+    with patch("owrap.commands.run.Terminal") as mock_terminal_cls, \
+         patch("owrap.commands.run._pool_active", return_value=False):
         mock_terminal = MagicMock()
         mock_terminal.run.return_value = {"returncode": 0, "stdout": ""}
         mock_terminal_cls.return_value = mock_terminal
@@ -164,8 +165,8 @@ def test_run_runner_task_mode_empty_input(tmp_path, mock_manager):
     input_file = tmp_path / "input.md"
     input_file.write_text("")
 
-    with patch("owrap.commands.run_cmd._pool_active", return_value=False):
-        from owrap.commands.run_cmd import RunRunner
+    with patch("owrap.commands.run._pool_active", return_value=False):
+        from owrap.commands.run import RunRunner
 
         runner = RunRunner(mock_manager)
         runner.INPUT_FILE = input_file
@@ -188,13 +189,13 @@ def test_run_runner_task_mode_prints_donow_on_failure(tmp_path, mock_manager, ca
 
     mock_manager.ensure_running.return_value = "http://localhost:4096"
 
-    with patch("owrap.commands.run_cmd.Terminal") as mock_terminal_cls, \
-         patch("owrap.commands.run_cmd._pool_active", return_value=False):
+    with patch("owrap.commands.run.Terminal") as mock_terminal_cls, \
+         patch("owrap.commands.run._pool_active", return_value=False):
         mock_terminal = MagicMock()
         mock_terminal.run.return_value = {"returncode": 1, "stdout": ""}
         mock_terminal_cls.return_value = mock_terminal
 
-        from owrap.commands.run_cmd import RunRunner
+        from owrap.commands.run import RunRunner
 
         runner = RunRunner(mock_manager)
         runner.INPUT_FILE = input_file

@@ -1,21 +1,16 @@
-import json
-import os
-import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from owrap.manager import Manager
-
-
 def test_msg_too_long_prints_explicit_options(mock_manager, capsys):
-    """MSG_TOO_LONG: msg > 1536 prints a self-contained error stating both
-    remediation options."""
+    """
+    Print both remediation options when a message exceeds 1536 characters.
+    """
     mock_manager.ensure_running.return_value = "http://localhost:4096"
 
-    from owrap.commands.run_cmd import RunRunner
+    from owrap.commands.run import RunRunner
     runner = RunRunner(mock_manager)
 
     with patch("owrap.utils.paths.get_self_path", return_value=Path("/tmp/fake_self.md")), \
@@ -31,12 +26,14 @@ def test_msg_too_long_prints_explicit_options(mock_manager, capsys):
 
 
 def test_input_empty_prints_donow(mock_manager, capsys, tmp_path):
-    """INPUT_EMPTY: empty input prints #DO NOW."""
+    """
+    Print the recovery pointer for empty input.
+    """
     input_file = tmp_path / "input.md"
     input_file.write_text("")
 
-    with patch("owrap.commands.run_cmd._pool_active", return_value=False):
-        from owrap.commands.run_cmd import RunRunner
+    with patch("owrap.commands.run._pool_active", return_value=False):
+        from owrap.commands.run import RunRunner
         runner = RunRunner(mock_manager)
 
         with patch("owrap.utils.paths.get_self_path", return_value=Path("/tmp/fake_self.md")), \
@@ -50,16 +47,18 @@ def test_input_empty_prints_donow(mock_manager, capsys, tmp_path):
 
 
 def test_timed_out_prints_timeout_message(mock_manager, capsys):
-    """Timeout prints the timeout message, no #DO NOW pointer."""
+    """
+    Print the timeout message without a recovery pointer.
+    """
     mock_manager.ensure_running.return_value = "http://localhost:4096"
 
-    with patch("owrap.commands.run_cmd.Terminal") as mock_terminal_cls, \
-         patch("owrap.commands.run_cmd._pool_active", return_value=False):
+    with patch("owrap.commands.run.Terminal") as mock_terminal_cls, \
+         patch("owrap.commands.run._pool_active", return_value=False):
         mock_terminal = MagicMock()
         mock_terminal.run.return_value = {"returncode": 1, "stdout": "partial output here", "timed_out": True}
         mock_terminal_cls.return_value = mock_terminal
 
-        from owrap.commands.run_cmd import RunRunner
+        from owrap.commands.run import RunRunner
         runner = RunRunner(mock_manager)
 
         with patch("owrap.utils.paths.get_self_path", return_value=Path("/tmp/fake_self.md")), \
@@ -74,12 +73,14 @@ def test_timed_out_prints_timeout_message(mock_manager, capsys):
 
 
 def test_no_server_prints_donow(mock_manager, capsys):
-    """NO_SERVER: pick_server failure prints #DO NOW."""
+    """
+    Print the recovery pointer when no server is available.
+    """
     mock_manager.ensure_running.return_value = "http://localhost:4096"
 
-    with patch("owrap.commands.run_cmd._pool_active", return_value=True), \
-         patch("owrap.commands.run_cmd.pick_server", side_effect=RuntimeError("no servers")):
-        from owrap.commands.run_cmd import RunRunner
+    with patch("owrap.commands.run._pool_active", return_value=True), \
+         patch("owrap.commands.run.pick_server", side_effect=RuntimeError("no servers")):
+        from owrap.commands.run import RunRunner
         runner = RunRunner(mock_manager)
 
         with patch("owrap.utils.paths.get_self_path", return_value=Path("/tmp/fake_self.md")), \
@@ -93,7 +94,9 @@ def test_no_server_prints_donow(mock_manager, capsys):
 
 
 def test_owrap_not_found_prints_error():
-    """owrap runner surfaces actionable error when opencode is not found."""
+    """
+    Surface an actionable error when opencode is unavailable.
+    """
     with patch.object(sys, "argv", ["owrap", "run", "--msg", "test"]), \
          patch("shutil.which", return_value=None):
         from owrap.runner import main as runner_main
@@ -103,7 +106,9 @@ def test_owrap_not_found_prints_error():
 
 
 def test_format_failure_pointer_validation():
-    """Each FAILURE_POINTERS entry has valid target and section."""
+    """
+    Require valid targets and sections in failure pointers.
+    """
     from owrap.constants import FAILURE_POINTERS
     from owrap.utils.paths import get_self_path, resolve_general_instruction_path
 

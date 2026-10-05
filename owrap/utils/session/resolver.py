@@ -1,15 +1,16 @@
 import difflib
+import json
 import os
 import secrets
 import sys
 import time
 from pathlib import Path
 
-from ..paths import SESSION_DIR
+from ..paths import SESSIONS_DIR
 
-SESSIONS_DIR = SESSION_DIR / "sessions"
 BY_CCSID_DIR = SESSIONS_DIR / "by_ccsid"
 BY_OPENCODE_RUN_ID_DIR = SESSIONS_DIR / "by_opencode_run_id"
+BY_CODEX_SESSION_ID_DIR = SESSIONS_DIR / "by_codex_session_id"
 
 
 def _parse(path: Path) -> dict:
@@ -42,6 +43,20 @@ def opencode_run_id_pointer(oid: str) -> Path:
     return BY_OPENCODE_RUN_ID_DIR / oid
 
 
+def codex_session_id_pointer(cid: str) -> Path:
+    return BY_CODEX_SESSION_ID_DIR / cid
+
+
+def owrap_sid_for_codex_session_id(cid: str) -> str | None:
+    """
+    Resolve the owrap session attached to a Codex session.
+    """
+    if not cid:
+        return None
+    ptr = codex_session_id_pointer(cid)
+    return ptr.read_text().strip() or None if ptr.exists() else None
+
+
 def mint_session_id() -> str:
     return secrets.token_hex(3)
 
@@ -65,12 +80,12 @@ def owrap_sid_for_ccsid(ccsid: str) -> str | None:
 
 def list_sessions() -> list:
     """
-    Return list of {session_id, claude_session_id, opencode_run_id,
-    research, started, last_refresh, owned_by_current}.
+    Return session records with ownership for the current window.
     """
     out = []
     cur_ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
     cur_oid = os.environ.get("OPENCODE_RUN_ID", "")
+    cur_cid = os.environ.get("CODEX_SESSION_ID", "")
     if SESSIONS_DIR.exists():
         for sf in sorted(SESSIONS_DIR.glob("*.session")):
             d = _parse(sf)
@@ -78,20 +93,19 @@ def list_sessions() -> list:
             d["session_id"] = sid
             owned_by_ccsid = (cur_ccsid and d.get("claude_session_id") == cur_ccsid)
             owned_by_oid = (cur_oid and d.get("opencode_run_id") == cur_oid)
-            d["owned_by_current"] = owned_by_ccsid or owned_by_oid
+            owned_by_cid = (cur_cid and d.get("codex_session_id") == cur_cid)
+            d["owned_by_current"] = owned_by_ccsid or owned_by_oid or owned_by_cid
             out.append(d)
     return out
 
 
 def resolve(mode: str) -> tuple:
-    """Resolve session_id for current call.
-    Returns (session_id, session_file_path, source).
-
-    mode='start':   env SESSION_ID -> by_ccsid -> MINT new (writes both files).
-    mode='refresh': env SESSION_ID -> by_ccsid -> returns (None, None, 'missing').
+    """
+    Resolve the current owrap session, minting one in start mode.
     """
     env_sid = os.environ.get("SESSION_ID", "").strip()
     ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
+    cid = os.environ.get("CODEX_SESSION_ID", "").strip()
 
     if env_sid:
         sf = session_file(env_sid)
@@ -119,6 +133,15 @@ def resolve(mode: str) -> tuple:
             # stale pointer; clean it
             ptr.unlink(missing_ok=True)
 
+    if cid:
+        ptr = codex_session_id_pointer(cid)
+        if ptr.exists():
+            sid = ptr.read_text().strip()
+            sf = session_file(sid)
+            if sf.exists():
+                return sid, sf, "codex_session_id"
+            ptr.unlink(missing_ok=True)
+
     if mode == "start":
         sid = mint_session_id()
         sf = session_file(sid)
@@ -126,6 +149,7 @@ def resolve(mode: str) -> tuple:
             "session_id": sid,
             "claude_session_id": ccsid,
             "opencode_run_id": oid,
+            "codex_session_id": cid,
             "started": time.strftime("%Y-%m-%dT%H:%M:%S"),
         }
         _write(sf, data)
@@ -135,6 +159,9 @@ def resolve(mode: str) -> tuple:
         if oid:
             BY_OPENCODE_RUN_ID_DIR.mkdir(parents=True, exist_ok=True)
             opencode_run_id_pointer(oid).write_text(sid)
+        if cid:
+            BY_CODEX_SESSION_ID_DIR.mkdir(parents=True, exist_ok=True)
+            codex_session_id_pointer(cid).write_text(sid)
         return sid, sf, "minted"
 
     return None, None, "missing"
@@ -148,7 +175,7 @@ def _bind_anchor(
     session_key: str,
 ) -> str | None:
     """
-    Bind target_sid to an environment anchor (CCSID or OPENCODE_RUN_ID).
+    Bind target_sid to an environment anchor.
 
     Many anchors of the same type may point at target_sid at once (multi-
     attach); each individual anchor still points at only one session, so
@@ -227,6 +254,11 @@ def _suggest_attach_targets(token: str, sessions: list) -> list:
         candidates.add(s.get("session_id", ""))
         candidates.add(s.get("research", ""))
         candidates.add(s.get("area", ""))
+        candidates.add(s.get("project_id", ""))
+        candidates.add(s.get("subproject_id", ""))
+        candidates.add(s.get("repository_id", ""))
+        if s.get("project_id") and s.get("subproject_id"):
+            candidates.add(f"{s['project_id']}/{s['subproject_id']}")
     candidates.discard("")
 
     substring = [c for c in candidates if token.lower() in c.lower()]
@@ -257,11 +289,20 @@ def resolve_attach_target(token: str) -> tuple:
         return "session_id", token
 
     sessions = list_sessions()
-    research_matches = [s for s in sessions if s.get("research") == token]
-    area_matches = [s for s in sessions if s.get("area") == token]
+    fields = (
+        "research", "area", "project_id", "subproject_id", "repository_id",
+    )
+    field_matches = [
+        s for s in sessions if any(s.get(field) == token for field in fields)
+    ]
+    field_matches.extend(
+        s for s in sessions
+        if s.get("project_id") and s.get("subproject_id")
+        and f"{s['project_id']}/{s['subproject_id']}" == token
+    )
 
     seen = {}
-    for s in research_matches + area_matches:
+    for s in field_matches:
         seen[s["session_id"]] = s
     matches = list(seen.values())
 
@@ -270,16 +311,18 @@ def resolve_attach_target(token: str) -> tuple:
     if len(matches) == 1:
         return "unique", matches[0]
 
-    researches = {s.get("research", "") for s in matches}
-    areas = {s.get("area", "") for s in matches}
-    if len(researches) == 1 and len(areas) > 1:
-        differential = "area"
-    elif len(areas) == 1 and len(researches) > 1:
-        differential = "research"
-    else:
-        differential = "multi"
+    varying = [
+        field for field in (
+            "project_id", "subproject_id", "repository_id", "research", "area",
+        )
+        if len({s.get(field, "") for s in matches}) > 1
+    ]
+    differential = varying[0] if len(varying) == 1 else "multi"
 
-    matches.sort(key=lambda s: (s.get("research", ""), s.get("area", "")))
+    matches.sort(key=lambda s: (
+        s.get("project_id", ""), s.get("subproject_id", ""),
+        s.get("research", ""), s.get("area", ""),
+    ))
     return "ambiguous", (differential, matches)
 
 
@@ -294,12 +337,15 @@ def format_ambiguous_attach_error(target: str, differential: str, matches: list)
         f"(differing by {differential}) - results:",
     ]
     for s in matches:
-        if differential == "area":
-            label = s.get("area", "-")
-        elif differential == "research":
-            label = s.get("research", "-")
+        if differential != "multi":
+            label = s.get(differential, "-")
         else:
-            label = f"research={s.get('research', '-')} area={s.get('area', '-')}"
+            label = (
+                f"project={s.get('project_id', '-')} "
+                f"subproject={s.get('subproject_id', '-')} "
+                f"repository={s.get('repository_id', '-')} "
+                f"research={s.get('research', '-')} area={s.get('area', '-')}"
+            )
         lines.append(f"  {label:<24} session={s['session_id']}")
     return "\n".join(lines)
 
@@ -312,9 +358,18 @@ def print_known_sessions():
     for s in list_sessions():
         ccsid_val = s.get("claude_session_id", "-")
         _cc = ccsid_val[:8] if ccsid_val != "-" else "-"
+        identity = ""
+        if s.get("target_kind") == "project":
+            identity = (
+                f" project={s.get('project_id', '-')}"
+                f"/{s.get('subproject_id') or 'main'}"
+            )
+        elif s.get("target_kind") == "repository":
+            identity = f" repository={s.get('repository_id', '-')}"
         print(
             f"  {s['session_id']}  research={s.get('research', '-')}  "
-            f"area={s.get('area', '-')}  started={s.get('started', '-')}  ccsid={_cc}",
+            f"area={s.get('area', '-')}  started={s.get('started', '-')}  "
+            f"ccsid={_cc}{identity}",
         )
 
 
@@ -345,22 +400,11 @@ def resolve_session_or_exit(token: str, print_known_on_none: bool = False) -> st
 
 def attach(target_sid: str) -> tuple:
     """
-    Bind target_sid to the caller's identity anchor.
-
-    Priority: ccsid (CLAUDE_CODE_SESSION_ID) > oid (OPENCODE_RUN_ID) > parent
-    PID (same-call fallback only — never persisted as a resolvable pointer).
-    Multiple ccsids (or multiple oids) may attach to the same target_sid at
-    once — multi-attach is allowed within one anchor type. Whichever anchor
-    type wins for this call, any existing pointer of the OTHER type that
-    references this session is cleared, and its field in the session file is
-    cleared too — a session is claimed by one anchor type at a time, ccsid or
-    oid, never both.
-
-    Returns (target_sid, target_session_file, prev_sid_for_the_winning_anchor).
-    Raises FileNotFoundError if target session file missing.
+    Bind a session to the caller's Claude, OpenCode, or Codex identity.
     """
     ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
     oid = os.environ.get("OPENCODE_RUN_ID", "").strip()
+    cid = os.environ.get("CODEX_SESSION_ID", "").strip()
     sf = session_file(target_sid)
     if not sf.exists():
         raise FileNotFoundError(f"session not found: {target_sid}")
@@ -374,21 +418,37 @@ def attach(target_sid: str) -> tuple:
             ccsid_pointer(ccsid), "claude_session_id",
         )
         _clear_anchor(target_sid, BY_OPENCODE_RUN_ID_DIR)
+        _clear_anchor(target_sid, BY_CODEX_SESSION_ID_DIR)
         d["claude_session_id"] = ccsid
         d["opencode_run_id"] = ""
+        d["codex_session_id"] = ""
     elif oid:
         prev_sid = _bind_anchor(
             target_sid, oid, BY_OPENCODE_RUN_ID_DIR,
             opencode_run_id_pointer(oid), "opencode_run_id",
         )
         _clear_anchor(target_sid, BY_CCSID_DIR)
+        _clear_anchor(target_sid, BY_CODEX_SESSION_ID_DIR)
         d["opencode_run_id"] = oid
         d["claude_session_id"] = ""
+        d["codex_session_id"] = ""
+    elif cid:
+        prev_sid = _bind_anchor(
+            target_sid, cid, BY_CODEX_SESSION_ID_DIR,
+            codex_session_id_pointer(cid), "codex_session_id",
+        )
+        _clear_anchor(target_sid, BY_CCSID_DIR)
+        _clear_anchor(target_sid, BY_OPENCODE_RUN_ID_DIR)
+        d["codex_session_id"] = cid
+        d["claude_session_id"] = ""
+        d["opencode_run_id"] = ""
     else:
         _clear_anchor(target_sid, BY_CCSID_DIR)
         _clear_anchor(target_sid, BY_OPENCODE_RUN_ID_DIR)
+        _clear_anchor(target_sid, BY_CODEX_SESSION_ID_DIR)
         d["claude_session_id"] = ""
         d["opencode_run_id"] = ""
+        d["codex_session_id"] = ""
         d["attached_ppid"] = str(os.getppid())
 
     d["last_attach"] = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -398,14 +458,11 @@ def attach(target_sid: str) -> tuple:
 
 def detach() -> str | None:
     """
-    Release the caller's ccsid/oid pointer from whatever session it is
-    attached to, leaving any other window still attached to that session
-    untouched.
-
-    Returns the session id detached from, or None if not attached to any.
+    Release the caller's session pointer and return its owrap session ID.
     """
     ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
     oid = os.environ.get("OPENCODE_RUN_ID", "").strip()
+    cid = os.environ.get("CODEX_SESSION_ID", "").strip()
 
     sid = None
     if ccsid:
@@ -415,6 +472,11 @@ def detach() -> str | None:
             ptr.unlink(missing_ok=True)
     if not sid and oid:
         ptr = opencode_run_id_pointer(oid)
+        if ptr.exists():
+            sid = ptr.read_text().strip()
+            ptr.unlink(missing_ok=True)
+    if not sid and cid:
+        ptr = codex_session_id_pointer(cid)
         if ptr.exists():
             sid = ptr.read_text().strip()
             ptr.unlink(missing_ok=True)
@@ -429,6 +491,8 @@ def detach() -> str | None:
             d["claude_session_id"] = remaining[-1] if remaining else ""
         if oid and d.get("opencode_run_id") == oid:
             d["opencode_run_id"] = ""
+        if cid and d.get("codex_session_id") == cid:
+            d["codex_session_id"] = ""
         _write(sf, d)
     return sid
 
@@ -445,15 +509,74 @@ def update_session_field(session_id: str, key: str, value: str):
     _write(sf, d)
 
 
+def set_session_identity(
+    session_id: str,
+    *,
+    project_id: str | None = None,
+    subproject_id: str | None = None,
+    repository_id: str | None = None,
+    repositories: list[str] | None = None,
+    branch_parent: str | None = None,
+    branch_repository: str | None = None,
+    branch_ref: str | None = None,
+) -> None:
+    """
+    Store an explicit project or repository target on a session.
+    """
+    if bool(project_id) == bool(repository_id):
+        raise ValueError("choose exactly one project or repository target")
+    if repository_id and (
+        subproject_id or branch_parent or branch_repository or branch_ref
+    ):
+        raise ValueError("repository-only sessions cannot have a subproject")
+    if subproject_id and not project_id:
+        raise ValueError("subproject requires a project")
+    if branch_parent and not subproject_id:
+        raise ValueError("branch parent requires a subproject")
+    if branch_parent and branch_parent == subproject_id:
+        raise ValueError("branch subproject cannot be its own parent")
+    if bool(branch_parent) != bool(branch_repository) or (
+        bool(branch_parent) != bool(branch_ref)
+    ):
+        raise ValueError("branch requires parent, repository, and ref")
+
+    repo_ids = list(dict.fromkeys(repositories or []))
+    if repository_id:
+        if repo_ids and repo_ids != [repository_id]:
+            raise ValueError(
+                "repository-only session must target its sole repository"
+            )
+        repo_ids = [repository_id]
+    if branch_repository and branch_repository not in repo_ids:
+        raise ValueError("branch repository must be associated with the session")
+
+    sf = session_file(session_id)
+    if not sf.exists():
+        raise FileNotFoundError(f"session not found: {session_id}")
+    data = _parse(sf)
+    data.update({
+        "target_kind": "project" if project_id else "repository",
+        "project_id": project_id or "",
+        "subproject_id": subproject_id or "",
+        "repository_id": repository_id or "",
+        "repositories": json.dumps(repo_ids, separators=(",", ":")),
+        "branch_parent": branch_parent or "",
+        "branch_repository": branch_repository or "",
+        "branch_ref": branch_ref or "",
+    })
+    _write(sf, data)
+
+
 def remove_session(session_id: str):
     """
-    Delete session file and any by_ccsid or by_opencode_run_id pointers
-    referencing it. Caller handles plan/context/input cleanup.
+    Delete a session file and all pointers to it.
     """
     sf = session_file(session_id)
     if sf.exists():
         sf.unlink(missing_ok=True)
-    for pointer_dir in (BY_CCSID_DIR, BY_OPENCODE_RUN_ID_DIR):
+    for pointer_dir in (
+        BY_CCSID_DIR, BY_OPENCODE_RUN_ID_DIR, BY_CODEX_SESSION_ID_DIR,
+    ):
         if pointer_dir.exists():
             for ptr in pointer_dir.iterdir():
                 if ptr.is_file() and ptr.read_text().strip() == session_id:
@@ -461,7 +584,10 @@ def remove_session(session_id: str):
 
 
 def migrate_legacy_files():
-    """One-shot: detect ~/.owrap/sessions/<CCSID-format>.session files
+    """
+    Detect and convert legacy CCSID-named session files.
+
+    Detect ~/.owrap/sessions/<CCSID-format>.session files
     (UUID-style names) and convert.
 
     Old format: file named after CCSID (UUID-ish: 8-4-4-4-12),

@@ -1,7 +1,5 @@
-import json
 import os
 import time
-from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -151,19 +149,18 @@ def test_cleanup_compat_with_old_string_format(tmp_path):
 def test_legacy_dirs_not_created_with_session(monkeypatch, isolate_owrap_dirs):
     monkeypatch.setenv("OWRAP_SESSION", "testsid")
     from owrap.manager import Manager
-    m = Manager()
+    Manager()
     assert not isolate_owrap_dirs["TASKS_DIR"].exists()
 
 
 def test_legacy_dirs_created_without_session(monkeypatch, isolate_owrap_dirs):
     monkeypatch.delenv("OWRAP_SESSION", raising=False)
     from owrap.manager import Manager
-    m = Manager()
+    Manager()
     assert isolate_owrap_dirs["TASKS_DIR"].exists()
 
 
 def test_start_resolves_pid_from_marker(tmp_path, monkeypatch):
-    from owrap.manager import Manager
     manager = _make_manager()
     manager._state_file = str(tmp_path / "state.json")
     manager._logger = None
@@ -189,10 +186,11 @@ def test_start_resolves_pid_from_marker(tmp_path, monkeypatch):
     assert url == "http://127.0.0.1:4096"
     state = manager._read_state()
     assert state["pid"] == 22222
+    assert (tmp_path / "logs" / "owrap_22222.log").exists()
+    assert not list(tmp_path.glob("owrap_start_*.log"))
 
 
 def test_start_falls_back_to_popen_pid_without_marker(tmp_path, monkeypatch):
-    from owrap.manager import Manager
     manager = _make_manager()
     manager._state_file = str(tmp_path / "state.json")
     manager._logger = None
@@ -220,7 +218,6 @@ def test_start_falls_back_to_popen_pid_without_marker(tmp_path, monkeypatch):
 
 
 def test_resolve_log_file_always_none(tmp_path):
-    from owrap.manager import Manager
     manager = _make_manager()
     manager._state_file = str(tmp_path / "state.json")
     manager._resolve_log_file()

@@ -1,72 +1,138 @@
+import json
+import os
+import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+# Select test state before importing owrap, whose paths are fixed at import time.
+DEV_ROOT = Path(__file__).resolve().parents[1]
+if DEV_ROOT.parent.name != "dev":
+    raise RuntimeError("owrap tests must run from the dev/owrap checkout")
+
+test_runs_dir = DEV_ROOT / "files" / "test-runs"
+test_runs_dir.mkdir(parents=True, exist_ok=True)
+_test_home = tempfile.TemporaryDirectory(prefix="pytest-", dir=test_runs_dir)
+TEST_HOME = Path(_test_home.name)
+os.environ["OWRAP_HOME"] = str(TEST_HOME)
+os.environ["OWRAP_TEST_MODE"] = "1"
+for name in (
+    "SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID",
+    "OPENCODE_RUN_ID", "OWRAP_SESSION", "OWRAP_SESSION_ID",
+    "OWRAP_RESEARCH", "OWRAP_SERVER_URL",
+):
+    os.environ.pop(name, None)
+
+config_dir = TEST_HOME / "configs"
+config_dir.mkdir()
+dev_config_dir = DEV_ROOT / "files" / "state" / "configs"
+base_config = json.loads((dev_config_dir / "base.json").read_text())
+workspace_config = json.loads((dev_config_dir / "marl-dev.json").read_text())
+base_config.update(
+    server_port_base=15096, max_servers=1, min_servers=2,
+    default_workspace="pytest",
+)
+workspace_config.update(
+    workspace=str(TEST_HOME / "workspace"),
+    research_root=str(TEST_HOME / "workspace" / "docs" / "research"),
+)
+(config_dir / "base.json").write_text(json.dumps(base_config))
+(config_dir / "pytest.json").write_text(json.dumps(workspace_config))
+test_workspace = TEST_HOME / "workspace"
+test_research = test_workspace / "docs" / "research"
+test_research.mkdir(parents=True)
+(test_workspace / "AGENTS.md").write_text("# Test instructions\n")
+(test_workspace / "CLAUDE.md").write_text("# Test instructions\n")
+(test_research / "self.md").write_text("# Test research\n")
+
+import owrap
 from owrap.manager import Manager
 
-
-@pytest.fixture(scope="session", autouse=True)
-def kill_servers_around_tests():
-    """Kill all servers before and after the test session."""
-    from owrap.session.stop import KillServersRunner
-    KillServersRunner().run()
-    yield
-    KillServersRunner().run()
+if not Path(owrap.__file__).resolve().is_relative_to(DEV_ROOT):
+    raise RuntimeError("pytest imported owrap from outside the dev checkout")
 
 
 @pytest.fixture(scope="session")
 def live_config():
-    """Load the merged owrap config from the real home directory so tests track model changes.
-
-    This intentionally reads the live config rather than hardcoding model names; when the
-    exec_model or fast_model changes in ~/.owrap/configs, tests that assert on the passed
-    model string update automatically.
+    """
+    Load the development config copied into this test run's private home.
     """
     from owrap.utils.paths import _read_config
     return _read_config()
 
 
 @pytest.fixture(autouse=True)
+def isolate_session_env(monkeypatch):
+    """
+    Hide live session IDs; monkeypatch restores them after each test.
+    """
+    for name in (
+        "SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID",
+        "OPENCODE_RUN_ID", "OWRAP_SESSION", "OWRAP_SESSION_ID",
+        "OWRAP_RESEARCH",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def isolate_owrap_dirs(tmp_path, monkeypatch):
-    """Redirect all owrap output dirs to tmp_path so tests don't pollute live state."""
-    monkeypatch.delenv("OWRAP_SESSION", raising=False)
-    monkeypatch.delenv("OWRAP_RESEARCH", raising=False)
+    """
+    Redirect all owrap output directories to the test's temporary path.
+    """
     monkeypatch.setenv("OWRAP_TEST_MODE", "1")
     dirs = {
         "RUNNING_DIR":      tmp_path / "running",
         "RECENTLY_DONE_DIR": tmp_path / "recently_done",
         "DOCS_DIR":         tmp_path / "docs",
-        "SESSIONS_DIR":     tmp_path / "docs" / "sessions",
+        "SESSIONS_DIR":     tmp_path / "sessions",
         "LOCKS_DIR":        tmp_path / "locks",
-        "RUN_DIR":          tmp_path / "docs" / "run",
-        "RUN_LOG":          tmp_path / "docs" / "run" / "log.md",
-        "READ_LOG":         tmp_path / "docs" / "read" / "log.md",
-        "EXEC_LOG":         tmp_path / "docs" / "exec" / "log.md",
-        "TASKS_DIR":        tmp_path / "docs" / "run" / "tasks",
-        "FALLBACK_DIR":     tmp_path / "docs" / "f",
-        "FALLBACK_EXEC_DIR": tmp_path / "docs" / "f" / "exec",
-        "FALLBACK_TASK_DIR": tmp_path / "docs" / "f" / "task",
-        "FALLBACK_TASK":    tmp_path / "docs" / "f" / "task" / "task.md",
-        "FALLBACK_EXEC_OUTPUT": tmp_path / "docs" / "f" / "exec" / "output.log",
-        "FALLBACK_EXEC_LOG":    tmp_path / "docs" / "f" / "exec" / "log.md",
-        "FALLBACK_TASK_OUTPUT": tmp_path / "docs" / "f" / "task" / "output.log",
-        "FALLBACK_TASK_LOG":    tmp_path / "docs" / "f" / "task" / "log.md",
-        "FALLBACK_EXEC_STATUS": tmp_path / "docs" / "f" / "exec" / "status.json",
-        "FALLBACK_TASK_STATUS": tmp_path / "docs" / "f" / "task" / "status.json",
-        "FALLBACK_PLAN":    tmp_path / "docs" / "f" / "exec" / "plan.md",
+        "RUN_DIR":          tmp_path / "sessions" / "f" / "run",
+        "RUN_LOG":          tmp_path / "sessions" / "f" / "run" / "log.md",
+        "READ_LOG":         tmp_path / "sessions" / "f" / "read" / "log.md",
+        "EXEC_LOG":         tmp_path / "sessions" / "f" / "exec" / "log.md",
+        "TASKS_DIR":        tmp_path / "sessions" / "f" / "run" / "tasks",
+        "FALLBACK_DIR":     tmp_path / "sessions" / "f",
+        "FALLBACK_EXEC_DIR": tmp_path / "sessions" / "f" / "exec",
+        "FALLBACK_TASK_DIR": tmp_path / "sessions" / "f" / "task",
+        "FALLBACK_TASK":    tmp_path / "sessions" / "f" / "task" / "task.md",
+        "FALLBACK_EXEC_OUTPUT": (
+            tmp_path / "sessions" / "f" / "exec" / "output.log"
+        ),
+        "FALLBACK_EXEC_LOG": (
+            tmp_path / "sessions" / "f" / "exec" / "log.md"
+        ),
+        "FALLBACK_TASK_OUTPUT": (
+            tmp_path / "sessions" / "f" / "task" / "output.log"
+        ),
+        "FALLBACK_TASK_LOG": (
+            tmp_path / "sessions" / "f" / "task" / "log.md"
+        ),
+        "FALLBACK_EXEC_STATUS": (
+            tmp_path / "sessions" / "f" / "exec" / "status.json"
+        ),
+        "FALLBACK_TASK_STATUS": (
+            tmp_path / "sessions" / "f" / "task" / "status.json"
+        ),
+        "FALLBACK_PLAN": (
+            tmp_path / "sessions" / "f" / "exec" / "plan.md"
+        ),
+            "DAEMON_PID_FILE":  tmp_path / "daemon.pid",
+            "DAEMON_STATE_FILE": tmp_path / "daemon.state.json",
     }
     _leaf_file_keys = {
         "RUN_LOG", "READ_LOG", "EXEC_LOG", "TASKS_DIR",
         "FALLBACK_TASK", "FALLBACK_EXEC_OUTPUT", "FALLBACK_EXEC_LOG",
         "FALLBACK_TASK_OUTPUT", "FALLBACK_TASK_LOG", "FALLBACK_EXEC_STATUS",
-        "FALLBACK_TASK_STATUS", "FALLBACK_PLAN",
+            "FALLBACK_TASK_STATUS", "FALLBACK_PLAN",
+            "DAEMON_PID_FILE", "DAEMON_STATE_FILE",
     }
     for k, d in dirs.items():
         if k not in _leaf_file_keys:
             d.mkdir(parents=True, exist_ok=True)
 
     patches = [patch(f"owrap.utils.paths.{k}", v) for k, v in dirs.items()]
+    patches.append(patch("owrap.manager.Manager._kill_port_occupant"))
     patches += [
         patch("owrap.manager.RUN_LOG", dirs["RUN_LOG"]),
         patch("owrap.manager.EXEC_LOG", dirs["EXEC_LOG"]),
@@ -99,22 +165,40 @@ def isolate_owrap_dirs(tmp_path, monkeypatch):
               dirs["FALLBACK_TASK_LOG"]),
         patch("owrap.commands.fallback.FallbackRunner.TASK_STATUS",
               dirs["FALLBACK_TASK_STATUS"]),
-        patch("owrap.commands.run_cmd.FALLBACK_TASK",
+        patch("owrap.commands.run.FALLBACK_TASK",
               dirs["FALLBACK_TASK"]),
-        patch("owrap.commands.run_cmd.RunRunner.FALLBACK_TASK",
+        patch("owrap.commands.run.RunRunner.FALLBACK_TASK",
               dirs["FALLBACK_TASK"]),
         patch("owrap.commands.read.FALLBACK_TASK",
               dirs["FALLBACK_TASK"]),
         patch("owrap.commands.read.ReadRunner.FALLBACK_TASK",
               dirs["FALLBACK_TASK"]),
-        patch("owrap.commands.get_cmd.FALLBACK_PLAN",
+        patch("owrap.commands.get.FALLBACK_PLAN",
               dirs["FALLBACK_PLAN"]),
-        patch("owrap.commands.get_cmd.FALLBACK_TASK",
+        patch("owrap.commands.get.FALLBACK_TASK",
               dirs["FALLBACK_TASK"]),
-        patch("owrap.commands.get_cmd.FALLBACK_EXEC_OUTPUT",
+        patch("owrap.commands.get.FALLBACK_EXEC_OUTPUT",
               dirs["FALLBACK_EXEC_OUTPUT"]),
-        patch("owrap.commands.get_cmd.FALLBACK_TASK_OUTPUT",
+        patch("owrap.commands.get.FALLBACK_TASK_OUTPUT",
               dirs["FALLBACK_TASK_OUTPUT"]),
+        patch("owrap.utils.session.resolver.SESSIONS_DIR",
+              dirs["SESSIONS_DIR"]),
+        patch("owrap.utils.session.resolver.BY_CCSID_DIR",
+              dirs["SESSIONS_DIR"] / "by_ccsid"),
+        patch("owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR",
+              dirs["SESSIONS_DIR"] / "by_opencode_run_id"),
+        patch(
+            "owrap.utils.session.resolver.BY_CODEX_SESSION_ID_DIR",
+            dirs["SESSIONS_DIR"] / "by_codex_session_id",
+        ),
+            patch("owrap.session.start.BY_CCSID_DIR",
+              dirs["SESSIONS_DIR"] / "by_ccsid"),
+        patch("owrap.session.start.BY_OPENCODE_RUN_ID_DIR",
+              dirs["SESSIONS_DIR"] / "by_opencode_run_id"),
+        patch("owrap.session.start.BY_CODEX_SESSION_ID_DIR",
+              dirs["SESSIONS_DIR"] / "by_codex_session_id"),
+        patch("owrap.session.stop.BY_CCSID_DIR",
+              dirs["SESSIONS_DIR"] / "by_ccsid"),
     ]
 
     for p in patches:

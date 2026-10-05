@@ -172,28 +172,6 @@ class FallbackRunner:
         print(f"status file: {status_file}")
         sys.exit(rc)
 
-    def _write_status(self, status_file, status):
-        import fcntl
-        status_file.parent.mkdir(parents=True, exist_ok=True)
-        status_file.touch(exist_ok=True)
-        with open(status_file, "w") as f:
-            fcntl.flock(f, fcntl.LOCK_EX)
-            json.dump(status, f, indent=2)
-            f.write("\n")
-
-    def _write_log(self, run_log, target, rc):
-        import fcntl
-        run_log.parent.mkdir(parents=True, exist_ok=True)
-        snippet = extract_snippet(target, default=target.name)
-        entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M')} — {snippet} (rc={rc})\n"
-        run_log.touch(exist_ok=True)
-        with open(run_log, "r+") as f:
-            fcntl.flock(f, fcntl.LOCK_EX)
-            existing = f.read()
-            f.seek(0)
-            f.write(entry + existing)
-            f.truncate()
-
     def stop(self, mode):
         status_file = self.TASK_STATUS if mode == "task" else self.EXEC_STATUS
         run_log = self.TASK_LOG if mode == "task" else self.EXEC_LOG
@@ -220,6 +198,28 @@ class FallbackRunner:
         target = Path(status.get("target", "?"))
         self._write_log(run_log, target, "stopped")
         print(f"Stopped {mode} fallback (pid={pid})")
+
+    def _write_status(self, status_file, status):
+        import fcntl
+        status_file.parent.mkdir(parents=True, exist_ok=True)
+        status_file.touch(exist_ok=True)
+        with open(status_file, "w") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            json.dump(status, f, indent=2)
+            f.write("\n")
+
+    def _write_log(self, run_log, target, rc):
+        import fcntl
+        run_log.parent.mkdir(parents=True, exist_ok=True)
+        snippet = extract_snippet(target, default=target.name)
+        entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M')} — {snippet} (rc={rc})\n"
+        run_log.touch(exist_ok=True)
+        with open(run_log, "r+") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            existing = f.read()
+            f.seek(0)
+            f.write(entry + existing)
+            f.truncate()
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/bin/owrap p",
+            "command": "{{PERMIT_COMMAND}}",
             "timeout": 20
           }
         ]
@@ -22,7 +22,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/bin/owrap ctx-hook",
+            "command": "{{CTX_COMMAND}}",
             "timeout": 15
           }
         ]

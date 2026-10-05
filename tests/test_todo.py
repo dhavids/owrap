@@ -1,6 +1,6 @@
 import pytest
 
-from owrap.commands.todo_cmd import TodoRunner
+from owrap.commands.todo import TodoRunner
 
 
 @pytest.fixture
@@ -9,11 +9,11 @@ def todo_setup(tmp_path, monkeypatch):
     Isolate session storage and research root; write one session file.
     """
     sessions_dir = tmp_path / "sessions"
-    sessions_dir.mkdir()
+    sessions_dir.mkdir(exist_ok=True)
     research_root = tmp_path / "research_root"
     research_root.mkdir()
 
-    monkeypatch.setattr("owrap.utils.session.session_resolver.SESSIONS_DIR", sessions_dir)
+    monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", sessions_dir)
     monkeypatch.setattr(
         "owrap.utils.paths._resolve_research_root", lambda: str(research_root),
     )

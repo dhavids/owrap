@@ -9,24 +9,27 @@ from pathlib import Path
 
 from ..base import BaseRunner
 from ..manager import Manager
-from ..utils.paths import SESSION_DIR
+from ..utils.paths import SESSION_DIR, SESSIONS_DIR, SERVER_LOGS_DIR
 from ..utils.paths import (
     get_plan_path, get_project_file_path, get_todo_file_path, session_input,
-    _read_config, SERVERS_DIR, STATE_FILE, context_path, get_workspace_config,
-    BASE_CONFIG_FILE, resolve_memory_project_paths,
+    _read_config, context_path, get_workspace_config,
+    resolve_memory_project_paths,
 )
 from ..utils.paths import (
     session_dir, session_tasks_dir, session_msg_output_dir,
     session_task_output_dir,
 )
-from ..utils.session.session_resolver import (
+from ..utils.session.resolver import (
     resolve, update_session_field, migrate_legacy_files,
     session_file as _sf, ccsid_pointer, _write as _sr_write,
-    SESSIONS_DIR, BY_CCSID_DIR, BY_OPENCODE_RUN_ID_DIR,
+    BY_CCSID_DIR, BY_OPENCODE_RUN_ID_DIR,
+    BY_CODEX_SESSION_ID_DIR, codex_session_id_pointer,
     list_sessions, _parse, attach, mint_session_id,
     opencode_run_id_pointer, _clear_anchor, resolve_session_or_exit,
-    detach, attached_ccsids, print_known_sessions,
+    detach, attached_ccsids, print_known_sessions, set_session_identity,
 )
+from ..utils.log.retention import prune_server_logs
+from ..utils.memory.records import resolve_memory_target
 from .orientation import print_orientation
 from .stop import StopRunner
 
@@ -44,68 +47,39 @@ def _todo_path_or_none(research):
         return None
 
 
-def _prune_logs(max_logs: int):
-    """Remove old session log files, keeping a bounded number and any
-    belonging to running processes."""
-    owrap_dir = SESSION_DIR
+def _orientation_target(session_id):
+    data = _parse(_sf(session_id))
+    if not data.get("target_kind"):
+        return None
     try:
-        running_pids = set()
-        if SERVERS_DIR.exists():
-            for f in SERVERS_DIR.glob("*.json"):
-                try:
-                    data = json.loads(f.read_text())
-                    pid = data.get("pid")
-                    if pid:
-                        running_pids.add(pid)
-                except Exception:
-                    pass
-        try:
-            with open(STATE_FILE) as f:
-                data = json.load(f)
-                pid = data.get("pid")
-                if pid:
-                    running_pids.add(pid)
-        except Exception:
-            pass
-        log_files = sorted(
-            [f for f in owrap_dir.glob("owrap_*.log")
-             if not f.name.startswith("owrap_start_")],
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        )
-        kept = 0
-        for f in log_files:
-            try:
-                pid = int(f.stem.replace("owrap_", ""))
-            except ValueError:
-                continue
-            if pid in running_pids or kept < max_logs:
-                kept += 1
-            else:
-                f.unlink(missing_ok=True)
-        for f in owrap_dir.glob("owrap_start_*.log"):
-            f.unlink(missing_ok=True)
-    except Exception:
-        pass
+        return resolve_memory_target(data, allow_missing=True)
+    except (OSError, ValueError):
+        return None
 
 
 def _mint_from(old_sid, parent_sid=None):
-    """Detach current window from old_sid, mint a new session, and
-    write fresh pointers. Returns (new_sid, new_path)."""
+    """
+    Detach the current window, mint a session, and write fresh pointers.
+
+    Return the new session ID and path.
+    """
     _clear_anchor(old_sid, BY_CCSID_DIR)
     _clear_anchor(old_sid, BY_OPENCODE_RUN_ID_DIR)
+    _clear_anchor(old_sid, BY_CODEX_SESSION_ID_DIR)
     ccsid_env = os.environ.get(
         "CLAUDE_CODE_SESSION_ID", "",
     ).strip()
     oid_env = os.environ.get(
         "OPENCODE_RUN_ID", "",
     ).strip()
+    cid_env = os.environ.get("CODEX_SESSION_ID", "").strip()
     new_sid = mint_session_id()
     new_path = _sf(new_sid)
     data = {
         "session_id": new_sid,
         "claude_session_id": ccsid_env,
         "opencode_run_id": oid_env,
+        "codex_session_id": cid_env,
         "started": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     if parent_sid is not None:
@@ -119,6 +93,9 @@ def _mint_from(old_sid, parent_sid=None):
             parents=True, exist_ok=True,
         )
         opencode_run_id_pointer(oid_env).write_text(new_sid)
+    if cid_env:
+        BY_CODEX_SESSION_ID_DIR.mkdir(parents=True, exist_ok=True)
+        codex_session_id_pointer(cid_env).write_text(new_sid)
     return new_sid, new_path
 
 
@@ -128,11 +105,34 @@ class StartRunner(BaseRunner):
     """
 
     def run(self, shell_pid=None, session_file=None, research=None,
-            session_id=None, area=None, child=None):
-        """Execute the start workflow: resolve session, ensure server,
+            session_id=None, area=None, child=None, project_id=None,
+            subproject_id=None, repository_id=None, repositories=None,
+            branch_parent=None, branch_repository=None, branch_ref=None):
+        """
+        Execute the start workflow: resolve session, ensure server,
         populate context, and exit."""
-        if research is None:
+        if research is None and not (project_id or repository_id):
             research = _read_config().get("default_research")
+        if (project_id or repository_id) and child:
+            print(
+                "Error: --child uses legacy areas; use --subproject "
+                "for an explicit target", file=sys.stderr,
+            )
+            sys.exit(2)
+        has_identity = project_id or repository_id
+        if (subproject_id or branch_parent or branch_repository or
+                branch_ref or repositories) and not has_identity:
+            print(
+                "Error: explicit identity fields require --project or "
+                "--repository", file=sys.stderr,
+            )
+            sys.exit(2)
+        if repository_id and research:
+            print(
+                "Error: a repository-only session cannot also name a "
+                "research project", file=sys.stderr,
+            )
+            sys.exit(2)
         if child:
             if not area:
                 print("Error: a child suffix requires an area to be "
@@ -149,14 +149,19 @@ class StartRunner(BaseRunner):
             else:
                 is_new_session = True
                 ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
+                cid = os.environ.get("CODEX_SESSION_ID", "").strip()
                 _sr_write(sf_path, {
                     "session_id": session_id,
                     "claude_session_id": ccsid,
+                    "codex_session_id": cid,
                     "started": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 })
                 if ccsid:
                     BY_CCSID_DIR.mkdir(parents=True, exist_ok=True)
                     ccsid_pointer(ccsid).write_text(session_id)
+                if cid:
+                    BY_CODEX_SESSION_ID_DIR.mkdir(parents=True, exist_ok=True)
+                    codex_session_id_pointer(cid).write_text(session_id)
                 session_path = sf_path
         elif child:
             parent_sid, parent_path, _ = resolve(mode="start")
@@ -173,6 +178,65 @@ class StartRunner(BaseRunner):
                     source = "minted"
             is_new_session = (source == "minted")
 
+        base = _read_config()
+        workspace_name = research or base.get("default_workspace", "")
+        if (
+            workspace_name != base.get("default_workspace", "")
+            and not get_workspace_config(workspace_name)
+        ):
+            workspace_name = base.get("default_workspace", workspace_name)
+
+        if project_id or repository_id:
+            try:
+                if (
+                    get_workspace_config(workspace_name).get("docs_root")
+                    or get_workspace_config(workspace_name).get("research_root")
+                    or base.get("docs_root") or base.get("research_root")
+                ):
+                    candidate = {
+                        "target_kind": "project" if project_id else "repository",
+                        "project_id": project_id or "",
+                        "subproject_id": subproject_id or "",
+                        "repository_id": repository_id or "",
+                        "workspace": workspace_name,
+                    }
+                    record_target = resolve_memory_target(
+                        candidate, allow_missing=True,
+                    )
+                    if project_id and repositories is None:
+                        repositories = list(record_target.repository_ids)
+                    if record_target.branch_parent:
+                        for field, supplied in (
+                            ("branch_parent", branch_parent),
+                            ("branch_repository", branch_repository),
+                            ("branch_ref", branch_ref),
+                        ):
+                            expected = getattr(record_target, field)
+                            if supplied and supplied != expected:
+                                raise ValueError(
+                                    f"{field} disagrees with project record"
+                                )
+                        branch_parent = branch_parent or record_target.branch_parent
+                        branch_repository = (
+                            branch_repository or record_target.branch_repository
+                        )
+                        branch_ref = branch_ref or record_target.branch_ref
+                set_session_identity(
+                    session_id, project_id=project_id,
+                    subproject_id=subproject_id,
+                    repository_id=repository_id,
+                    repositories=repositories,
+                    branch_parent=branch_parent,
+                    branch_repository=branch_repository,
+                    branch_ref=branch_ref,
+                )
+            except (ValueError, FileNotFoundError) as exc:
+                print(f"Error: {exc}", file=sys.stderr)
+                sys.exit(2)
+        if repository_id:
+            for field in ("research", "area", "child"):
+                update_session_field(session_id, field, "")
+
         from ..utils.dispatch.pool import _pool_active, ensure_min_servers, _ensure_daemon
         if _pool_active():
             ensure_min_servers()
@@ -184,7 +248,7 @@ class StartRunner(BaseRunner):
             update_session_field(session_id, "research", research)
         if area:
             update_session_field(session_id, "area", area)
-        elif is_new_session:
+        elif is_new_session and not has_identity:
             # Default to "main" so Update Protocol/donow area checks have a target.
             area = "main"
             update_session_field(session_id, "area", area)
@@ -193,17 +257,10 @@ class StartRunner(BaseRunner):
 
         # Resolve workspace name: explicit research -> use as workspace
         # key, else default_workspace
-        base = _read_config()
-        workspace_name = research or base.get("default_workspace", "")
-        _pc_check = get_workspace_config(workspace_name) if workspace_name else {}
-        if not _pc_check and workspace_name != base.get("default_workspace", ""):
-            workspace_name = base.get("default_workspace", workspace_name)
         if workspace_name:
             update_session_field(session_id, "workspace", workspace_name)
 
-        config = _read_config()
-        max_logs = int(config.get("max_servers", 1)) * 2
-        _prune_logs(max_logs)
+        prune_server_logs(SESSION_DIR, SERVER_LOGS_DIR)
 
         session_dir(session_id).mkdir(parents=True, exist_ok=True)
         (session_dir(session_id) / "exec").mkdir(parents=True, exist_ok=True)
@@ -212,11 +269,11 @@ class StartRunner(BaseRunner):
         session_msg_output_dir(session_id).mkdir(parents=True, exist_ok=True)
         session_task_output_dir(session_id).mkdir(parents=True, exist_ok=True)
 
-        if research:
+        if research and not has_identity:
             config = _read_config()
-            research_root = config.get("research_root")
-            if research_root:
-                project_file = Path(research_root) / "projects" / f"{research}.md"
+            docs_root = config.get("docs_root") or config.get("research_root")
+            if docs_root:
+                project_file = Path(docs_root) / "projects" / f"{research}.md"
                 if not project_file.exists():
                     project_file.parent.mkdir(parents=True, exist_ok=True)
                     project_file.write_text(
@@ -233,10 +290,11 @@ class StartRunner(BaseRunner):
             print(f"  [owrap] Migrated {_old_docs} -> {_new_docs}")
 
         plan_path = get_plan_path(session_id)
-        todo_path = _todo_path_or_none(research)
+        todo_path = None if has_identity else _todo_path_or_none(research)
         input_path = session_input(session_id)
 
         self.manager.session_id = session_id
+        self.manager.research = _parse(_sf(session_id)).get("research", "")
         self.manager.create_context()
         self.manager._housekeeping()
         self.manager.refresh_context_plan(plan_path)
@@ -263,7 +321,7 @@ class StartRunner(BaseRunner):
                 "start session=%s research=%s", session_id, research or "none",
             )
         cp = context_path(session_id)
-        from ..utils.session.session_resolver import _parse as _sp
+        from ..utils.session.resolver import _parse as _sp
         area_val = area or _sp(_sf(session_id)).get("area")
         memory_path, project_path = resolve_memory_project_paths(research)
         print_orientation(
@@ -271,6 +329,7 @@ class StartRunner(BaseRunner):
             input_path=input_path, context_path=cp, area=area_val,
             memory_path=memory_path, project_path=project_path,
             runner_enabled=_read_config().get("owrap_runner_enabled", True),
+            target=_orientation_target(session_id),
         )
         print(f"\n__OWRAP_EXPORT__ SESSION_ID={session_id}")
         if area_val:
@@ -289,7 +348,7 @@ class RefreshRunner(BaseRunner):
         Execute the refresh workflow: validate session, update context, and exit.
         """
         if session_id is not None:
-            session_path = SESSION_DIR / "sessions" / f"{session_id}.session"
+            session_path = SESSIONS_DIR / f"{session_id}.session"
             if not session_path.exists():
                 print(f"ERROR: session '{session_id}' not found. "
                       "Use 'owrap stat' to list sessions.")
@@ -316,12 +375,10 @@ class RefreshRunner(BaseRunner):
         data = _parse(session_path)
         existing_research = data.get("research")
         existing_area = data.get("area")
-        workspace_name = (
-            data.get("workspace") or _read_config().get("default_workspace", "")
-        )
         if research is None:
             research = existing_research
-        if research is None:
+        if (research is None and not data.get("target_kind")
+                and data.get("session_mode") != "temp"):
             research = _read_config().get("default_research")
 
         from ..utils.dispatch.pool import _pool_active, ensure_min_servers, _ensure_daemon
@@ -331,13 +388,16 @@ class RefreshRunner(BaseRunner):
         else:
             url = self.manager.ensure_running()
             if url is None:
+                if data.get("session_mode") == "temp":
+                    print("ERROR: cannot start a server for this temp session.")
+                    sys.exit(2)
                 os.environ["SESSION_ID"] = session_id
                 StartRunner(self.manager).run(
                     shell_pid=shell_pid, research=research,
                 )
                 return
 
-        if research != existing_research:
+        if research is not None and research != existing_research:
             update_session_field(session_id, "research", research)
         if area is not None:
             update_session_field(session_id, "area", area)
@@ -346,7 +406,10 @@ class RefreshRunner(BaseRunner):
         self.manager._housekeeping()
 
         plan_path = get_plan_path(session_id)
-        todo_path = _todo_path_or_none(research)
+        todo_path = (
+            None if data.get("target_kind")
+            else _todo_path_or_none(research)
+        )
         input_path = session_input(session_id)
 
         if self.logger:
@@ -360,6 +423,7 @@ class RefreshRunner(BaseRunner):
             input_path=input_path, context_path=cp, area=area_val,
             memory_path=memory_path, project_path=project_path,
             runner_enabled=_read_config().get("owrap_runner_enabled", True),
+            target=_orientation_target(session_id),
         )
         update_session_field(
             session_id, "last_refresh", time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -402,7 +466,10 @@ class AttachRunner(BaseRunner):
         url = data.get("server_url", "")
 
         plan_path = get_plan_path(sid)
-        todo_path = _todo_path_or_none(research)
+        todo_path = (
+            None if data.get("target_kind")
+            else _todo_path_or_none(research)
+        )
         input_path = session_input(sid)
         cp = context_path(sid)
         memory_path, project_path = resolve_memory_project_paths(research)
@@ -417,6 +484,7 @@ class AttachRunner(BaseRunner):
             context_path=cp, area=area, memory_path=memory_path,
             project_path=project_path, attach=True,
             runner_enabled=_read_config().get("owrap_runner_enabled", True),
+            target=_orientation_target(sid),
         )
         print(f"\n__OWRAP_EXPORT__ SESSION_ID={sid}")
         if area:
@@ -480,6 +548,41 @@ class UpdateAreaRunner(BaseRunner):
         Update session fields and re-print orientation with the new area.
         """
         session_id, _, _ = resolve(mode="refresh")
+        current = _parse(_sf(session_id))
+        if current.get("target_kind") and child:
+            print("ERROR: --child applies only to legacy areas")
+            sys.exit(2)
+        if current.get("target_kind") == "repository":
+            print("ERROR: repository-only sessions have no project area")
+            sys.exit(2)
+        if current.get("target_kind") == "project":
+            project_id = research or current.get("project_id", "")
+            if area is not None:
+                subproject_id = "" if area == "main" else area
+            elif project_id == current.get("project_id", ""):
+                subproject_id = current.get("subproject_id", "")
+            else:
+                subproject_id = ""
+            candidate = {
+                **current, "project_id": project_id,
+                "subproject_id": subproject_id,
+            }
+            try:
+                target = resolve_memory_target(candidate)
+            except (OSError, ValueError) as exc:
+                print(f"ERROR: {exc}")
+                sys.exit(2)
+            update_session_field(session_id, "project_id", project_id)
+            update_session_field(session_id, "subproject_id", subproject_id)
+            update_session_field(
+                session_id, "repositories",
+                json.dumps(list(target.repository_ids), separators=(",", ":")),
+            )
+            for field in ("branch_parent", "branch_repository", "branch_ref"):
+                update_session_field(session_id, field, getattr(target, field))
+            research = current.get("research", "")
+            area = current.get("area", "")
+            child = current.get("child", "")
         if research:
             update_session_field(session_id, "research", research)
         if area:
@@ -489,12 +592,16 @@ class UpdateAreaRunner(BaseRunner):
         cp = context_path(session_id)
         plan_path = get_plan_path(session_id)
         input_path = session_input(session_id)
-        todo_path = _todo_path_or_none(research)
+        todo_path = (
+            None if current.get("target_kind")
+            else _todo_path_or_none(research)
+        )
         print_orientation(
             session_id, research, plan_path=plan_path, todo_path=todo_path,
             input_path=input_path, context_path=cp, area=area,
             memory_path=memory_path, project_path=project_path,
             runner_enabled=_read_config().get("owrap_runner_enabled", True),
+            target=_orientation_target(session_id),
         )
         print(f"\n__OWRAP_EXPORT__ SESSION_ID={session_id}")
         if area:

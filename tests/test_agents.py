@@ -1,7 +1,5 @@
 import json
 import os
-import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -86,8 +84,10 @@ def test_agents_runner_init_with_model(mock_manager):
 
 
 def test_agents_run_agent_dispatch_path(tmp_path, mock_manager):
-    """Test that _run_agent builds the correct command and creates expected files."""
-    from owrap.commands.agents import AgentsRunner, _AGENT_INSTRUCTIONS_SUFFIX
+    """
+    Test that _run_agent builds the command and creates expected files.
+    """
+    from owrap.commands.agents import AgentsRunner
     from owrap.utils.paths import session_agent_full_log_dir
 
     mock_manager.ensure_running.return_value = "http://localhost:4096"
@@ -118,7 +118,9 @@ def test_agents_run_agent_dispatch_path(tmp_path, mock_manager):
 
 
 def test_clear_skipped_when_agent_job_running(tmp_path, mock_manager, monkeypatch):
-    """When another agent-kind job is running for the same session, --clear is skipped."""
+    """
+    Skip clear while another agent job runs for the same session.
+    """
     from owrap.commands import agents as agents_mod
     from owrap.commands.agents import AgentsRunner
     from owrap.utils.paths import (

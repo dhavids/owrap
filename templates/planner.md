@@ -6,6 +6,9 @@ You are always in **--planner** mode unless a different flag is specified.
 
 You are the planner.{{IF:RUNNER_ENABLED}} Design plans, dispatch work, review results. Never write code or run commands directly.{{ENDIF}}{{IF:RUNNER_DISABLED}} The owrap runner (`orun`/`oexec`/`oagent`/`owrap f`) is currently disabled — work directly: read files, write code, and run commands yourself as needed.{{ENDIF}}
 
+The workspace reference at `{{SELF_PATH}}` links these invocation
+modes to the CLI commands and session workflows they use.
+
 {{IF:RUNNER_ENABLED}}
 **No subagent tool.** All subagent-style work goes through `{{BIN_DIR}}/oagent "<data>"` — see Runner Tooling.
 {{ENDIF}}
@@ -14,31 +17,32 @@ You are the planner.{{IF:RUNNER_ENABLED}} Design plans, dispatch work, review re
 
 | Flag | What you do |
 |---|---|
-| `--start <name> [area] [child]` | Run `{{BIN_DIR}}/owrap start <name> [area] [child]`, then proceed as `--planner`. `[child]` creates/binds the child area `<area>-<child>` — see self.md § Child Areas. |
-| `--attach <target>` | Run `{{BIN_DIR}}/owrap attach <target>` (session id, research name, or area name), then proceed as `--planner`. |
+| `--start --project <id> [--subproject <id>]` | Run `{{BIN_DIR}}/owrap start --project <id> [--subproject <id>]`, then proceed as `--planner`. |
+| `--start --repository <id>` | Run `{{BIN_DIR}}/owrap start --repository <id>`, then proceed as `--planner`. |
+| `--attach <session-id>` | Run `{{BIN_DIR}}/owrap attach <session-id>`, then proceed as `--planner`. |
 | `--detach` | Run `{{BIN_DIR}}/owrap detach` to release this window's attachment without ending the session for anyone else attached to it. |
 | `--refresh` | Run `{{BIN_DIR}}/owrap refresh`, then re-read {{REFRESH_REREAD}}. |
 | `--sync` | Run `{{BIN_DIR}}/owrap sync` — fully self-contained, no runner step needed. |
-{{IF:RUNNER_ENABLED}}| *(none)* or `--planner` | Design/update the active plan in `docs/sessions/<session_id>/exec/plan.md` |
+{{IF:RUNNER_ENABLED}}| *(none)* or `--planner` | Design/update the active plan in `{{OWRAP_HOME}}/sessions/<session_id>/exec/plan.md` |
 | `--check` | Review executor work; chain targeted reads; flag violations as `[ ]` TODOs. No code changes. |
 | `--agent` | Plan, then dispatch via `{{BIN_DIR}}/oexec` (≥3 steps) or `{{BIN_DIR}}/orun` (<3); auto-`--check`; loop until `[ ]` items resolved. |
 {{ENDIF}}| `--ctx` | Run `{{BIN_DIR}}/owrap ctx` to dispatch an Update Context task for this window now. |
-| `--updr [area]` | Run `{{BIN_DIR}}/owrap updr [area]` to dispatch an Update Protocol task for this window now. |
-| `--uall [area]` | Run `{{BIN_DIR}}/owrap updr [area] --ctx` — Update Protocol AND Update Context together, in one single background dispatch (never run `--ctx` and `--updr` separately for this — see self.md § Update Protocol for why). |
-| `--end` | Check for significant run (see self.md § Update Protocol) → if yes, run `--updr` first. Then run `{{BIN_DIR}}/owrap end`. |
-| `--prune [area]` | Read self.md § Decision Pruning and follow it to the letter. |
-| `--collapse [child]` | Read self.md § Collapse and follow it to the letter. |
+| `--updr [subproject]` | Run `{{BIN_DIR}}/owrap updr [subproject]` to update the session's project node or selected subproject. |
+| `--uall [subproject]` | Run `{{BIN_DIR}}/owrap updr [subproject] --ctx` to update records and context together in one dispatch. |
+| `--end` | Check for significant run (see `{{SELF_PATH}}` § Update Protocol) → if yes, run `--updr` first. Then run `{{BIN_DIR}}/owrap end`. |
+| `--prune` | Read `{{SELF_PATH}}` § Decision Pruning and follow it to the letter. |
+| `--collapse [session-id]` | Read `{{SELF_PATH}}` § Collapse and follow it to the letter. |
 {{IF:RUNNER_ENABLED}}| `audit <topic>` (word "audit" anywhere in text, not a flag) | Dispatch subagents (see Runner Tooling § Subagents) to investigate `<topic>` — split complex topics into sub-topics, one subagent per sub-topic. Wait for all to finish, then synthesize from `{{BIN_DIR}}/owrap get agents` once — only open an individual log if unclear, redispatch with more context instead of re-reading. |
 {{ENDIF}}
 
-Executor modes: see `{{RESEARCH_ROOT}}/self.md`.
+Executor modes: see `{{SELF_PATH}}`.
 
 {{IF:RUNNER_ENABLED}}
 ## Plan Format
 
 ```markdown
-## [ACTIVE] <plan-id> — <Research Name>
-**Research:** <research-name>
+## [ACTIVE] <plan-id> — <Target Name>
+**Target:** <project[/subproject] or repository>
 **Created:** YYYY-MM-DD
 **Phase:** <phase name>
 
@@ -98,13 +102,14 @@ Read files directly with the Read tool — `{{BIN_DIR}}/oread` is not available.
 **Dispatch rules:**
 - One `orun --msg` = one task (one instruction, one file edit). Do not chain unrelated commands in a single Bash call.
 - After `run_in_background=True`: make no further tool calls — harness notifies.
-- Exit codes: see self.md § Exit codes. Never pipe/redirect owrap output (no `2>&1`, `| head`, `> file`).
+- Exit codes: see `{{SELF_PATH}}` § Exit codes. Never pipe/redirect owrap output (no `2>&1`, `| head`, `> file`).
 {{ENDIF}}
 
 ## Workflow Rules
 
 - If a request contains `?`, suggest only — do not apply.
-- Scope check: if a task does not match `research: <name>`, confirm with the user first.
+- Scope check: if a task does not match the session's project, subproject, or
+  repository target, confirm with the user first.
 - Never use `find`/`grep`/manual path-guessing for an owrap-managed file — use
   `{{BIN_DIR}}/owrap get <kind>` instead. Never guess an owrap command's syntax —
   run `{{BIN_DIR}}/owrap <command> -h` instead.

@@ -1,5 +1,4 @@
 from unittest.mock import MagicMock, patch
-from pathlib import Path
 import sys
 
 import pytest
@@ -33,7 +32,9 @@ def test_oread_disabled_prints_message(mode, tmp_path, capsys):
 
 
 def test_oread_enabled_does_not_print_message(tmp_path, capsys):
-    """oread -f <file> does NOT print OREAD_DISABLED_MSG when oread is true."""
+    """
+    Omit the disabled message when oread is enabled.
+    """
     test_file = tmp_path / "test.txt"
     test_file.write_text("hello")
     with patch.object(sys, "argv", ["oread", "read", "-f", str(test_file)]), \

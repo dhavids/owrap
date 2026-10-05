@@ -3,6 +3,7 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+/files/
 .env
 *.log
 
@@ -11,3 +12,7 @@ docs/
 
 # Per-user config
 configs/
+
+# Workspace-generated agent instructions live under files/workspace.
+/AGENTS.md
+/CLAUDE.md

@@ -3,7 +3,7 @@ import os
 import sys
 
 from ..utils.paths import session_ctx_touched_path
-from ..utils.session.session_resolver import owrap_sid_for_ccsid
+from ..utils.session.resolver import owrap_sid_for_ccsid
 
 
 class TouchedRunner:

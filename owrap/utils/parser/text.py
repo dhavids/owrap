@@ -29,13 +29,13 @@ def extract_useful_lines(text: str, max_chars: int = 100) -> str:
     line if nothing else matches. Trimmed to `max_chars` if still over —
     interior matches drop first, the first match and the last line stay.
     """
-    lines = [l for l in text.splitlines() if l.strip()]
+    lines = [line for line in text.splitlines() if line.strip()]
     if not lines:
         return ""
     last_line = lines[-1].strip()
     keyword_lines = [
-        l.strip() for l in lines[:-1]
-        if any(k in l.lower() for k in USEFUL_LINE_KEYWORDS)
+        line.strip() for line in lines[:-1]
+        if any(keyword in line.lower() for keyword in USEFUL_LINE_KEYWORDS)
     ]
 
     selected = keyword_lines + [last_line]

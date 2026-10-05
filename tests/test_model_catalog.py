@@ -2,8 +2,6 @@ import json
 import subprocess
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from owrap.utils.dispatch.model_catalog import discover_free_model
 
 
@@ -65,8 +63,9 @@ class TestDiscoverFreeModel:
             assert discover_free_model() is None
 
     def test_discontinued_model_excluded_even_if_still_cached(self, tmp_path, monkeypatch):
-        """A model gone from the live list is never picked, even if the
-        (stale) local cache still lists it as free."""
+        """
+        Exclude a discontinued model still present in the local cache.
+        """
         cache = tmp_path / "models.json"
         _write_cache(cache, {
             "deepseek-v4-flash-free": _model(), "mimo-v2.6-flash-free": _model(),

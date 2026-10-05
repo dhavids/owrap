@@ -32,16 +32,16 @@ class TestGetDispatchModel:
 def test_run_msg_passes_cli_model(mock_manager):
     mock_manager.ensure_running.return_value = "http://localhost:4096"
 
-    with patch("owrap.commands.run_cmd.Terminal") as mock_terminal_cls, \
-         patch("owrap.commands.run_cmd._pool_active", return_value=False), \
-         patch("owrap.commands.run_cmd.get_workspace_path", return_value=Path("/tmp/ws")), \
+    with patch("owrap.commands.run.Terminal") as mock_terminal_cls, \
+         patch("owrap.commands.run._pool_active", return_value=False), \
+         patch("owrap.commands.run.get_workspace_path", return_value=Path("/tmp/ws")), \
          patch("owrap.utils.paths.get_self_path", return_value=Path("/tmp/fake_self.md")), \
          patch("owrap.utils.paths.resolve_general_instruction_path", return_value=Path("/tmp/fake_instr.md")):
         mock_terminal = MagicMock()
         mock_terminal.run.return_value = {"returncode": 0, "stdout": ""}
         mock_terminal_cls.return_value = mock_terminal
 
-        from owrap.commands.run_cmd import RunRunner
+        from owrap.commands.run import RunRunner
         runner = RunRunner(mock_manager, model="opencode/test-override")
         with pytest.raises(SystemExit):
             runner.run(msg="hello")
@@ -54,17 +54,17 @@ def test_run_msg_passes_cli_model(mock_manager):
 def test_run_msg_passes_fast_model_from_config(mock_manager):
     mock_manager.ensure_running.return_value = "http://localhost:4096"
 
-    with patch("owrap.commands.run_cmd.Terminal") as mock_terminal_cls, \
-         patch("owrap.commands.run_cmd._pool_active", return_value=False), \
-         patch("owrap.commands.run_cmd.get_workspace_path", return_value=Path("/tmp/ws")), \
+    with patch("owrap.commands.run.Terminal") as mock_terminal_cls, \
+         patch("owrap.commands.run._pool_active", return_value=False), \
+         patch("owrap.commands.run.get_workspace_path", return_value=Path("/tmp/ws")), \
          patch("owrap.utils.paths.get_self_path", return_value=Path("/tmp/fake_self.md")), \
          patch("owrap.utils.paths.resolve_general_instruction_path", return_value=Path("/tmp/fake_instr.md")), \
-         patch("owrap.commands.run_cmd._read_config", return_value={"fast_model": "opencode/fast"}):
+         patch("owrap.commands.run._read_config", return_value={"fast_model": "opencode/fast"}):
         mock_terminal = MagicMock()
         mock_terminal.run.return_value = {"returncode": 0, "stdout": ""}
         mock_terminal_cls.return_value = mock_terminal
 
-        from owrap.commands.run_cmd import RunRunner
+        from owrap.commands.run import RunRunner
         runner = RunRunner(mock_manager)
         with pytest.raises(SystemExit):
             runner.run(msg="hello")
@@ -78,21 +78,21 @@ def test_run_task_passes_runner_model_from_config(mock_manager, tmp_path):
     input_file = tmp_path / "input.md"
     input_file.write_text("# Do\n\nsomething\n")
 
-    with patch("owrap.commands.run_cmd.Terminal") as mock_terminal_cls, \
-         patch("owrap.commands.run_cmd._pool_active", return_value=False), \
-         patch("owrap.commands.run_cmd.get_workspace_path", return_value=Path("/tmp/ws")), \
+    with patch("owrap.commands.run.Terminal") as mock_terminal_cls, \
+         patch("owrap.commands.run._pool_active", return_value=False), \
+         patch("owrap.commands.run.get_workspace_path", return_value=Path("/tmp/ws")), \
          patch("owrap.utils.paths.get_self_path", return_value=Path("/tmp/fake_self.md")), \
          patch("owrap.utils.paths.resolve_general_instruction_path", return_value=Path("/tmp/fake_instr.md")), \
          patch(
-             "owrap.commands.run_cmd._read_config",
+             "owrap.commands.run._read_config",
              return_value={"runner_model": EXPECTED_RUNNER_MODEL},
          ), \
-         patch("owrap.commands.run_cmd.context_path", return_value=tmp_path / "context.md"):
+         patch("owrap.commands.run.context_path", return_value=tmp_path / "context.md"):
         mock_terminal = MagicMock()
         mock_terminal.run.return_value = {"returncode": 0, "stdout": ""}
         mock_terminal_cls.return_value = mock_terminal
 
-        from owrap.commands.run_cmd import RunRunner
+        from owrap.commands.run import RunRunner
         runner = RunRunner(mock_manager)
         with pytest.raises(SystemExit):
             runner.run(input_path=input_file)

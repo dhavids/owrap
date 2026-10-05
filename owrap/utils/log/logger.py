@@ -20,7 +20,8 @@ def get_logger(
     log_path: str | Path | None = None,
     level: str = "INFO",
 ) -> logging.Logger:
-    """Create a logger with an optional file handler.
+    """
+    Create a logger with an optional file handler.
 
     Args:
         name: Logger name.

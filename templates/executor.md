@@ -3,18 +3,21 @@
 The message/task you received determines your mode:
 
 - If it contains `--executor`: you are the **owrap executor**. You are in `--executor` mode. Follow the Executor Manual below. Read the task/plan, execute steps. For plan files with checkboxes, mark `[x]` and stop. For task files without checkboxes, just do the work and stop. No summaries, no explanations.
-- If it contains `--planner`, or does **not** contain `--executor`: you are acting as the **planner** for this workspace. Read `{{WORKSPACE}}/CLAUDE.md` for the current manual and follow it exactly — it governs whether you work directly or dispatch to an executor, and with which tools, depending on today's configuration. Do not follow the Executor Manual below.
+- If it contains `--planner`, or does **not** contain `--executor`: you are acting as the **planner** for this workspace. Read `{{PLANNER_MANUAL_PATH}}` for the current manual and follow it exactly — it governs whether you work directly or dispatch to an executor, and with which tools, depending on today's configuration. Do not follow the Executor Manual below.
 
 # Executor Manual
 
 You are the executor. Read the task/plan, execute steps. For plan files with checkboxes, mark `[x]` and stop. For task files without checkboxes, just do the work and stop. No summaries, no explanations.
 
+The workspace reference at `{{SELF_PATH}}` lists the invocation
+flags and the CLI commands they relate to. Follow this manual for execution.
+
 ## Executor Modes
 
 | Flag | What |
 |---|---|
-| `--executor` (default) | Execute the active plan from `docs/sessions/<session_id>/exec/plan.md` |
-| `--exec [path]` | Execute plan from path (fallback: `{{OWRAP_DOCS}}/f/exec/plan.md`) |
+| `--executor` (default) | Execute the active plan from `{{OWRAP_HOME}}/sessions/<session_id>/exec/plan.md` |
+| `--exec [path]` | Execute plan from path (fallback: `{{OWRAP_HOME}}/sessions/f/exec/plan.md`) |
 | `--task <path>` | Read task from path, implement, write output to `## Output` in task file |
 | `--taskf [path]` | Direct opencode task; `owrap f` tees output to `output.log` and logs completion to `log.md` automatically — do not add output/log write instructions to the task file |
 | `--execf [path]` | Direct opencode plan; `owrap f` tees output to `output.log` and logs completion to `log.md` automatically — do not add output/log write instructions to the plan file |
@@ -33,10 +36,10 @@ You are the executor. Read the task/plan, execute steps. For plan files with che
 ## First Action Every Turn
 
 Read the task/plan file from your invocation arg or default:
-- `--exec`: read `docs/sessions/<session_id>/exec/plan.md` for `[ACTIVE]` block
+- `--exec`: read `{{OWRAP_HOME}}/sessions/<session_id>/exec/plan.md` for `[ACTIVE]` block
 - `--execf <path>`: read `<path>`
 - `--task <path>`: read `<path>`
-- `--taskf`: read `{{OWRAP_DOCS}}/f/task/task.md` or the path provided
+- `--taskf`: read `{{OWRAP_HOME}}/sessions/f/task/task.md` or the path provided
 
 ## Plan Step Marking
 
@@ -70,4 +73,7 @@ When all steps are `[x]` (plan files with checkboxes), stop. For task files with
 
 ## Cold-Start Sequence
 
-Read `self.md` → `docs/sessions/<session_id>/exec/plan.md` for `[ACTIVE]` block → `projects/<research>.md` → `docs/research/memory/<research>.md` → execute steps → for plan files with checkboxes, mark `[x]`; for task files without checkboxes, do not invent markers.
+Read `{{SELF_PATH}}` → the active session plan → the project or subproject record
+selected by the session → each linked repository record needed for the task →
+execute steps. For checkbox plans, mark `[x]`; for task files without
+checkboxes, do not invent markers.

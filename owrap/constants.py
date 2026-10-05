@@ -76,14 +76,8 @@ OREAD_DISABLED_MSG = (
 
 NO_CONTEXT_MSG = (
     "#DO NOW\n"
-    "Context file missing for session {sid}. Read self.md § Context "
-    "Recovery and follow it to the letter."
-)
-
-NO_AREA_SECTION_MSG = (
-    "#DO NOW\n"
-    "Area section '## {area}' missing in memory/projects. Read self.md "
-    "§ Update Protocol and follow it to the letter (creates the section)."
+    "Context file missing for session {sid}. Run `owrap get self`, then read "
+    "§ Context Recovery and follow it to the letter."
 )
 
 
@@ -93,10 +87,10 @@ You are in a directory containing ONLY the file you need — nothing else \
 exists for you, no other path is reachable or relevant:
 - `transcript.txt` — recent assistant activity since the last update
 
-You have NOT been given the current contents of context.md/memory.md/ \
-project.md, and that is deliberate — report ONLY what this excerpt adds, \
-never what should stay or go in files you haven't seen. Another process \
-merges your additions in and handles caps/eviction; that is not your job.
+You have NOT been given the current session context or project/repository \
+records, and that is deliberate — report ONLY what this excerpt adds, never \
+what should stay or go in records you haven't seen. Another process merges \
+your additions in and handles caps/eviction; that is not your job.
 
 Write your complete output to `output.md` in this same directory (create \
 it). Use exactly this structure — omit an entire top-level `# ` block if \
@@ -124,9 +118,8 @@ CTX_CONTEXT_BLOCK = (
     """append ` — function_name()` after the path if a specific function """
     """matters. Do NOT list a file just because it was mentioned or """
     """`[Read]` in this excerpt — only files actually changed. Never list """
-    """transcript.txt, context.md, memory.md, """
-    """or project.md themselves. Omit this heading entirely if nothing """
-    """new qualifies.>
+    """transcript.txt, context.md, or memory record files themselves. Omit """
+    """this heading entirely if nothing new qualifies.>
 ## Decisions
 <NEW entries only, one per line — `- decision — why`. Omit this heading """
     """entirely if no new decision was made in this excerpt.>
@@ -142,32 +135,29 @@ CTX_CONTEXT_BLOCK = (
     """entirely if no real command appears.>"""
 )
 
-CTX_PROTOCOL_BLOCK = (
+CTX_PROJECT_BLOCK = (
     """
 
-# Memory
-## {area}
-### Components
-<NEW entries only, one per line — `- file.py — one-line role` for files """
-    """newly relevant to this area in this excerpt. A `[Edit]`/`[Write]` """
-    """marker, or a `[Touched]` line (a path the planner explicitly """
-    """reported), gives the exact real path — prefer either over """
-    """paraphrasing one from prose. Omit this heading entirely if none """
-    """are new.>
-### <Subsystem>
-<NEW architecture reference entries only, one per line — `- ClassName at """
-    """file.py:N — purpose, key params, side effects` — no status, no """
-    """decisions, no narrative. Use a real subsystem name as the """
-    """heading. Omit this heading entirely if nothing new qualifies.>
+# {record_kind}: {record_id}
+## Status
+<Current status supported by this excerpt. Omit this heading when the excerpt
+does not establish a newer state. Never restate an older or superseded state.>
+## Decisions
+<New decisions only, one per line: `- decision — why`. Omit if none.>
+"""
+)
 
-# Project
-## {area}
-### Status
-<replacement paragraph — current phase/state, last run, active blockers, """
-    """covering only what this excerpt shows (this fully replaces the """
-    """old Status text, so it must stand alone)>
-### Decisions
-<NEW entries only, one per line — `- decision — why` (no date; that is """
-    """added when your output is merged in). Omit this heading entirely """
-    """if no new decision was made in this excerpt.>"""
+CTX_REPOSITORY_BLOCK = (
+    """
+
+# Repository: {repo_id}
+## Architecture
+<New architecture facts only, one `- subject — fact` per line. Omit if none.>
+## Components
+<New file roles only, one `- path — role` per line. Omit if none.>
+## Interfaces
+<New interface facts only, one `- subject — fact` per line. Omit if none.>
+## Environment
+<New environment facts only, one `- subject — fact` per line. Omit if none.>
+"""
 )

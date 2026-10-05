@@ -1,11 +1,9 @@
-import argparse
 import shlex
 import sys
 from datetime import datetime
 from pathlib import Path
 
 from ..utils.dispatch.terminal import Terminal
-from ..manager import Manager
 from ..base import BaseRunner
 from ..constants import ANTI_SUMMARY_SUFFIX
 from ..utils.dispatch.pool import _pool_active, pick_server, update_last_used
@@ -70,9 +68,12 @@ PROMPT_STYLES = {
 
 
 def _scale_timeout(size: int, base: int = 55) -> int:
-    if size <=  5_000: return base
-    if size <= 15_000: return 90
-    if size <= 40_000: return 120
+    if size <= 5_000:
+        return base
+    if size <= 15_000:
+        return 90
+    if size <= 40_000:
+        return 120
     return 180
 
 
@@ -237,18 +238,18 @@ class ReadRunner(BaseRunner):
                 print(flush=True)
                 print(f"[oread] timed out after {TIMEOUT}s", flush=True)
                 print(
-                    f"  partial output printed above"
+                    "  partial output printed above"
                     f" ({chars} chars captured)",
                     flush=True,
                 )
                 print(
-                    f"  rerun with -t <seconds> to extend"
+                    "  rerun with -t <seconds> to extend"
                     f" (default: {DEFAULT_TIMEOUT}s)",
                     flush=True,
                 )
                 print(
-                    f"  the file or query is too large for -d"
-                    f" — try -s (summarise) instead",
+                    "  the file or query is too large for -d"
+                    " — try -s (summarise) instead",
                     flush=True,
                 )
                 rc = 2
@@ -326,4 +327,3 @@ class ReadRunner(BaseRunner):
             f.seek(0)
             f.write(entry + existing)
             f.truncate()
-

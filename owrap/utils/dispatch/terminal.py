@@ -2,10 +2,9 @@ import os
 import signal
 import subprocess
 import threading
-from pathlib import Path
 from typing import Optional
 
-from ..parser.output_parser import OutputParser
+from ..parser.output import OutputParser
 
 
 _MUTE_LINE_PREFIXES = (
@@ -15,7 +14,8 @@ _MUTE_LINE_PREFIXES = (
 
 
 class Terminal:
-    """Subprocess wrapper with PTY-backed detached execution and stdout streaming.
+    """
+    Subprocess wrapper with PTY-backed detached execution and stdout streaming.
 
     Keeps only the core subprocess management: Popen, stdout stream, tee to file.
     """

@@ -1,5 +1,4 @@
 import argparse
-import os
 import shlex
 import sys
 from datetime import datetime
@@ -116,8 +115,6 @@ class ExecRunner(BaseRunner):
         )
         self._install_sigterm_handler()
         rc = 1
-        timed_out = False
-        infra_failure = False
         result = {}
         watchdog = None
         hard_timeout = timeout if timeout is not None else EXEC_HARD_TIMEOUT_S
@@ -131,6 +128,7 @@ class ExecRunner(BaseRunner):
                 self.manager.t_cmd_start()
                 terminal = Terminal(verbose=False)
                 from ..utils.dispatch.watchdog import Watchdog
+
                 def _exec_stop():
                     setattr(self, '_stall_killed', True)
                     terminal.terminate_process()
@@ -172,8 +170,6 @@ class ExecRunner(BaseRunner):
                 "oexec", result, watchdog, sentinel, self.LOG_FILE,
                 hard_timeout, EXEC_HARD_TIMEOUT_S,
             )
-            timed_out = bool(result.get("timed_out"))
-            infra_failure = rc == 1
             self.manager.complete_task(task_id)
 
         t = ""
@@ -193,19 +189,8 @@ class ExecRunner(BaseRunner):
         print(f"log: {self.LOG_FILE}")
         if t:
             print(f"timing: {t}")
-        area = os.environ.get("OWRAP_AREA", "")
-        if not area and session_id:
-            try:
-                from ..utils.session.session_resolver import _parse, session_file
-                d = _parse(session_file(session_id))
-                area = d.get("area", "")
-            except Exception:
-                pass
         from ..utils.session.donow import check_donow
-        donow_msg = check_donow(
-            self.manager, session_id, area,
-            self.manager.research, kind="exec",
-        )
+        donow_msg = check_donow(session_id) if session_id else None
         if donow_msg:
             print(f"\n{donow_msg}")
         try:

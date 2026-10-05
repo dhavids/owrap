@@ -1,6 +1,4 @@
 import argparse
-import json
-import os
 import re
 import shlex
 import sys
@@ -18,8 +16,8 @@ from ..constants import (
 )
 from ..utils.dispatch.pool import _pool_active, pick_server, update_last_used
 from ..utils.paths import (
-    TASKS_DIR, RUNTIME_DIR, context_path, _read_config,
-    get_agents_md_path, get_workspace_config, get_workspace_path,
+    TASKS_DIR, context_path, _read_config,
+    get_agents_md_path, get_workspace_path,
     get_dispatch_model, format_failure_pointer, FALLBACK_TASK,
     session_msg_output_dir, session_task_output_dir,
     session_tasks_dir,
@@ -30,7 +28,8 @@ _PLACEHOLDER_TAG_RE = re.compile(r'<([A-Za-z][\w-]*)>')
 
 
 def _sanitize_placeholder_tags(text: str) -> str:
-    """Rewrite bare placeholder tags like <Topic> to [Topic].
+    """
+    Rewrite bare placeholder tags like <Topic> to [Topic].
 
     A bare single-word angle-bracket tag with no closing counterpart causes
     the executor to hang producing zero output (confirmed via bisection).
@@ -239,7 +238,6 @@ class RunRunner(BaseRunner):
         MSG_TIMEOUT = timeout if timeout is not None else 180
         rc = 1
         timed_out = False
-        infra_failure = False
         result = {}
         print(f"log: {msg_log}", flush=True)
         watchdog = None
@@ -257,6 +255,7 @@ class RunRunner(BaseRunner):
                 tee.flush()
                 terminal = Terminal(verbose=False)
                 from ..utils.dispatch.watchdog import Watchdog
+
                 def _msg_stop():
                     setattr(self, '_stall_killed', True)
                     terminal.terminate_process()
@@ -302,7 +301,6 @@ class RunRunner(BaseRunner):
                 MSG_TIMEOUT, 180,
             )
             timed_out = bool(result.get("timed_out"))
-            infra_failure = rc == 1
             if self.logger:
                 self.logger.info(
                     "run msg done msg=%.80r rc=%d%s", msg, rc,
@@ -466,7 +464,6 @@ class RunRunner(BaseRunner):
 
             rc = 1
             timed_out = False
-            infra_failure = False
             result = {}
             watchdog = None
             hard_timeout = timeout if timeout is not None else TASK_HARD_TIMEOUT_S
@@ -482,6 +479,7 @@ class RunRunner(BaseRunner):
                     self.manager.t_cmd_start()
                     terminal = Terminal(verbose=False)
                     from ..utils.dispatch.watchdog import Watchdog
+
                     def _task_stop():
                         setattr(self, '_stall_killed', True)
                         terminal.terminate_process()
@@ -528,7 +526,6 @@ class RunRunner(BaseRunner):
                     hard_timeout, TASK_HARD_TIMEOUT_S,
                 )
                 timed_out = bool(result.get("timed_out"))
-                infra_failure = rc == 1
                 self.manager.complete_task(task_name)
                 task_file.unlink(missing_ok=True)
                 if self.logger:
@@ -552,19 +549,10 @@ class RunRunner(BaseRunner):
                 print(f"log: {log_path}")
                 if t:
                     print(f"timing: {t}")
-                area = os.environ.get("OWRAP_AREA", "")
-                if not area and self.manager.session_id:
-                    try:
-                        from ..utils.session.session_resolver import _parse, session_file
-                        d = _parse(session_file(self.manager.session_id))
-                        area = d.get("area", "")
-                    except Exception:
-                        pass
                 from ..utils.session.donow import check_donow
-                donow_msg = check_donow(
-                    self.manager, self.manager.session_id, area,
-                    self.manager.research, kind=_task_kind,
-                    input_path=input_path,
+                donow_msg = (
+                    check_donow(self.manager.session_id)
+                    if self.manager.session_id else None
                 )
                 if donow_msg:
                     print(f"\n{donow_msg}")
@@ -650,7 +638,7 @@ class RunRunner(BaseRunner):
             self.manager.t_cmd_end()
             rc = 0
             self.manager.log_time(log_time)
-            self._write_run_log(title, tag=f"[t:0]")
+            self._write_run_log(title, tag="[t:0]")
             try:
                 if not _skip_recent:
                     self.manager.append_context_recent(
@@ -661,6 +649,7 @@ class RunRunner(BaseRunner):
                 pass
 
         sys.exit(rc)
+
 
 if __name__ == "__main__":
     main()

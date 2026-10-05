@@ -10,7 +10,7 @@ def print_orientation(
     session_id, research, url=None, plan_path=None,
     todo_path=None, input_path=None, context_path=None,
     area=None, memory_path=None, project_path=None,
-    attach=False, runner_enabled=True,
+    attach=False, runner_enabled=True, target=None,
 ):
     """
     Print the session orientation banner: server URL, plan/todo/context
@@ -60,7 +60,16 @@ def print_orientation(
                         break
     print("=== OWRAP SESSION ===")
     server_str = f"   server: {url}" if url else ""
-    print(f"  session: {session_id}   research: {r}{server_str}")
+    if target:
+        print(f"  session: {session_id}{server_str}")
+    else:
+        print(f"  session: {session_id}   research: {r}{server_str}")
+    if target:
+        if target.kind == "project":
+            scope = target.subproject_id or "main"
+            print(f"  project: {target.project_id}   subproject: {scope}")
+        else:
+            print(f"  repository: {target.repository_ids[0]}")
     if ctx_status in ("pending", "failed"):
         print(
             f"  ⚠ last context-manager dispatch: {ctx_status} — "
@@ -108,14 +117,22 @@ def print_orientation(
     if runner_enabled:
         print(f"  plan    {plan_path}{_fallback_note}")
         print(f"  input   {input_path}{_fallback_note}")
-    if area:
+    if area and not target:
         print(f"  area    {area}")
     if todo_path:
         print(f"  todo    {todo_path}")
-    if memory_path:
+    if target:
+        if target.project_path:
+            print(f"  goals   {target.project_path}#Goals")
+            print(f"  project {target.project_path}")
+        for repo_id, repo_path in zip(
+            target.repository_ids, target.repository_paths,
+        ):
+            print(f"  repo    {repo_id}: {repo_path}")
+    if memory_path and not target:
         _area_tag = f"#{area}" if area else ""
         print(f"  memory  {memory_path}{_area_tag}")
-    if project_path:
+    if project_path and not target:
         _area_tag = f"#{area}" if area else ""
         print(f"  project {project_path}{_area_tag}")
     if focus or context_path or plan_steps or env_line:

@@ -2,7 +2,6 @@ import fcntl
 import json
 import os
 import re
-import shutil
 import subprocess
 import tempfile
 import time
@@ -15,6 +14,7 @@ from ..paths import (
     SERVER_LOGS_DIR,
 )
 from ..log import rtlog
+from ..process import is_alive as _is_alive
 
 MIN_SERVERS = 2
 
@@ -56,21 +56,14 @@ def _pool_lock():
         os.close(fd)
 
 
-def _is_alive(pid) -> bool:
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
-
-
 def _read_exit_code(pid) -> int | None:
     try:
         log_path = SERVER_LOGS_DIR / f"owrap_{pid}.log"
         tail = log_path.read_bytes()[-2000:]
         m = re.search(
-            r"OWRAP_EXIT=(\d+)", 
-            tail.decode(errors="replace"))
+            r"OWRAP_EXIT=(\d+)",
+            tail.decode(errors="replace"),
+        )
         if m:
             return int(m.group(1))
     except Exception:
@@ -116,7 +109,8 @@ def _next_port(pool: list) -> int:
     config = _read_config()
     max_servers = int(config.get("max_servers", 5))
     used = {entry.get("port") for entry in pool}
-    for p in range(4096, 4096 + max_servers):
+    port_base = int(config.get("server_port_base", 4096))
+    for p in range(port_base, port_base + max_servers):
         if p not in used:
             return p
     raise RuntimeError("no available ports in pool range")
@@ -184,8 +178,6 @@ def ensure_min_servers():
             except RuntimeError:
                 break
         _write_pool(live)
-
-
 
 def _wait_responsive(url: str, timeout: float = 5.0):
     """

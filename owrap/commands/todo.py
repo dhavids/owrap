@@ -5,8 +5,10 @@ import sys
 from ..utils.paths import get_todo_file_path, todo_lock_path
 from ..utils.filelock import file_lock
 from ..utils.match import require_unique_match
+from ..utils.memory.goals import edit_goals
+from ..utils.memory.records import resolve_memory_target
 from ..utils.parser.text import preview
-from ..utils.session.session_resolver import (
+from ..utils.session.resolver import (
     session_file, _parse, resolve_session_or_exit,
 )
 
@@ -39,7 +41,7 @@ class TodoRunner:
             print("  owrap todo clear myresearch")
             sys.exit(2)
 
-        research, area = self._resolve_research_area(target)
+        research, area, goal_path = self._resolve_target(target)
 
         if arg3 is not None:
             try:
@@ -54,6 +56,15 @@ class TodoRunner:
         else:
             position = None
             text = arg2
+
+        if goal_path:
+            try:
+                edit_goals(goal_path, "add", text, position)
+            except (OSError, ValueError) as exc:
+                print(f"ERROR: {exc}")
+                sys.exit(2)
+            print(f'GOAL added to {goal_path}: "{preview(text)}"')
+            return
 
         fpath = get_todo_file_path(research)
         lock = todo_lock_path(research)
@@ -88,7 +99,15 @@ class TodoRunner:
         Remove every checked (done) item from the target's area and
         renumber what remains.
         """
-        research, area = self._resolve_research_area(target)
+        research, area, goal_path = self._resolve_target(target)
+        if goal_path:
+            try:
+                removed, _ = edit_goals(goal_path, "clear")
+            except (OSError, ValueError) as exc:
+                print(f"ERROR: {exc}")
+                sys.exit(2)
+            print(f"GOALS cleared {removed} done item(s) from {goal_path}")
+            return
         fpath = get_todo_file_path(research)
         lock = todo_lock_path(research)
 
@@ -117,7 +136,15 @@ class TodoRunner:
             print('  owrap todo done myresearch "auth redirect bug"')
             sys.exit(2)
 
-        research, area = self._resolve_research_area(target)
+        research, area, goal_path = self._resolve_target(target)
+        if goal_path:
+            try:
+                _, selected = edit_goals(goal_path, "done", selector)
+            except (OSError, ValueError) as exc:
+                print(f"ERROR: {exc}")
+                sys.exit(2)
+            print(f'GOAL marked done in {goal_path}: "{preview(selected)}"')
+            return
         fpath = get_todo_file_path(research)
         lock = todo_lock_path(research)
 
@@ -136,10 +163,10 @@ class TodoRunner:
 
     # Private Methods
 
-    def _resolve_research_area(self, target):
+    def _resolve_target(self, target):
         """
         Resolve a session id/research/area target (or the currently
-        attached session, if target is empty) to a (research, area) pair.
+        attached session, if target is empty) to legacy or project goals.
         """
         if target:
             sid = resolve_session_or_exit(target)
@@ -150,12 +177,22 @@ class TodoRunner:
                 sys.exit(2)
 
         session = _parse(session_file(sid))
+        if session.get("target_kind"):
+            try:
+                memory_target = resolve_memory_target(session)
+            except (OSError, ValueError) as exc:
+                print(f"ERROR: {exc}")
+                sys.exit(2)
+            if memory_target.kind == "repository":
+                print("ERROR: repository-only sessions have no project goals")
+                sys.exit(2)
+            return "", "", memory_target.project_path
         research = session.get("research", "")
         area = session.get("area", "")
         if not research or not area:
             print(f"ERROR: session {sid} has no research/area set.")
             sys.exit(2)
-        return research, area
+        return research, area, None
 
     def _resolve_item_index(self, items, selector):
         """

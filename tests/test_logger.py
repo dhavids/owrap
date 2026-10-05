@@ -1,11 +1,7 @@
-import logging
 import os
-import time
-from pathlib import Path
 
 
 def test_get_logger_creates_file_handler(tmp_path):
-    import importlib
     import logging
     log_path = tmp_path / "test.log"
 

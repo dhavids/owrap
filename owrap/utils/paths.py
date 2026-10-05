@@ -2,13 +2,23 @@ import json
 import os
 from pathlib import Path
 
+from .checkout import is_development
+
 OWRAP_ROOT = Path(__file__).resolve().parents[2]
 
 OWRAP_HOME_POINTER_FILE = Path.home() / ".owrap_home"
 
 
 _env_home = os.environ.get("OWRAP_HOME", "").strip()
-if _env_home:
+if is_development(OWRAP_ROOT):
+    dev_files = (OWRAP_ROOT / "files").resolve()
+    if not dev_files.is_relative_to(OWRAP_ROOT):
+        raise RuntimeError("Development files directory leaves the checkout")
+    OWRAP_HOME = Path(_env_home).expanduser() if _env_home else dev_files / "state"
+    OWRAP_HOME = OWRAP_HOME.resolve()
+    if not OWRAP_HOME.is_relative_to(dev_files):
+        raise RuntimeError(f"Development OWRAP_HOME must be under {dev_files}")
+elif _env_home:
     OWRAP_HOME = Path(_env_home).expanduser()
 elif OWRAP_HOME_POINTER_FILE.exists():
     try:
@@ -22,8 +32,10 @@ del _env_home
 RUNTIME_HOME = OWRAP_HOME
 RUNTIME_DIR = RUNTIME_HOME / "runtime"
 RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+# Read-only compatibility root until legacy runtime files are migrated.
 DOCS_DIR = RUNTIME_HOME / "docs"
-SESSIONS_DIR = DOCS_DIR / "sessions"
+SESSIONS_DIR = RUNTIME_HOME / "sessions"
+LEGACY_SESSIONS_DIR = DOCS_DIR / "sessions"
 SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 LOCKS_DIR = RUNTIME_HOME / "locks"
 LOCKS_DIR.mkdir(parents=True, exist_ok=True)
@@ -42,8 +54,9 @@ SERVERS_DIR = SESSION_DIR / "servers"
 TRASH_DIR = OWRAP_HOME / ".trash"
 
 
-# Runtime output paths (all under DOCS_DIR)
-RUN_DIR = DOCS_DIR / "run"
+# Unattached work uses the fallback session tree.
+FALLBACK_DIR = SESSIONS_DIR / "f"
+RUN_DIR = FALLBACK_DIR / "run"
 TASKS_DIR = RUN_DIR / "tasks"
 INPUT_FILE = TASKS_DIR / "input.md"
 RUN_LOG = RUN_DIR / "log.md"
@@ -55,9 +68,8 @@ RUNTIME_LOG_GENERATIONS = 3
 
 SERVER_LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
-EXEC_LOG = DOCS_DIR / "exec" / "log.md"
+EXEC_LOG = FALLBACK_DIR / "exec" / "log.md"
 
-FALLBACK_DIR = DOCS_DIR / "f"
 FALLBACK_EXEC_DIR = FALLBACK_DIR / "exec"
 FALLBACK_EXEC_DIR.mkdir(parents=True, exist_ok=True)
 FALLBACK_PLAN = FALLBACK_EXEC_DIR / "plan.md"
@@ -72,7 +84,7 @@ FALLBACK_TASK_LOG = FALLBACK_TASK_DIR / "log.md"
 FALLBACK_EXEC_STATUS = FALLBACK_EXEC_DIR / "status.json"
 FALLBACK_TASK_STATUS = FALLBACK_TASK_DIR / "status.json"
 
-READ_LOG = DOCS_DIR / "read" / "log.md"
+READ_LOG = FALLBACK_DIR / "read" / "log.md"
 
 STATE_FILE = str(RUNTIME_DIR / "manager.json")
 POOL_FILE = RUNTIME_DIR / "pool.json"
@@ -94,6 +106,8 @@ def _resolve_owrap_home() -> Path:
     directory itself, and is what `owrap update-home` rewrites when
     relocating.
     """
+    if is_development(OWRAP_ROOT):
+        return OWRAP_HOME
     env_val = os.environ.get("OWRAP_HOME", "").strip()
     if env_val:
         return Path(env_val).expanduser()
@@ -108,7 +122,16 @@ def _resolve_owrap_home() -> Path:
 
 
 def session_dir(session_id: str) -> Path:
-    return SESSIONS_DIR / session_id
+    current = SESSIONS_DIR / session_id
+    legacy = LEGACY_SESSIONS_DIR / session_id
+    return legacy if not current.exists() and legacy.exists() else current
+
+
+def session_ctx_counters_path(session_id: str, harness_id: str) -> Path:
+    name = f"{session_id}.{harness_id}.counters.json"
+    current = SESSIONS_DIR / name
+    legacy = LEGACY_SESSIONS_DIR / name
+    return legacy if not current.exists() and legacy.exists() else current
 
 
 def session_log(base_log: Path, session_id: str) -> Path:
@@ -134,7 +157,10 @@ def session_exec_output_path(session_id: str) -> Path:
 
 
 def session_ctx_dir(session_id: str, ccsid: str) -> Path:
-    """Per-window context-manager scratch dir — scoped by ccsid because
+    """
+    Return the per-window context-manager scratch directory.
+
+    It is scoped by ccsid because
     multiple Claude Code windows (ccsids) can attach to one owrap session.
     """
     return session_dir(session_id) / "ctx" / ccsid
@@ -313,20 +339,13 @@ def get_plan_path(session_id: str) -> Path:
 
 def get_self_path() -> Path:
     """
-    Return self.md path: research_root/self.md if configured,
-    else DOCS_DIR/self.md fallback.
+    Return the staged self.md for the configured workspace.
     """
     config = _read_config()
     ws_name = config.get("default_workspace", "")
     if ws_name:
-        ws_cfg = get_workspace_config(ws_name)
-        research_root = ws_cfg.get("research_root")
-        if research_root:
-            return Path(research_root) / "self.md"
-    research_root = config.get("research_root")
-    if research_root:
-        return Path(research_root) / "self.md"
-    return DOCS_DIR / "self.md"
+        return staged_dir(ws_name) / "self.md"
+    return FALLBACK_DIR / "self.md"
 
 
 def get_agents_md_path() -> Path | None:
@@ -366,7 +385,7 @@ def resolve_general_instruction_path(session_id: str | None) -> Path | None:
     Return CLAUDE.md if session has a claude_session_id, else AGENTS.md.
     """
     if session_id:
-        from .session.session_resolver import _parse, session_file as _sf
+        from .session.resolver import _parse, session_file as _sf
         try:
             data = _parse(_sf(session_id))
             if data.get("claude_session_id"):
@@ -379,7 +398,7 @@ def resolve_general_instruction_path(session_id: str | None) -> Path | None:
 def get_workspace_path() -> Path:
     """
     Return workspace from workspace config, else fall back to
-    research_root parent or DOCS_DIR parent.
+    documentation root parent or OWRAP_HOME.
     """
     config = _read_config()
     default_ws = config.get("default_workspace")
@@ -388,7 +407,7 @@ def get_workspace_path() -> Path:
         v = ws_config.get("workspace")
         if v:
             return Path(v)
-    v = config.get("research_root")
+    v = config.get("docs_root") or config.get("research_root")
     if v:
         return Path(v).parent
     return DOCS_DIR.parent
@@ -404,15 +423,32 @@ def claude_transcript_path(ccsid: str, workspace_path: Path) -> Path:
     return Path.home() / ".claude" / "projects" / project_dir / f"{ccsid}.jsonl"
 
 
-def _resolve_research_root() -> str | None:
+def codex_transcript_path(cid: str) -> Path | None:
+    """
+    Find the local Codex rollout file for a session ID.
+    """
+    codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+    matches = list((codex_home / "sessions").glob(f"**/rollout-*-{cid}.jsonl"))
+    return max(matches, key=lambda path: path.stat().st_mtime) if matches else None
+
+
+def _resolve_docs_root() -> str | None:
     config = _read_config()
     ws_name = config.get("default_workspace", "")
-    research_root = None
+    root = None
     if ws_name:
-        research_root = get_workspace_config(ws_name).get("research_root")
-    if not research_root:
-        research_root = config.get("research_root")
-    return research_root
+        workspace = get_workspace_config(ws_name)
+        root = workspace.get("docs_root") or workspace.get("research_root")
+    if not root:
+        root = config.get("docs_root") or config.get("research_root")
+    return root
+
+
+def _resolve_research_root() -> str | None:
+    """
+    Return the documentation root for legacy callers.
+    """
+    return _resolve_docs_root()
 
 
 def get_project_file_path(research: str = None) -> Path:
@@ -421,20 +457,20 @@ def get_project_file_path(research: str = None) -> Path:
     """
     if research is None:
         research = os.environ.get("OWRAP_RESEARCH", "")
-    research_root = _resolve_research_root()
-    if research and research_root:
-        return Path(research_root) / "projects" / f"{research}.md"
-    return DOCS_DIR / "todo.md"
+    docs_root = _resolve_research_root()
+    if research and docs_root:
+        return Path(docs_root) / "projects" / f"{research}.md"
+    return FALLBACK_DIR / "todo.md"
 
 
 def get_todo_file_path(research: str) -> Path:
     """
     Return the per-research user-todo file path (`todo/<research>.md`).
     """
-    research_root = _resolve_research_root()
-    if not research_root:
-        raise ValueError("research_root not configured")
-    return Path(research_root) / "todo" / f"{research}.md"
+    docs_root = _resolve_research_root()
+    if not docs_root:
+        raise ValueError("docs_root not configured")
+    return Path(docs_root) / "todo" / f"{research}.md"
 
 
 def resolve_memory_project_paths(research: str) -> tuple:
@@ -445,10 +481,10 @@ def resolve_memory_project_paths(research: str) -> tuple:
     """
     if not research:
         return None, None
-    research_root = _resolve_research_root()
-    if not research_root:
+    docs_root = _resolve_research_root()
+    if not docs_root:
         return None, None
-    base = Path(research_root)
+    base = Path(docs_root)
     return base / "memory" / f"{research}.md", base / "projects" / f"{research}.md"
 
 
