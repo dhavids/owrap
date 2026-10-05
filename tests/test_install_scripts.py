@@ -155,8 +155,6 @@ def test_release_archive_excludes_development_paths():
         "/deploy.py export-ignore",
         "/.pytest_cache export-ignore",
         "/files export-ignore",
-        "/.gitignore export-ignore",
-        "/.gitattributes export-ignore",
     }
 
 

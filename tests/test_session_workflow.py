@@ -129,6 +129,8 @@ def test_stat_identifies_temp_session(workflow_home, monkeypatch, capsys):
     output = capsys.readouterr().out
     assert f"session:  {temp['session_id']}\n    type:     temp" in output
     assert "session:  parent\n    type:     normal" in output
+    assert "project:  demo\n    sub:      feature" in output
+    assert "research:" not in output
 
 
 def test_branch_worktree_merge_then_collapse(workflow_home, tmp_path, monkeypatch):
