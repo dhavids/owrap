@@ -10,6 +10,9 @@ only during migration.
 |---|---|
 | `owrap start --project <id> [--subproject <id>]` | Start a targeted project session |
 | `owrap start --repository <id>` | Start a repository-only session |
+| `owrap main` | Return the current project session to its main record |
+| `owrap sub <id> [-f]` | Select or create a regular subproject |
+| `owrap subs` | List the current project's subprojects |
 | `owrap spawn [name]` | Create a child session with inherited target |
 | `owrap temp [name]` | Create an independent session |
 | `owrap branch [name] [--ref <ref>]` | Create a child session with Git worktrees |

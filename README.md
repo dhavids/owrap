@@ -11,6 +11,10 @@ can target the same project or subproject.
 - `owrap temp [name]` starts an independent session with no project target.
   Without a name, owrap assigns `temp-<session-id>`. Its context, plans, and
   logs live in `OWRAP_HOME/sessions/<session-id>/`, like other sessions.
+- `owrap main` returns an active project session to its main record.
+- `owrap sub <id> [-f]` selects or creates a regular subproject; close names
+  require correction or `-f` before creation.
+- `owrap subs` lists the active project's subprojects.
 - `owrap branch [name] [--ref <git-ref>]` starts a child session and makes one
   Git worktree per linked repository in `<workspace>/branches/<session-id>/`.
   The source checkouts must be clean. This command does not merge code.

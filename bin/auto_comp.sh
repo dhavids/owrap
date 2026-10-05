@@ -20,10 +20,11 @@ _owrap_complete() {
 
     # Top-level: complete subcommands and top-level flags
     if [[ ${COMP_CWORD} -eq 1 ]]; then
-        COMPREPLY=( $(compgen -W "start stop end refresh attach restart setup \
-sync read run exec work stat cleanup restore agent abort agents killservers \
-f update-area spawn update-home ctx-hook ctx-worker get daemon p \
-wait -a --allow-all" -- "${cur}") )
+        COMPREPLY=( $(compgen -W "start stop end refresh attach detach todo \
+main sub subs branch restart setup sync read run exec work stat cleanup \
+restore agent abort agents killservers daemon update-area spawn temp collapse \
+update-home migrate wait f ctx-hook ctx-worker ctx updr touched backup \
+retrieve delete get p permit set -a --allow-all" -- "${cur}") )
         return 0
     fi
 
@@ -35,7 +36,15 @@ wait -a --allow-all" -- "${cur}") )
             COMPREPLY=( $(compgen -f -- "${cur}") )
             return 0
             ;;
-        -f|--file)
+        -f)
+            if [[ "$cmd" == "sub" ]]; then
+                COMPREPLY=()
+                return 0
+            fi
+            COMPREPLY=( $(compgen -f -- "${cur}") )
+            return 0
+            ;;
+        --file)
             COMPREPLY=( $(compgen -f -- "${cur}") )
             return 0
             ;;
@@ -104,10 +113,15 @@ bullets" -- "${cur}") )
         if [[ "$word" =~ ^- ]]; then
             case "$word" in
                 --shell-pid|--session-file|-i|--session-id|--name|--workspace|\
-                --research-root|-f|--file|-g|--grep|-d|--details|--msg|\
+                --research-root|--file|-g|--grep|-d|--details|--msg|\
                 --input|-t|--timeout|-m|--model|--session|-p|--prompt-style|\
                 --id|--head|--tail)
                     ((i++))
+                    ;;
+                -f)
+                    if [[ "$cmd" != "sub" ]]; then
+                        ((i++))
+                    fi
                     ;;
             esac
         else
@@ -183,6 +197,10 @@ bullets" -- "${cur}") )
                 ;;
             update-home)
                 COMPREPLY=( $(compgen -W "--dry-run --migrate" -- "${cur}") )
+                return 0
+                ;;
+            sub)
+                COMPREPLY=( $(compgen -W "-f --force" -- "${cur}") )
                 return 0
                 ;;
             get)
@@ -318,6 +336,12 @@ bullets" -- "${cur}") )
                 *)  COMPREPLY=() ;;
             esac
             ;;
+        sub)
+            case $pos_count in
+                0)  COMPREPLY=() ;;
+                *)  COMPREPLY=( $(compgen -W "-f --force" -- "${cur}") ) ;;
+            esac
+            ;;
         update-home)
             case $pos_count in
                 0)  COMPREPLY=( $(compgen -d -- "${cur}") ) ;;
@@ -347,7 +371,7 @@ memory project area research config home agents output" -- "${cur}") ) ;;
         ctx-worker)
             COMPREPLY=( $(compgen -W "--input" -- "${cur}") )
             ;;
-        sync|daemon|p|ctx-hook)
+        main|subs|sync|daemon|p|ctx-hook)
             COMPREPLY=()
             ;;
         *)
