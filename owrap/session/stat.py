@@ -105,6 +105,25 @@ def _print_context_jobs(jobs, show_session=True):
         print(f"    transcript: {transcript}")
 
 
+def _print_identity(data: dict) -> None:
+    kind = data.get("target_kind", "")
+    if kind == "project":
+        print(f"    project:  {data.get('project_id', '?')}")
+        subproject = data.get("subproject_id", "")
+        if subproject:
+            print(f"    sub:      {subproject}")
+        return
+    if kind == "repository":
+        print(f"    repo:     {data.get('repository_id', '?')}")
+        return
+    research = data.get("research", "")
+    if research:
+        print(f"    research: {research}")
+    area = data.get("area", "")
+    if area:
+        print(f"    area:     {area}")
+
+
 class StatRunner(BaseRunner):
     """
     Display session status, server pool, and task information.
@@ -293,12 +312,7 @@ class StatRunner(BaseRunner):
                 print(f"  {claude_id}{marker}")
                 print(f"    session:  {data.get('session_id', '?')}")
                 print(f"    type:     {data.get('session_mode') or 'normal'}")
-                research = data.get("research", "")
-                if research:
-                    print(f"    research: {research}")
-                area = data.get("area", "")
-                if area:
-                    print(f"    area:     {area}")
+                _print_identity(data)
                 print(f"    age:      {age}")
                 print()
         else:
@@ -309,12 +323,7 @@ class StatRunner(BaseRunner):
             age = _age_str(global_session.stat().st_mtime)
             print("global (~/.owrap/session):")
             print(f"    session:  {data.get('session_id', '?')}")
-            research = data.get("research", "")
-            if research:
-                print(f"    research: {research}")
-            area = data.get("area", "")
-            if area:
-                print(f"    area:     {area}")
+            _print_identity(data)
             print(f"    age:      {age}")
 
         return 0
