@@ -3,6 +3,7 @@ import re
 import shlex
 import shutil
 from pathlib import Path
+
 from .utils.paths import (
     CONFIGS_DIR, OWRAP_HOME, TEMPLATES_DIR,
     get_workspace_config, staged_dir,
@@ -14,6 +15,53 @@ PLACEHOLDER_RE = re.compile(r"\{\{([A-Z_]+)\}\}")
 # Matches only innermost {{IF:FLAG}}...{{ENDIF}} blocks (no nested {{IF:}} inside), so
 # process_conditionals can resolve nested blocks from the inside out.
 COND_RE = re.compile(r"\{\{IF:([A-Z_]+)\}\}((?:(?!\{\{IF:)[\s\S])*?)\{\{ENDIF\}\}")
+ROLE_FILE_NAMES = ("CLAUDE.md", "AGENTS.md")
+HARNESS_FILES = {
+    "claude": "CLAUDE.md",
+    "codex": "AGENTS.md",
+    "opencode": "AGENTS.md",
+}
+DEFAULT_ROLE_HARNESSES = {
+    "planner": ["claude"],
+    "executor": ["opencode"],
+}
+INSTRUCTION_SECTIONS = ("Planner", "Executor", "Self")
+MANAGED_BLOCK_RE = re.compile(
+    r"<!-- owrap:([a-z-]+) -->[\s\S]*?<!-- /owrap:\1 -->\n?",
+)
+
+
+def resolve_role_files(config: dict) -> dict:
+    """
+    Resolve the workspace files selected for each role.
+    """
+    harnesses = config.get("role_harnesses") or {}
+    configured = config.get("role_files") or {}
+    if not isinstance(harnesses, dict):
+        raise ValueError("role_harnesses must be an object")
+    if not isinstance(configured, dict):
+        raise ValueError("role_files must be an object")
+    result = {}
+    for role, default in DEFAULT_ROLE_HARNESSES.items():
+        if role in harnesses:
+            selected = harnesses[role]
+            if not isinstance(selected, list) or not selected:
+                raise ValueError(f"role_harnesses.{role} must be a nonempty list")
+            if any(name not in HARNESS_FILES for name in selected):
+                raise ValueError(
+                    f"role_harnesses.{role} must use claude, codex, or opencode"
+                )
+            names = [HARNESS_FILES[name] for name in selected]
+        else:
+            names = configured.get(
+                role, [HARNESS_FILES[name] for name in default],
+            )
+        if not isinstance(names, list) or not names:
+            raise ValueError(f"role_files.{role} must be a nonempty list")
+        if any(name not in ROLE_FILE_NAMES for name in names):
+            raise ValueError(f"role_files.{role} must use CLAUDE.md or AGENTS.md")
+        result[role] = list(dict.fromkeys(names))
+    return result
 
 
 def _tilde_relative(path: str) -> str:
@@ -23,30 +71,186 @@ def _tilde_relative(path: str) -> str:
     return path
 
 
+def _executable(bin_dir: str, name: str) -> str:
+    directory = Path(bin_dir).expanduser()
+    path = directory / name
+    if directory == Path.home() / "bin":
+        return f"~/bin/{name}"
+    return shlex.quote(str(path))
+
+
 def resolve_placeholders(config: dict, workspace_name: str) -> dict:
     """
     Build the full placeholder → value map from workspace config + derived values.
     """
     workspace = config.get("workspace", "")
-    research_root = config.get("research_root") or (
+    docs_root = config.get("docs_root") or config.get("research_root") or (
         f"{workspace}/docs/research" if workspace else ""
     )
     bin_dir = config.get("bin_dir") or str(Path.home() / "bin")
-    owrap_docs = str(OWRAP_HOME / "docs")
     owrap_home = str(OWRAP_HOME)
-    oread = bool(config.get("runner_use_oread", True))
+    self_path = str(staged_dir(workspace_name) / "self.md")
+    role_files = resolve_role_files(config)
     return {
         "WORKSPACE": workspace,
-        "RESEARCH_ROOT": research_root,
+        "DOCS_ROOT": docs_root,
+        "RESEARCH_ROOT": docs_root,
         "BIN_DIR": bin_dir,
         "PROJECT_NAME": workspace_name,
-        "OWRAP_DOCS": owrap_docs,
         "OWRAP_HOME": owrap_home,
+        "SELF_PATH": self_path,
         "WORKSPACE_TILDE": _tilde_relative(workspace),
-        "RESEARCH_ROOT_TILDE": _tilde_relative(research_root),
-        "PERMIT_MATCHER": "Bash|Write|Edit|Read" if oread else "Bash|Write|Edit",
-        "REFRESH_REREAD": "`CLAUDE.md`",
+        "DOCS_ROOT_TILDE": _tilde_relative(docs_root),
+        "RESEARCH_ROOT_TILDE": _tilde_relative(docs_root),
+        "SELF_PATH_TILDE": _tilde_relative(self_path),
+        "REFRESH_REREAD": f"`{role_files['planner'][0]}`",
+        "PLANNER_MANUAL_PATH": str(Path(workspace) / role_files["planner"][0]),
     }
+
+
+def read_instruction_sections(path: Path) -> dict[str, str]:
+    """
+    Read the Planner, Executor, and Self sections from instruction.md.
+    """
+    sections = {name: "" for name in INSTRUCTION_SECTIONS}
+    if not path.exists():
+        return sections
+    current = None
+    lines = {name: [] for name in INSTRUCTION_SECTIONS}
+    for line in path.read_text().splitlines():
+        match = re.match(r"^## (Planner|Executor|Self)\s*$", line)
+        if match:
+            current = match.group(1)
+            continue
+        if line.startswith("## "):
+            current = None
+        elif current:
+            lines[current].append(line)
+    for name, content in lines.items():
+        sections[name] = "\n".join(content).strip()
+    return sections
+
+
+def _write_instruction_sections(path: Path, sections: dict[str, str]):
+    content = ["# Workspace Instructions"]
+    for name in INSTRUCTION_SECTIONS:
+        content.extend(["", f"## {name}"])
+        text = sections.get(name, "").strip()
+        if text:
+            content.extend(["", text])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(content).rstrip() + "\n")
+
+
+def _unmanaged_content(path: Path) -> str:
+    if not path.exists():
+        return ""
+    return MANAGED_BLOCK_RE.sub("", path.read_text()).strip()
+
+
+def _append_instruction(sections: dict[str, str], name: str, content: str):
+    content = content.strip()
+    if not content or content in sections[name]:
+        return
+    sections[name] = "\n\n".join(
+        part for part in (sections[name], content) if part
+    )
+
+
+def _insert_instruction_content(path: Path, name: str, content: str):
+    content = content.strip()
+    if not content:
+        return
+    text = path.read_text()
+    heading = re.search(rf"^## {re.escape(name)}\s*$", text, re.MULTILINE)
+    if not heading:
+        path.write_text(f"{text.rstrip()}\n\n## {name}\n\n{content}\n")
+        return
+    next_heading = re.search(r"^## .+$", text[heading.end():], re.MULTILINE)
+    end = heading.end() + next_heading.start() if next_heading else len(text)
+    before = text[:end].rstrip()
+    after = text[end:].lstrip("\n")
+    merged = f"{before}\n\n{content}\n"
+    if after:
+        merged += f"\n{after}"
+    path.write_text(merged)
+
+
+def _retain_managed_blocks(path: Path):
+    if not path.exists():
+        return
+    blocks = [match.group(0).strip() for match in MANAGED_BLOCK_RE.finditer(
+        path.read_text(),
+    )]
+    path.write_text("\n\n".join(blocks) + ("\n" if blocks else ""))
+
+
+def _migrate_instructions(docs_root: Path, workspace: Path | None) -> Path:
+    instruction_path = docs_root / "instruction.md"
+    sections = read_instruction_sections(instruction_path)
+    additions = {name: [] for name in INSTRUCTION_SECTIONS}
+    role_paths = []
+
+    if workspace:
+        for filename, section in (
+            ("CLAUDE.md", "Planner"),
+            ("AGENTS.md", "Executor"),
+        ):
+            path = workspace / filename
+            unmanaged = _unmanaged_content(path)
+            if unmanaged:
+                if unmanaged not in sections[section]:
+                    additions[section].append(unmanaged)
+                    _append_instruction(sections, section, unmanaged)
+                role_paths.append(path)
+
+    legacy_self = docs_root / "self.md"
+    unmanaged = _unmanaged_content(legacy_self)
+    if unmanaged:
+        if unmanaged not in sections["Self"]:
+            additions["Self"].append(unmanaged)
+            _append_instruction(sections, "Self", unmanaged)
+    legacy_pages = docs_root / "self"
+    legacy_page_paths = []
+    if legacy_pages.exists():
+        for page in sorted(legacy_pages.rglob("*.md")):
+            unmanaged = _unmanaged_content(page)
+            if unmanaged:
+                if unmanaged not in sections["Self"]:
+                    additions["Self"].append(unmanaged)
+                    _append_instruction(sections, "Self", unmanaged)
+            legacy_page_paths.append(page)
+
+    if not instruction_path.exists():
+        _write_instruction_sections(instruction_path, sections)
+    else:
+        for name, content in additions.items():
+            if content:
+                _insert_instruction_content(
+                    instruction_path, name, "\n\n".join(content),
+                )
+
+    for path in role_paths:
+        _retain_managed_blocks(path)
+    if legacy_self.exists():
+        legacy_self.unlink()
+    for page in legacy_page_paths:
+        page.unlink()
+    if legacy_pages.exists():
+        for directory in sorted(legacy_pages.rglob("*"), reverse=True):
+            if directory.is_dir() and not any(directory.iterdir()):
+                directory.rmdir()
+        if not any(legacy_pages.iterdir()):
+            legacy_pages.rmdir()
+    return instruction_path
+
+
+def _add_workspace_instructions(path: Path, content: str):
+    content = content.strip()
+    if not content or not path.exists():
+        return
+    base = path.read_text().rstrip()
+    path.write_text(f"{base}\n\n## Workspace Instructions\n\n{content}\n")
 
 
 def substitute(text: str, placeholders: dict) -> str:
@@ -76,6 +280,61 @@ def process_conditionals(text: str, flags: dict) -> str:
     return re.sub(r"\n{3,}", "\n\n", text)
 
 
+def _render_template(path: Path, flags: dict, placeholders: dict) -> str:
+    text = process_conditionals(path.read_text(), flags)
+    return substitute(text, placeholders)
+
+
+def _stage_harness(
+    harness: str, out_dir: Path, flags: dict, placeholders: dict,
+):
+    source = TEMPLATES_DIR / harness
+    destination = out_dir / harness
+    for template in source.rglob("*"):
+        if not template.is_file():
+            continue
+        staged = destination / template.relative_to(source)
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        staged.write_text(_render_template(template, flags, placeholders))
+
+
+def stage_claude(
+    out_dir: Path, flags: dict, placeholders: dict, groups: list,
+):
+    """
+    Stage Claude settings and permission definitions.
+    """
+    values = dict(placeholders)
+    matcher_tools = ["Bash", "Write", "Edit"]
+    if flags.get("OREAD"):
+        matcher_tools.append("Read")
+    values["ALLOW_RULES"] = render_rule_array(
+        groups, flags, values, exclude_tools=set(matcher_tools),
+    )
+    values["PERMIT_MATCHER"] = "|".join(matcher_tools)
+    bin_dir = values.get("BIN_DIR", str(Path.home() / "bin"))
+    executable = _executable(bin_dir, "owrap")
+    values["PERMIT_COMMAND"] = f"{executable} p"
+    values["CTX_COMMAND"] = f"{executable} ctx-hook"
+    _stage_harness("claude", out_dir, flags, values)
+
+
+def stage_codex(
+    out_dir: Path, flags: dict, placeholders: dict, workspace_name: str,
+):
+    """
+    Stage Codex hooks and permission definitions.
+    """
+    values = dict(placeholders)
+    bin_dir = values.get("BIN_DIR", str(Path.home() / "bin"))
+    executable = _executable(bin_dir, "owrap")
+    values["PERMIT_COMMAND"] = (
+        f"{executable} p --workspace {shlex.quote(workspace_name)}"
+    )
+    values["CTX_COMMAND"] = f"{executable} ctx-hook"
+    _stage_harness("codex", out_dir, flags, values)
+
+
 def resolve_flags(config: dict) -> dict:
     """
     Build the boolean flag map for conditional template blocks.
@@ -101,11 +360,11 @@ def _group_active(group: dict, flags: dict) -> bool:
     return flags.get(cond, False) if cond else True
 
 
-def load_permission_groups(filename: str) -> list:
+def load_permission_groups(harness: str) -> list:
     """
-    Load groups from templates/<filename> (allow.json or deny.json).
+    Load a harness's permission groups.
     """
-    path = TEMPLATES_DIR / filename
+    path = TEMPLATES_DIR / harness / "allow.json"
     if not path.exists():
         return []
     return json.loads(path.read_text()).get("groups", [])
@@ -156,7 +415,8 @@ def render_allowed_section(
 
 
 def merge_into_workspace_file(dest_path: Path, content: str, marker: str):
-    """Merge content into dest_path wrapped in owrap markers.
+    """
+    Merge content into dest_path wrapped in owrap markers.
 
     Marker open: ``<!-- owrap:<marker> -->``  close: ``<!-- /owrap:<marker> -->``
     - If dest doesn't exist: create with marker-wrapped content.
@@ -209,50 +469,6 @@ def _strip_marker_block(dest_path: Path, marker: str):
     dest_path.write_text(before + after.lstrip("\n"))
 
 
-def render_codex_hooks(workspace: Path, workspace_name: str, bin_dir: str) -> str:
-    """
-    Render Codex hooks for Bash checks and approval requests.
-    """
-    hooks_path = workspace / ".codex" / "hooks.json"
-    data = json.loads(hooks_path.read_text()) if hooks_path.exists() else {}
-    if not isinstance(data, dict) or not isinstance(data.get("hooks", {}), dict):
-        raise ValueError(f"Invalid Codex hook configuration: {hooks_path}")
-
-    command = (
-        f"{shlex.quote(str(Path(bin_dir).expanduser() / 'owrap'))} p "
-        f"--workspace {shlex.quote(workspace_name)}"
-    )
-    for event in ("PreToolUse", "PermissionRequest"):
-        groups = data.setdefault("hooks", {}).setdefault(event, [])
-        if not isinstance(groups, list):
-            raise ValueError(f"Invalid Codex {event} hooks: {hooks_path}")
-        retained = []
-        for group in groups:
-            if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
-                retained.append(group)
-                continue
-            hooks = [
-                hook for hook in group["hooks"]
-                if not (
-                    isinstance(hook, dict)
-                    and hook.get("statusMessage") == "Checking owrap permission"
-                )
-            ]
-            if hooks:
-                retained.append({**group, "hooks": hooks})
-        groups[:] = retained
-        groups.append({
-            "matcher": "^Bash$",
-            "hooks": [{
-                "type": "command",
-                "command": command,
-                "timeout": 20,
-                "statusMessage": "Checking owrap permission",
-            }],
-        })
-    return json.dumps(data, indent=2) + "\n"
-
-
 def stage_all(workspace_name: str) -> Path:
     """
     Stage workspace templates and permission hooks, then merge agent files.
@@ -262,82 +478,78 @@ def stage_all(workspace_name: str) -> Path:
     config = get_workspace_config(workspace_name)
     placeholders = resolve_placeholders(config, workspace_name)
     flags = resolve_flags(config)
+    workspace_value = config.get("workspace")
+    workspace = Path(workspace_value) if workspace_value else None
+    docs_value = config.get("docs_root") or config.get("research_root")
+    if not docs_value and workspace:
+        docs_value = str(workspace / "docs" / "research")
+    docs_root = Path(docs_value) if docs_value else None
+    instruction_path = (
+        _migrate_instructions(docs_root, workspace) if docs_root else None
+    )
+    instructions = read_instruction_sections(instruction_path) if (
+        instruction_path
+    ) else {name: "" for name in INSTRUCTION_SECTIONS}
 
-    allow_groups = load_permission_groups("allow.json")
-    matcher_tools = (
-        {"Bash", "Write", "Edit"}
-        | ({"Read"} if flags.get("OREAD") else set())
-    )
-    placeholders["ALLOW_RULES"] = render_rule_array(
-        allow_groups, flags, placeholders, exclude_tools=matcher_tools,
-    )
-    placeholders["ALLOWED_COMMANDS"] = render_allowed_section(
-        allow_groups, flags, placeholders, "commands",
-    )
-    placeholders["ALLOWED_FILES"] = render_allowed_section(
-        allow_groups, flags, placeholders, "files",
-    )
+    allow_groups = load_permission_groups("claude")
+    codex_groups = load_permission_groups("codex")
+    bin_dir = placeholders.get("BIN_DIR", str(Path.home() / "bin"))
 
     out_dir = staged_dir(workspace_name)
     if out_dir.exists():
         shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    for tpl in TEMPLATES_DIR.iterdir():
+    for tpl in TEMPLATES_DIR.rglob("*"):
         if not tpl.is_file():
             continue
-        text = tpl.read_text()
-        text = process_conditionals(text, flags)
-        (out_dir / tpl.name).write_text(substitute(text, placeholders))
+        relative = tpl.relative_to(TEMPLATES_DIR)
+        if relative.parts[0] in HARNESS_FILES:
+            continue
+        staged = out_dir / relative
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        staged.write_text(_render_template(tpl, flags, placeholders))
 
+    _add_workspace_instructions(out_dir / "planner.md", instructions["Planner"])
+    _add_workspace_instructions(out_dir / "executor.md", instructions["Executor"])
+    _add_workspace_instructions(out_dir / "self.md", instructions["Self"])
 
-    # Generate permit.json — consumed by `owrap p`
+    stage_claude(out_dir, flags, placeholders, allow_groups)
+    stage_codex(out_dir, flags, placeholders, workspace_name)
 
-    permit_rules = []
-    for group in allow_groups:
-        if _group_active(group, flags):
-            for rule in group.get("rules", []):
-                permit_rules.append(substitute(rule, placeholders))
-    bin_dir = placeholders.get("BIN_DIR", str(Path.home() / "bin"))
     orun_cmd = _tilde_relative(str(Path(bin_dir).expanduser() / "orun"))
-    permit_path = CONFIGS_DIR / f"{workspace_name}_permit.json"
-    permit_data = {
-        "orun_cmd": orun_cmd,
-        "rules": permit_rules,
-        "bypass_all": bool(config.get("permit_bypass_all", False)),
-    }
-    permit_path.write_text(json.dumps(permit_data, indent=2))
+    for harness, groups in (("claude", allow_groups), ("codex", codex_groups)):
+        permit_rules = [
+            substitute(rule, placeholders)
+            for group in groups if _group_active(group, flags)
+            for rule in group.get("rules", [])
+        ]
+        suffix = "_codex_permit.json" if harness == "codex" else "_permit.json"
+        permit_path = CONFIGS_DIR / f"{workspace_name}{suffix}"
+        permit_data = {
+            "orun_cmd": orun_cmd,
+            "rules": permit_rules,
+            "bypass_all": bool(config.get("permit_bypass_all", False)),
+        }
+        permit_path.write_text(json.dumps(permit_data, indent=2))
 
 
-    # Merge planner.md into CLAUDE.md and executor.md into AGENTS.md
-
-    ws = config.get("workspace")
-    if ws:
-        ws_path = Path(ws)
-        (out_dir / "codex_hooks.json").write_text(
-            render_codex_hooks(ws_path, workspace_name, bin_dir)
-        )
+    if workspace:
+        role_files = resolve_role_files(config)
         planner_staged = out_dir / "planner.md"
         executor_staged = out_dir / "executor.md"
-        self_staged = out_dir / "self.md"
-        if planner_staged.exists():
-            merge_into_workspace_file(
-                ws_path / "CLAUDE.md", planner_staged.read_text(),
-                "planner",
-            )
-            _strip_marker_block(ws_path / "AGENTS.md", "planner")
-        if executor_staged.exists():
-            merge_into_workspace_file(
-                ws_path / "AGENTS.md", executor_staged.read_text(),
-                "executor",
-            )
-        if self_staged.exists():
-            research_root = config.get("research_root") or (
-                f"{ws}/docs/research"
-            )
-            merge_into_workspace_file(
-                Path(research_root) / "self.md",
-                self_staged.read_text(),
-                "self",
-            )
+        for role, staged_file in (
+            ("planner", planner_staged),
+            ("executor", executor_staged),
+        ):
+            if not staged_file.exists():
+                continue
+            for filename in ROLE_FILE_NAMES:
+                destination = workspace / filename
+                if filename in role_files[role]:
+                    merge_into_workspace_file(
+                        destination, staged_file.read_text(), role,
+                    )
+                else:
+                    _strip_marker_block(destination, role)
 
     return out_dir

@@ -2,8 +2,6 @@ import os
 import sys
 import threading
 import time
-from pathlib import Path
-
 from ..base import BaseRunner
 from ..utils.dispatch.pool import (
     get_pool, _active_load, shutdown_idle, ensure_min_servers,

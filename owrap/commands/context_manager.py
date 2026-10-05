@@ -5,16 +5,17 @@ import shlex
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ..utils.paths import (
     context_path, _read_config, session_ctx_dir, session_ctx_transcript_path,
     get_model_chain, get_workspace_path, claude_transcript_path,
     codex_transcript_path,
-    context_lock_path, memory_lock_path, projects_lock_path,
-    session_ctx_touched_path,
+    context_lock_path, session_ctx_touched_path,
+    session_ctx_counters_path,
 )
-from ..utils.session.session_resolver import (
+from ..utils.session.resolver import (
     _parse, session_file, owrap_sid_for_ccsid, all_attached_ccsid_pairs,
     owrap_sid_for_codex_session_id,
 )
@@ -24,9 +25,13 @@ from ..utils.parser.sections import (
 from ..utils.parser.text import extract_useful_lines
 from ..utils.dispatch.terminal import Terminal
 from ..utils.filelock import file_lock
+from ..utils.log import context_jobs
+from ..utils.memory.records import (
+    resolve_memory_target, touched_repository_paths,
+)
 from ..constants import (
-    CTX_SCOPED_TASK_TEMPLATE, CTX_CONTEXT_BLOCK, CTX_PROTOCOL_BLOCK,
-    ANTI_SUMMARY_SUFFIX,
+    CTX_SCOPED_TASK_TEMPLATE, CTX_CONTEXT_BLOCK,
+    CTX_PROJECT_BLOCK, CTX_REPOSITORY_BLOCK, ANTI_SUMMARY_SUFFIX,
 )
 
 MAX_EXCERPT_CHARS = 4000
@@ -43,7 +48,7 @@ class CtxWorkerRunner:
     Three entry points share the same `_dispatch` core:
     - `run(input_path)` — background worker spawned by `CtxHookRunner` on
       Claude Code's PreCompact hook; always does both Context and Protocol.
-    - `run_manual(mode, area)` — fire-and-forget dispatch for the planner's
+    - `run_manual(mode, subproject)` — fire-and-forget dispatch for the planner's
       `--ctx`/`--updr` commands: validates fast, queues the requested half
       on a detached `ctx-worker` process, returns immediately.
     - `check_all_attached()` — background trigger check from the daemon's
@@ -53,7 +58,7 @@ class CtxWorkerRunner:
     def run(self, input_path: Path = None):
         """
         Execute a context-manager worker run from the given hook-payload
-        path. `mode`/`area` in the payload are optional — absent (the real
+        path. `mode`/target override in the payload are optional — absent (the real
         PreCompact hook payload) means both Context and Protocol, same as
         always; present (a manual `--ctx`/`--updr` handoff) restricts to
         the requested half.
@@ -62,17 +67,20 @@ class CtxWorkerRunner:
             print("ctx-worker: --input required", file=sys.stderr)
             sys.exit(1)
 
+        hook_data = json.loads(input_path.read_text())
+        job_dir = Path(hook_data["job_dir"]) if hook_data.get("job_dir") else None
         config = _read_config()
         if not config.get("owrap_context_manager_enabled", True):
             print("ctx-worker: context manager disabled, skipping")
-            sys.exit(0)
+            if job_dir:
+                context_jobs.finish(job_dir, 1)
+            return 1
 
-        hook_data = json.loads(input_path.read_text())
         ccsid = hook_data.get("session_id", "")
         source = hook_data.get("source", "claude")
         transcript_path = hook_data.get("transcript_path", "")
         mode = hook_data.get("mode")
-        area = hook_data.get("area")
+        subproject = hook_data.get("subproject")
 
         if source == "codex":
             owrap_sid = owrap_sid_for_codex_session_id(ccsid)
@@ -80,16 +88,41 @@ class CtxWorkerRunner:
             owrap_sid = owrap_sid_for_ccsid(ccsid)
         if not owrap_sid:
             print("ctx-worker: no matching owrap session", file=sys.stderr)
-            sys.exit(0)
+            if job_dir:
+                context_jobs.finish(job_dir, 1)
+            return 1
 
-        self._dispatch_tracked(
-            owrap_sid, ccsid, transcript_path, config,
-            do_context=(mode != "updr"), do_protocol=(mode != "ctx"),
-            area_override=area,
-            source=source,
-        )
+        if job_dir:
+            context_jobs.update(
+                job_dir, status="running", started=time.time(),
+                pid=os.getpid(), stage="reading transcript",
+            )
+        rc = 1
+        self._job_dir = job_dir
+        try:
+            ctx_dir = session_ctx_dir(owrap_sid, ccsid)
+            if job_dir:
+                context_jobs.update(job_dir, stage="waiting for window")
+            with file_lock(ctx_dir / "dispatch.lock"):
+                if job_dir:
+                    context_jobs.update(job_dir, stage="reading transcript")
+                rc = self._dispatch_tracked(
+                    owrap_sid, ccsid, transcript_path, config,
+                    do_context=(mode != "updr"), do_protocol=(mode != "ctx"),
+                    subproject_override=subproject,
+                    source=source,
+                )
+        except Exception:
+            if job_dir:
+                context_jobs.finish(job_dir, 1)
+            raise
+        finally:
+            self._job_dir = None
+        if job_dir:
+            context_jobs.finish(job_dir, rc)
+        return rc
 
-    def run_manual(self, mode: str = None, area: str = None):
+    def run_manual(self, mode: str = None, subproject: str = None):
         """
         Fire-and-forget dispatch for the planner's `--ctx`/`--updr`/
         `--ctxupdr` commands: validates fast, queues the actual dispatch on
@@ -103,8 +136,8 @@ class CtxWorkerRunner:
         or None (both, in one dispatch — cheaper than calling `--ctx` then
         `--updr` separately, which would read the same unconsumed
         transcript excerpt twice and dispatch it twice).
-        area: optional override for `--updr`/`--ctxupdr <area>`; defaults
-        to the session's configured area.
+        subproject: optional override for a project session's subproject;
+        defaults to the session's target.
         """
         config = _read_config()
         if not config.get("owrap_context_manager_enabled", True):
@@ -137,38 +170,75 @@ class CtxWorkerRunner:
             sys.exit(1)
         transcript_path = str(transcript)
 
+        kind = None
         if mode != "ctx":
             sf_path = session_file(owrap_sid)
             d = _parse(sf_path) if sf_path.exists() else {}
-            research = d.get("research", "")
-            resolved_area = area or d.get("area", "")
-            if not (research and resolved_area):
+            kind = d.get("target_kind")
+            if kind == "project":
+                target_data = dict(d)
+                if subproject is not None:
+                    target_data["subproject_id"] = (
+                        "" if subproject == "main" else subproject
+                    )
+                try:
+                    resolve_memory_target(target_data)
+                except (FileNotFoundError, ValueError) as exc:
+                    print(f"updr: {exc}", file=sys.stderr)
+                    sys.exit(1)
+            elif kind == "repository":
+                if subproject is not None:
+                    print(
+                        "updr: repository sessions have no subproject",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+                try:
+                    resolve_memory_target(d)
+                except (FileNotFoundError, ValueError) as exc:
+                    print(f"updr: {exc}", file=sys.stderr)
+                    sys.exit(1)
+            else:
                 print(
-                    "updr: no research/area configured for this session — "
-                    "pass an area explicitly or `owrap attach` a session with one"
+                    "updr: no project or repository target configured for "
+                    "this session"
                 )
                 sys.exit(1)
 
         ctx_dir = session_ctx_dir(owrap_sid, ccsid)
         ctx_dir.mkdir(parents=True, exist_ok=True)
-        payload_path = ctx_dir / "manual.json"
+        label = "uall" if mode is None else mode
+        job_dir = context_jobs.create(owrap_sid, ccsid, label)
+        payload_path = job_dir / "manual.json"
         payload_path.write_text(json.dumps({
             "session_id": ccsid, "transcript_path": transcript_path,
-            "mode": mode, "area": area, "source": source,
+            "mode": mode,
+            "subproject": subproject if kind == "project" else None,
+            "source": source,
+            "job_dir": str(job_dir),
         }))
 
-        log_path = ctx_dir / "ctx.log"
+        log_path = job_dir / "output.log"
         log_fd = open(str(log_path), "a")
-        subprocess.Popen(
-            ["owrap", "ctx-worker", "--input", str(payload_path)],
-            stdout=log_fd, stderr=log_fd,
-            start_new_session=True, close_fds=True,
-        )
-        log_fd.close()
+        try:
+            process = subprocess.Popen(
+                [sys.executable, "-m", "owrap.runner", "ctx-worker",
+                 "--input", str(payload_path)],
+                stdout=log_fd, stderr=log_fd,
+                start_new_session=True, close_fds=True,
+                cwd=str(Path(__file__).resolve().parents[2]),
+            )
+        except Exception:
+            context_jobs.finish(job_dir, 1)
+            raise
+        finally:
+            log_fd.close()
+        if isinstance(process.pid, int):
+            context_jobs.update(job_dir, pid=process.pid)
         label = mode or "ctx+updr"
         print(
-            f"{label} dispatch queued in background — check `owrap refresh` or "
-            f"`owrap get context` for ctx_status once it finishes",
+            f"{label} dispatch queued as job {job_dir.name[:8]} — check `owrap stat` "
+            f"or follow {log_path}",
         )
 
     def check_all_attached(self):
@@ -204,7 +274,8 @@ class CtxWorkerRunner:
 
     def _dispatch_tracked(
         self, owrap_sid, ccsid, transcript_path, config,
-        do_context, do_protocol, area_override=None, source="claude",
+        do_context, do_protocol,
+        subproject_override=None, source="claude",
     ) -> int:
         """
         Run `_dispatch` with ctx_status tracking in context.md: pending
@@ -218,7 +289,7 @@ class CtxWorkerRunner:
             rc = self._dispatch(
                 owrap_sid, ccsid, transcript_path, config,
                 do_context=do_context, do_protocol=do_protocol,
-                area_override=area_override,
+                subproject_override=subproject_override,
                 source=source,
             )
         except Exception:
@@ -258,26 +329,32 @@ class CtxWorkerRunner:
 
     def _dispatch(
         self, owrap_sid, ccsid, transcript_path, config,
-        do_context, do_protocol, area_override=None, source="claude",
+        do_context, do_protocol,
+        subproject_override=None, source="claude",
     ) -> int:
         """
         Build the scoped sandbox, dispatch to the model, and apply its
-        output back to the real context/memory/project files.
+        output back to the session context and explicit memory records.
 
         Returns the opencode process's exit code (0 if nothing needed
         summarizing).
         """
-        research = ""
-        area = ""
+        session_data = {}
         sf_path = session_file(owrap_sid)
         if sf_path.exists():
-            d = _parse(sf_path)
-            research = d.get("research", "")
-            area = d.get("area", "")
-        if area_override:
-            area = area_override
+            session_data = _parse(sf_path)
+        if subproject_override is not None:
+            if session_data.get("target_kind") == "project":
+                session_data["subproject_id"] = (
+                    "" if subproject_override == "main"
+                    else subproject_override
+                )
 
-        do_protocol = bool(do_protocol and research and area)
+        target = (
+            resolve_memory_target(session_data)
+            if do_protocol and session_data.get("target_kind") else None
+        )
+        do_protocol = bool(do_protocol and target)
 
         counters = self._read_counters(owrap_sid, ccsid)
         transcript_offset = counters.get("transcript_offset", 0)
@@ -292,6 +369,7 @@ class CtxWorkerRunner:
         # Floor at this window's last attach — a window can switch sessions.
         attach_floor = self._last_attach_line(transcript_lines, owrap_sid)
         effective_offset = max(transcript_offset, attach_floor)
+        event_ns = self._latest_event_ns(transcript_lines[effective_offset:])
 
         if source == "codex":
             new_assistant_texts = self._extract_codex_excerpt_lines(
@@ -306,6 +384,16 @@ class CtxWorkerRunner:
             f"[Touched] {e['path']}" + (f" — {e['note']}" if e.get("note") else "")
             for e in touched_entries
         ]
+        repository_paths = {}
+        if target:
+            changed_paths = [entry["path"] for entry in touched_entries]
+            for line in new_assistant_texts:
+                match = re.match(r"\[(?:Edit|Write)\]\s+(\S+)", line)
+                if match:
+                    changed_paths.append(match.group(1))
+            repository_paths = touched_repository_paths(
+                target, changed_paths, session_data.get("workspace", ""),
+            )
         combined_texts = new_assistant_texts + touched_lines
 
         if not combined_texts:
@@ -332,26 +420,58 @@ class CtxWorkerRunner:
 
         transcript_tmp = session_ctx_transcript_path(owrap_sid, ccsid)
         transcript_tmp.write_text(excerpt)
+        job_dir = getattr(self, "_job_dir", None)
+        if job_dir:
+            (job_dir / "transcript.txt").write_text(excerpt)
+            context_jobs.update(job_dir, stage="building task")
 
         real_context_path = context_path(owrap_sid)
-        research_root = config.get("research_root", "")
-        memory_path = projects_path = None
-        if do_protocol and research_root:
-            memory_path = Path(research_root) / "memory" / f"{research}.md"
-            projects_path = Path(research_root) / "projects" / f"{research}.md"
-        else:
-            do_protocol = False
+        projects_path = target.project_path if do_protocol else None
 
         # Model gets transcript only; our code merges its report deterministically.
         blocks = ""
+        project_section = None
         if do_context:
             blocks += CTX_CONTEXT_BLOCK
         if do_protocol:
-            blocks += CTX_PROTOCOL_BLOCK.format(area=area)
+            if target.project_path:
+                if target.subproject_id:
+                    record_kind = "Subproject"
+                    record_id = target.subproject_id
+                else:
+                    record_kind = "Project"
+                    record_id = target.project_id
+                project_section = f"{record_kind}: {record_id}"
+                blocks += CTX_PROJECT_BLOCK.format(
+                    record_kind=record_kind,
+                    record_id=record_id,
+                )
+            for repo_id in repository_paths:
+                blocks += CTX_REPOSITORY_BLOCK.format(repo_id=repo_id)
+        if not blocks:
+            counters["transcript_offset"] = total_lines
+            self._write_counters(owrap_sid, counters, ccsid)
+            if touched_entries:
+                self._clear_touched_entries(owrap_sid, ccsid)
+            return 0
         task_content = CTX_SCOPED_TASK_TEMPLATE.format(blocks=blocks)
+        if do_protocol:
+            task_content += (
+                "\nIf no project or repository fact is newer than this excerpt, "
+                "omit its block. For an updr-only run with no updates, "
+                "write exactly `# No updates`.\n"
+            )
 
         (ctx_dir / "input.md").write_text(task_content)
         output_path = ctx_dir / "output.md"
+        project_snapshot = (
+            projects_path.read_bytes()
+            if projects_path and projects_path.exists() else None
+        )
+        repository_snapshots = {
+            repo_id: path.read_bytes() if path.exists() else None
+            for repo_id, path in repository_paths.items()
+        }
 
         print(
             f"ctx-worker: transcript lines "
@@ -366,6 +486,10 @@ class CtxWorkerRunner:
         rc = 1
         output_text = None
         for model in attempts:
+            if job_dir:
+                context_jobs.update(
+                    job_dir, stage="running model", model=model or "default",
+                )
             rc, candidate = self._run_dispatch_attempt(
                 ctx_dir, output_path, model,
             )
@@ -388,9 +512,14 @@ class CtxWorkerRunner:
             )
             return 1
 
-        self._apply_output(
-            output_text, real_context_path,
-            memory_path, projects_path, area, owrap_sid, research,
+        if job_dir:
+            (job_dir / "output.md").write_text(output_text)
+            context_jobs.update(job_dir, stage="applying result")
+
+        self._apply_record_output(
+            output_text, real_context_path, projects_path,
+            repository_paths, owrap_sid, project_snapshot, event_ns,
+            repository_snapshots, project_section,
         )
         counters["transcript_offset"] = total_lines
         self._write_counters(owrap_sid, counters, ccsid)
@@ -429,7 +558,7 @@ class CtxWorkerRunner:
         terminal = Terminal(verbose=False)
         # use_pty=True: without a real pty, OpenCode's permission prompt hangs.
         result = terminal.run(
-            cmd_str, capture_output=False, print_output=True,
+            cmd_str, capture_output=True, print_output=True,
             use_pty=True, cwd=str(ctx_dir), timeout=180,
         )
         rc = result.get("returncode", 1)
@@ -450,41 +579,147 @@ class CtxWorkerRunner:
         """
         if not output_text.strip():
             return False
-        sections = split_top_sections(output_text, ("Context", "Memory", "Project"))
+        sections = split_top_sections(output_text, ("Context",))
         if do_context:
             if "## Focus" not in sections.get("Context", ""):
                 return False
-        if do_protocol:
-            if "### Status" not in sections.get("Project", ""):
+        if do_protocol and not do_context:
+            if (
+                "# Project:" not in output_text
+                and "# Subproject:" not in output_text
+                and "# Repository:" not in output_text
+                and output_text.strip() != "# No updates"
+            ):
                 return False
         return True
 
-    def _apply_output(
-        self, output_text, real_context_path, memory_path, projects_path, area,
-        owrap_sid, research,
+    def _apply_record_output(
+        self, output_text, context_file, project_path, repository_paths,
+        session_id, project_snapshot, event_ns=None,
+        repository_snapshots=None, project_section=None,
     ):
         """
-        Splice the model's scoped output.md back into the real files.
-        "Log" fields (Key Locations, Decisions, How To, Components) are
-        merged deterministically here — deduped against existing entries
-        and capped — never left to the model's judgment, since it never
-        saw the existing content to judge against. "Snapshot" fields
-        (Focus, Environment, Status) are a full replace, since they
-        describe current state rather than an accumulating history.
+        Merge an explicit session's project and touched repository records.
         """
-        sections = split_top_sections(output_text, ("Context", "Memory", "Project"))
+        names = ["Context"] + ([project_section] if project_section else []) + [
+            f"Repository: {repo_id}" for repo_id in repository_paths
+        ]
+        sections = split_top_sections(output_text, tuple(names))
+        if sections.get("Context"):
+            self._merge_context(sections["Context"], context_file, session_id)
+        if project_path and project_section and sections.get(project_section):
+            self._merge_record_project(
+                sections[project_section], project_path,
+                project_snapshot, event_ns,
+            )
+        for repo_id, path in repository_paths.items():
+            block = sections.get(f"Repository: {repo_id}")
+            if block:
+                snapshot = (
+                    repository_snapshots.get(repo_id)
+                    if repository_snapshots is not None else None
+                )
+                self._merge_record_repository(
+                    block, path, event_ns, snapshot,
+                )
 
-        context_block = sections.get("Context", "")
-        if context_block:
-            self._merge_context(context_block, real_context_path, owrap_sid)
+    def _merge_record_project(
+        self, block, path, original_snapshot, event_ns=None,
+    ):
+        """
+        Update a project record while preserving its goals and notes.
+        """
+        with file_lock(path.with_name(path.name + ".lock")):
+            if event_ns and path.exists() and path.stat().st_mtime_ns > event_ns:
+                return
+            text = path.read_text() if path.exists() else ""
+            current_snapshot = path.read_bytes() if path.exists() else None
+            status = extract_section(block, "## Status")
+            if status and current_snapshot == original_snapshot:
+                text = replace_section(text, "## Status", status)
+            decisions = self._entry_lines(block, "## Decisions")
+            if decisions:
+                today = time.strftime("%Y-%m-%d")
+                lines = [f"- {today} — {line.removeprefix('- ').strip()}"
+                         for line in decisions if line.startswith("- ")]
+                text = merge_log_entries(
+                    text, "## Decisions", lines, cap=None,
+                    key_fn=self._record_decision_key,
+                )
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
 
-        memory_block = sections.get("Memory", "")
-        if memory_block and memory_path is not None:
-            self._merge_memory(memory_block, memory_path, area, research)
+    def _merge_record_repository(
+        self, block, path, event_ns=None, snapshot=None,
+    ):
+        """
+        Add distinct architecture facts to one repository record.
+        """
+        with file_lock(path.with_name(path.name + ".lock")):
+            if event_ns and path.exists() and path.stat().st_mtime_ns > event_ns:
+                return
+            if snapshot is not None and path.exists():
+                if path.read_bytes() != snapshot:
+                    return
+            text = path.read_text() if path.exists() else ""
+            for heading in (
+                "## Architecture", "## Components", "## Interfaces",
+                "## Environment",
+            ):
+                entries = [
+                    line for line in self._entry_lines(block, heading)
+                    if line.startswith("- ")
+                ]
+                if entries:
+                    if event_ns:
+                        text = self._replace_record_facts(
+                            text, heading, entries,
+                        )
+                    else:
+                        text = merge_log_entries(
+                            text, heading, entries, cap=None,
+                            key_fn=self._bullet_key,
+                        )
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
 
-        project_block = sections.get("Project", "")
-        if project_block and projects_path is not None:
-            self._merge_project(project_block, projects_path, area, research)
+    def _replace_record_facts(self, text, heading, entries):
+        current = extract_section(text, heading)
+        ordered = {}
+        for line in entries:
+            ordered[self._bullet_key(line)] = line
+        if current:
+            kept = [
+                line for line in current.splitlines()[1:]
+                if not (
+                    line.startswith("- ")
+                    and self._bullet_key(line) in ordered
+                )
+            ]
+        else:
+            kept = []
+        block = "\n".join([heading] + kept + list(ordered.values()))
+        return replace_section(text, heading, block)
+
+    def _record_decision_key(self, line):
+        stripped = re.sub(r"^-\s*\d{4}-\d{2}-\d{2}\s*—\s*", "", line)
+        return self._bullet_key(stripped)
+
+    def _latest_event_ns(self, lines):
+        latest = None
+        for line in lines:
+            try:
+                stamp = json.loads(line).get("timestamp")
+                if not isinstance(stamp, str):
+                    continue
+                value = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+                if value.tzinfo is None:
+                    value = value.replace(tzinfo=timezone.utc)
+                instant = int(value.timestamp() * 1_000_000_000)
+                latest = max(latest or instant, instant)
+            except (ValueError, TypeError, json.JSONDecodeError):
+                continue
+        return latest
 
     def _merge_context(self, context_block, real_context_path, owrap_sid):
         """
@@ -514,62 +749,6 @@ class CtxWorkerRunner:
 
             real_context_path.write_text(real_text)
 
-    def _merge_memory(self, memory_block, memory_path, area, research):
-        """
-        Apply the model's Memory block to the real memory.md's `## area`
-        section. Components are merged (deduped, uncapped); any other
-        `### <Subsystem>` the model wrote is appended as a new block —
-        not merged into an existing subsystem of the same name.
-        """
-        with file_lock(memory_lock_path(research)):
-            real_text = memory_path.read_text() if memory_path.exists() else ""
-            heading = f"## {area}"
-            area_text = extract_section(real_text, heading) or heading
-
-            new_lines = self._entry_lines(memory_block, "### Components")
-            if new_lines:
-                area_text = merge_log_entries(
-                    area_text, "### Components", new_lines,
-                    cap=None, prepend=False, key_fn=self._bullet_key,
-                )
-
-            for sub_heading in self._sub_headings(memory_block, {"### Components"}):
-                sub_block = extract_section(memory_block, sub_heading)
-                if sub_block:
-                    area_text = area_text.rstrip("\n") + "\n\n" + sub_block + "\n"
-
-            real_text = replace_section(real_text, heading, area_text)
-            memory_path.parent.mkdir(parents=True, exist_ok=True)
-            memory_path.write_text(real_text)
-
-    def _merge_project(self, project_block, projects_path, area, research):
-        """
-        Apply the model's Project block to the real projects.md's `## area`
-        section. Status is a full replace; Decisions are merged — the
-        model writes undated bullets, dated and prepended here.
-        """
-        with file_lock(projects_lock_path(research)):
-            real_text = projects_path.read_text() if projects_path.exists() else ""
-            heading = f"## {area}"
-            area_text = extract_section(real_text, heading) or heading
-
-            status_new = extract_section(project_block, "### Status")
-            if status_new:
-                area_text = replace_section(area_text, "### Status", status_new)
-
-            bullet_lines = self._entry_lines(project_block, "### Decisions")
-            if bullet_lines:
-                today = time.strftime("%Y-%m-%d")
-                row_lines = [self._decision_row(l, today) for l in bullet_lines]
-                area_text = merge_log_entries(
-                    area_text, "### Decisions", row_lines,
-                    cap=150, prepend=True, key_fn=self._decision_row_key,
-                )
-
-            real_text = replace_section(real_text, heading, area_text)
-            projects_path.parent.mkdir(parents=True, exist_ok=True)
-            projects_path.write_text(real_text)
-
     def _entry_lines(self, block, heading):
         """
         Return the non-empty entry lines under `heading` within `block`,
@@ -578,19 +757,7 @@ class CtxWorkerRunner:
         section = extract_section(block, heading)
         if not section:
             return []
-        return [l for l in section.splitlines()[1:] if l.strip()]
-
-    def _sub_headings(self, block, exclude):
-        """
-        Return the distinct `### ` heading lines in `block` not in `exclude`.
-        """
-        headings = []
-        for line in block.splitlines():
-            stripped = line.rstrip()
-            if stripped.startswith("### ") and stripped not in exclude:
-                if stripped not in headings:
-                    headings.append(stripped)
-        return headings
+        return [line for line in section.splitlines()[1:] if line.strip()]
 
     def _bullet_key(self, line: str) -> str:
         """
@@ -620,33 +787,11 @@ class CtxWorkerRunner:
             return True
         return (Path(workspace) / path_str).exists()
 
-    def _decision_row(self, bullet_line: str, today: str) -> str:
-        """
-        Convert a model-written `- decision — why` bullet into a dated
-        `| date | decision | why |` table row.
-        """
-        stripped = bullet_line.strip()
-        if stripped.startswith("- "):
-            stripped = stripped[2:]
-        if " — " in stripped:
-            decision, why = stripped.split(" — ", 1)
-        else:
-            decision, why = stripped, ""
-        return f"| {today} | {decision.strip()} | {why.strip()} |"
-
-    def _decision_row_key(self, line: str) -> str:
-        """
-        Dedup key for a `| date | decision | why |` table row: the
-        decision field.
-        """
-        parts = [p.strip() for p in line.strip().strip("|").split("|")]
-        return parts[1] if len(parts) > 1 else line.strip()
-
     def _last_attach_line(self, lines: list, owrap_sid: str) -> int:
         """
         Index of the line right after the most recent
         `__OWRAP_EXPORT__ SESSION_ID=<owrap_sid>` marker in the transcript
-        — every owrap start/attach/refresh/update-area/spawn prints this to
+        — every owrap start/attach/refresh/sub/spawn prints this to
         its own stdout, which lands in the transcript as a tool_result.
         Returns 0 if the marker never appears (e.g. a session predating
         this convention, or a transcript that doesn't go back far enough).
@@ -657,47 +802,6 @@ class CtxWorkerRunner:
             if marker in line:
                 last_idx = i
         return last_idx + 1 if last_idx >= 0 else 0
-
-    @staticmethod
-    def _is_context_update_request(text: str) -> bool:
-        command = r"(?:--uall|--ctx|--updr|owrap\s+(?:ctx|updr))\b"
-        return bool(
-            re.search(rf"^\s*`?{command}", text, re.IGNORECASE)
-            or re.search(
-                rf"\b(?:run|do|try|execute|rerun|another)\b[^\n]{{0,80}}{command}",
-                text, re.IGNORECASE,
-            )
-        )
-
-    @staticmethod
-    def _is_context_update_command(command: str) -> bool:
-        return bool(re.search(
-            r"(?:^|[/\s])owrap\s+(?:ctx|updr|ctx-hook|ctx-worker)\b",
-            command,
-        ))
-
-    @staticmethod
-    def _has_recognized_transcript_entries(
-        lines: list, offset: int, source: str,
-    ) -> bool:
-        for line in lines[offset:]:
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            payload = entry.get("payload", {})
-            if source == "codex":
-                if (entry.get("type") == "response_item"
-                        and payload.get("type") == "message"):
-                    return True
-                if (entry.get("type") == "event_msg"
-                        and payload.get("type") in (
-                            "user_message", "item_completed", "patch_apply_end",
-                        )):
-                    return True
-            elif entry.get("type") in ("assistant", "user"):
-                return True
-        return False
 
     def _extract_excerpt_lines(self, lines: list, offset: int) -> list:
         """
@@ -793,7 +897,10 @@ class CtxWorkerRunner:
                 message = payload.get("message", "")
                 if isinstance(message, str):
                     skip_update_turn = self._is_context_update_request(message)
-            elif entry.get("type") == "response_item" and payload.get("type") == "message":
+            elif (
+                entry.get("type") == "response_item"
+                and payload.get("type") == "message"
+            ):
                 if payload.get("role") == "user":
                     message = " ".join(
                         block.get("text", "") for block in payload.get("content", [])
@@ -854,8 +961,7 @@ class CtxWorkerRunner:
         return texts
 
     def _read_counters(self, session_id: str, ccsid: str) -> dict:
-        from ..utils.session.donow import _counters_path
-        p = _counters_path(session_id, ccsid)
+        p = session_ctx_counters_path(session_id, ccsid)
         if p.exists():
             try:
                 with open(p) as f:
@@ -865,8 +971,7 @@ class CtxWorkerRunner:
         return {}
 
     def _write_counters(self, session_id: str, data: dict, ccsid: str):
-        from ..utils.session.donow import _counters_path
-        p = _counters_path(session_id, ccsid)
+        p = session_ctx_counters_path(session_id, ccsid)
         p.parent.mkdir(parents=True, exist_ok=True)
         with open(p, "w") as f:
             json.dump(data, f)
@@ -890,6 +995,47 @@ class CtxWorkerRunner:
         have been successfully applied.
         """
         session_ctx_touched_path(session_id, ccsid).unlink(missing_ok=True)
+
+    @staticmethod
+    def _is_context_update_request(text: str) -> bool:
+        command = r"(?:--uall|--ctx|--updr|owrap\s+(?:ctx|updr))\b"
+        return bool(
+            re.search(rf"^\s*`?{command}", text, re.IGNORECASE)
+            or re.search(
+                rf"\b(?:run|do|try|execute|rerun|another)\b[^\n]{{0,80}}{command}",
+                text, re.IGNORECASE,
+            )
+        )
+
+    @staticmethod
+    def _is_context_update_command(command: str) -> bool:
+        return bool(re.search(
+            r"(?:^|[/\s])owrap\s+(?:ctx|updr|ctx-hook|ctx-worker)\b",
+            command,
+        ))
+
+    @staticmethod
+    def _has_recognized_transcript_entries(
+        lines: list, offset: int, source: str,
+    ) -> bool:
+        for line in lines[offset:]:
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            payload = entry.get("payload", {})
+            if source == "codex":
+                if (entry.get("type") == "response_item"
+                        and payload.get("type") == "message"):
+                    return True
+                if (entry.get("type") == "event_msg"
+                        and payload.get("type") in (
+                            "user_message", "item_completed", "patch_apply_end",
+                        )):
+                    return True
+            elif entry.get("type") in ("assistant", "user"):
+                return True
+        return False
 
 
 class CtxHookRunner:
@@ -920,6 +1066,10 @@ class CtxHookRunner:
         _ = (transcript_path, cwd)
 
         owrap_sid = owrap_sid_for_ccsid(ccsid) if ccsid else None
+        if not owrap_sid and ccsid:
+            owrap_sid = owrap_sid_for_codex_session_id(ccsid)
+            if owrap_sid:
+                hook_data["source"] = "codex"
 
         if not owrap_sid:
             print("{}")
@@ -927,19 +1077,30 @@ class CtxHookRunner:
 
         ctx_dir = session_ctx_dir(owrap_sid, ccsid)
         ctx_dir.mkdir(parents=True, exist_ok=True)
-        input_path = ctx_dir / "hook.json"
+        job_dir = context_jobs.create(owrap_sid, ccsid, "ctx+updr")
+        hook_data["job_dir"] = str(job_dir)
+        input_path = job_dir / "hook.json"
         input_path.write_text(json.dumps(hook_data))
 
-        log_path = ctx_dir / "ctx.log"
+        log_path = job_dir / "output.log"
         log_fd = open(str(log_path), "a")
-        subprocess.Popen(
-            ["owrap", "ctx-worker", "--input", str(input_path)],
-            stdout=log_fd,
-            stderr=log_fd,
-            start_new_session=True,
-            close_fds=True,
-        )
-        log_fd.close()
+        try:
+            process = subprocess.Popen(
+                [sys.executable, "-m", "owrap.runner", "ctx-worker",
+                 "--input", str(input_path)],
+                stdout=log_fd,
+                stderr=log_fd,
+                start_new_session=True,
+                close_fds=True,
+                cwd=str(Path(__file__).resolve().parents[2]),
+            )
+        except Exception:
+            context_jobs.finish(job_dir, 1)
+            raise
+        finally:
+            log_fd.close()
+        if isinstance(process.pid, int):
+            context_jobs.update(job_dir, pid=process.pid)
 
         print("{}")
         sys.exit(0)

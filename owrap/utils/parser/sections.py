@@ -75,7 +75,8 @@ def merge_log_entries(
     `new_lines` is empty.
     """
     if key_fn is None:
-        key_fn = lambda line: line.strip()
+        def key_fn(line):
+            return line.strip()
 
     level = _heading_level(heading)
     lines = text.splitlines()
@@ -93,16 +94,20 @@ def merge_log_entries(
             if lines[i].startswith("#") and _heading_level(lines[i]) <= level:
                 end = i
                 break
-        existing_entries = [l for l in lines[start + 1:end] if l.strip()]
+        existing_entries = [
+            line for line in lines[start + 1:end] if line.strip()
+        ]
 
     if keep_fn is not None:
-        kept_entries = [l for l in existing_entries if keep_fn(l)]
+        kept_entries = [line for line in existing_entries if keep_fn(line)]
     else:
         kept_entries = existing_entries
     pruned = len(kept_entries) != len(existing_entries)
 
-    existing_keys = {key_fn(l) for l in kept_entries}
-    deduped_new = [l for l in new_lines if key_fn(l) not in existing_keys]
+    existing_keys = {key_fn(line) for line in kept_entries}
+    deduped_new = [
+        line for line in new_lines if key_fn(line) not in existing_keys
+    ]
     if not deduped_new and not pruned:
         return text
 

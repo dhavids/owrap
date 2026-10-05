@@ -3,13 +3,12 @@ import os
 import re
 import shlex
 import shutil
-import signal
 import sys
 import time
 from datetime import datetime
 
 from ..utils.dispatch.terminal import Terminal
-from ..utils.parser.output_parser import OutputParser
+from ..utils.parser.output import OutputParser
 from ..base import BaseRunner
 from ..constants import (
     AGENT_KILL_S, NO_OUTPUT_AGENT_S, AGENT_INLINE_MAX_CHARS, AGENT_TIMEOUT_DEFAULT,
@@ -19,7 +18,7 @@ from ..constants import (
 from ..utils.dispatch.pool import _pool_active, pick_server, update_last_used
 from ..utils.paths import (
     _read_config, get_dispatch_model, get_workspace_path, format_failure_pointer,
-    session_agents_dir, session_agent_log_path, session_agent_full_log_dir, RUNNING_DIR,
+    session_agent_log_path, session_agent_full_log_dir, RUNNING_DIR,
 )
 from ..utils.parser.snippet import wrap_log_text, divider
 
@@ -185,7 +184,7 @@ class AgentsRunner(BaseRunner):
             / f"{_timestamp_id}.log"
         )
         sentinel = self._write_sentinel(
-            _sentinel_id, data[:60], kind="agent", call_type="agent", url=url, 
+            _sentinel_id, data[:60], kind="agent", call_type="agent", url=url,
             output_path=_agent_output_path)
         _ctx_cfg = _read_config()
         AGENT_TIMEOUT = timeout if timeout is not None else AGENT_TIMEOUT_DEFAULT
@@ -217,7 +216,6 @@ class AgentsRunner(BaseRunner):
             self.logger.debug("run agent cmd=%s", " ".join(cmd))
         rc = 1
         timed_out = False
-        infra_failure = False
         result = {}
         session_agent_full_log_dir(self.manager.session_id).mkdir(
             parents=True, exist_ok=True)
@@ -242,6 +240,7 @@ class AgentsRunner(BaseRunner):
                 tee.flush()
                 terminal = Terminal(verbose=False)
                 from ..utils.dispatch.watchdog import Watchdog
+
                 def _agent_stop():
                     setattr(self, '_stall_killed', True)
                     terminal.terminate_process()
@@ -288,7 +287,6 @@ class AgentsRunner(BaseRunner):
                 AGENT_KILL_TIMEOUT, AGENT_TIMEOUT_DEFAULT,
             )
             timed_out = bool(result.get("timed_out"))
-            infra_failure = rc == 1
             if input_file is not None:
                 input_file.unlink(missing_ok=True)
             summary = _extract_agent_summary(result.get("stdout") or "")

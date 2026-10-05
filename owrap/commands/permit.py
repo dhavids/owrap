@@ -21,7 +21,7 @@ class PermitRunner:
         tool = data.get("tool_name", "")
         inp = data.get("tool_input", {})
         session_id = data.get("session_id", "")
-        from ..utils.session.session_resolver import (
+        from ..utils.session.resolver import (
             owrap_sid_for_ccsid, owrap_sid_for_codex_session_id,
         )
         codex_session = bool(
@@ -47,7 +47,10 @@ class PermitRunner:
                     event,
                 )
                 return
-        permit_path = CONFIGS_DIR / f"{ws_name}_permit.json"
+        suffix = "_codex_permit.json" if is_codex else "_permit.json"
+        permit_path = CONFIGS_DIR / f"{ws_name}{suffix}"
+        if is_codex and not permit_path.exists():
+            permit_path = CONFIGS_DIR / f"{ws_name}_permit.json"
 
         if not permit_path.exists():
             if workspace_name:

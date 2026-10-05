@@ -4,24 +4,18 @@ Session status and task monitoring.
 
 import json
 import os
-import sys
 import time
 from pathlib import Path
 
 from ..base import BaseRunner
+from ..utils.log import context_jobs
+from ..utils.process import is_alive as _is_alive
+from ..utils.session.resolver import _parse as _parse_session
 from ..utils.paths import (
     RUNNING_DIR, RECENTLY_DONE_DIR, session_input,
-    _read_config, SERVER_LOGS_DIR, SESSION_DIR, STATS_FILE,
+    _read_config, SERVER_LOGS_DIR, SESSION_DIR, SESSIONS_DIR, STATS_FILE,
     DAEMON_PID_FILE, DAEMON_STATE_FILE, RUNTIME_LOG,
 )
-
-
-def _is_alive(pid) -> bool:
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
 
 
 def _print_running(tasks, show_session=True, indent="  "):
@@ -76,18 +70,6 @@ def _print_done(tasks, show_session=True, indent="  "):
         print(f"{indent}{kind}  {sess}  {status}  {finished_age} ago  {dur_str}{out_str}")
 
 
-def _parse_session(path: Path) -> dict:
-    data = {}
-    try:
-        for line in path.read_text().splitlines():
-            if "=" in line:
-                k, v = line.split("=", 1)
-                data[k.strip()] = v.strip()
-    except Exception:
-        pass
-    return data
-
-
 def _age_str(mtime: float) -> str:
     age = time.time() - mtime
     if age < 60:
@@ -97,11 +79,41 @@ def _age_str(mtime: float) -> str:
     return f"{int(age / 3600)}h {int((age % 3600) / 60)}m"
 
 
+def _print_context_jobs(jobs, show_session=True):
+    for job in jobs:
+        status = job.get("status", "unknown")
+        pid = job.get("pid")
+        if status in ("queued", "running"):
+            recent = time.time() - job.get("queued", 0) < 5
+            if not recent and (not pid or not _is_alive(pid)):
+                status = "stale/crashed"
+        if status == "succeeded":
+            status = "done(ok)"
+        elif status == "failed":
+            status = f"done(rc={job.get('rc', '?')})"
+        started = job.get("started") or job.get("queued") or time.time()
+        ended = job.get("finished") or time.time()
+        elapsed = max(0, ended - started)
+        kind = job.get("kind", "ctx")
+        sid = job.get("session_id", "?")
+        job_id = job.get("job_id", "?")[:8]
+        session = f"[{sid}]  " if show_session else ""
+        print(f"  {kind}  {session}{job_id}  {status}  {elapsed:.0f}s")
+        log_path = Path(job.get("log_path", ""))
+        print(f"    output: {log_path}")
+        transcript = Path(job.get("transcript_path", ""))
+        print(f"    transcript: {transcript}")
+
+
 class StatRunner(BaseRunner):
-    """Display session status, server pool, and task information."""
+    """
+    Display session status, server pool, and task information.
+    """
 
     def run(self, args):
-        """Execute the stat command to show session and server status."""
+        """
+        Execute the stat command to show session and server status.
+        """
         filter_arg = getattr(args, 'filter', None)
 
         self._cleanup_recently_done()
@@ -110,7 +122,7 @@ class StatRunner(BaseRunner):
             self._show_tasks(filter_arg)
             return 0
 
-        sessions_dir = SESSION_DIR / "sessions"
+        sessions_dir = SESSIONS_DIR
         global_session = SESSION_DIR / "session"
         current_id = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
 
@@ -174,7 +186,7 @@ class StatRunner(BaseRunner):
             print(f"  rtlog: {RUNTIME_LOG} (empty)")
         print()
 
-        from ..utils.dispatch.pool import get_pool, _active_load, _estimate_remaining
+        from ..utils.dispatch.pool import get_pool, _active_load
         pool = get_pool()
 
         running_tasks, done_tasks = self._load_tasks()
@@ -192,7 +204,6 @@ class StatRunner(BaseRunner):
                     print()
                 pid = entry.get("pid", "?")
                 url = entry.get("url", "?")
-                alive = "alive" if _is_alive(pid) else "dead"
                 load = _active_load(url)
                 last_used = entry.get("last_used", 0)
                 if last_used:
@@ -217,7 +228,7 @@ class StatRunner(BaseRunner):
                     if t.get("server_url") == url
                 ]
                 if srv_running or srv_done:
-                    print(f"      tasks:")
+                    print("      tasks:")
                     _print_running(srv_running, show_session=True, indent="        ")
                     _print_done(srv_done, show_session=True, indent="        ")
             print()
@@ -247,17 +258,19 @@ class StatRunner(BaseRunner):
                 ]
                 print(f"    {url}  [dead]")
                 if ghost_running or ghost_done:
-                    print(f"      tasks:")
+                    print("      tasks:")
                     _print_running(ghost_running, show_session=True, indent="        ")
                     _print_done(ghost_done, show_session=True, indent="        ")
             print()
 
         orphan_running = [t for t in running_tasks if not t.get("server_url")]
         orphan_done = [t for t in done_tasks if not t.get("server_url")]
-        if orphan_running or orphan_done:
+        ctx_jobs = context_jobs.recent()
+        if orphan_running or orphan_done or ctx_jobs:
             print("tasks:")
             _print_running(orphan_running, show_session=True)
             _print_done(orphan_done, show_session=True)
+            _print_context_jobs(ctx_jobs)
             print()
 
         session_files = []
@@ -279,6 +292,7 @@ class StatRunner(BaseRunner):
                 age = _age_str(sf.stat().st_mtime)
                 print(f"  {claude_id}{marker}")
                 print(f"    session:  {data.get('session_id', '?')}")
+                print(f"    type:     {data.get('session_mode') or 'normal'}")
                 research = data.get("research", "")
                 if research:
                     print(f"    research: {research}")
@@ -368,6 +382,7 @@ class StatRunner(BaseRunner):
                 except Exception:
                     pass
 
+        ctx_jobs = context_jobs.recent(filter_arg)
         if filter_arg is not None:
             all_sids = {
                 t.get("session_id")
@@ -379,11 +394,12 @@ class StatRunner(BaseRunner):
 
             print(f"tasks [{filter_arg}]:")
 
-            if not running and not done:
+            if not running and not done and not ctx_jobs:
                 print("  (no running or recently-done tasks)")
             else:
                 _print_running(running, show_session=False)
                 _print_done(done, show_session=False)
+                _print_context_jobs(ctx_jobs, show_session=False)
 
             queued = []
             for sid in sorted(all_sids):
@@ -399,9 +415,10 @@ class StatRunner(BaseRunner):
                 print("  queue: empty")
             print()
         else:
-            if not running and not done:
+            if not running and not done and not ctx_jobs:
                 return
             print("tasks:")
             _print_running(running, show_session=True)
             _print_done(done, show_session=True)
+            _print_context_jobs(ctx_jobs)
             print()

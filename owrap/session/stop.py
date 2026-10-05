@@ -1,38 +1,27 @@
 import json
 import os
-import shutil
 import sys
 import time
 from pathlib import Path
 
 from ..base import BaseRunner
 from ..utils.paths import (
-    _read_config, DOCS_DIR, RUNTIME_DIR, get_plan_path, session_input,
-    context_path, context_lock_path, SERVER_LOGS_DIR, SERVERS_DIR,
-    RUNNING_DIR, RECENTLY_DONE_DIR, SESSION_DIR, session_dir,
+    DOCS_DIR, SERVER_LOGS_DIR, SERVERS_DIR,
+    RUNNING_DIR, RECENTLY_DONE_DIR, SESSION_DIR, SESSIONS_DIR,
     DAEMON_PID_FILE,
 )
-from ..utils.session.session_resolver import (
-    resolve, remove_session, BY_CCSID_DIR, list_sessions, _parse,
+from ..utils.session.resolver import (
+    resolve, remove_session, BY_CCSID_DIR, list_sessions,
+    _parse as _parse_session,
 )
 from ..utils.session.trash import move_to_trash, restore_from_trash
-
-
-def _parse_session(path: Path) -> dict:
-    """Parse a key=value session file into a dict."""
-    data = {}
-    try:
-        for line in path.read_text().splitlines():
-            if "=" in line:
-                k, v = line.split("=", 1)
-                data[k.strip()] = v.strip()
-    except Exception:
-        pass
-    return data
+from ..utils.process import is_alive as _pid_alive
 
 
 def _kill_pid(pid: int, signum: int = 15) -> bool:
-    """Send *signum* to *pid*; return True on success."""
+    """
+    Send a signal to a process and report whether it succeeded.
+    """
     try:
         os.kill(pid, signum)
         return True
@@ -40,17 +29,9 @@ def _kill_pid(pid: int, signum: int = 15) -> bool:
         return False
 
 
-def _pid_alive(pid: int) -> bool:
-    """Return True if *pid* is still running."""
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
-
-
 def _wait_dead(pids: list[int], timeout: float = 3.0):
-    """Wait up to *timeout* seconds for *pids* to exit, then SIGKILL
+    """
+    Wait up to *timeout* seconds for *pids* to exit, then SIGKILL
     any that remain.
     """
     deadline = time.time() + timeout
@@ -63,7 +44,9 @@ def _wait_dead(pids: list[int], timeout: float = 3.0):
 
 
 def _cleanup_context(session_id: str, removed: list):
-    """Remove context files for *session_id* and record them in *removed*."""
+    """
+    Remove context files for a session and record them in removed.
+    """
     for suffix in (".md", ".lock"):
         p = DOCS_DIR / f"context_{session_id}{suffix}"
         if p.exists():
@@ -72,7 +55,9 @@ def _cleanup_context(session_id: str, removed: list):
 
 
 class StopRunner:
-    """Runner for the ``owrap stop`` command."""
+    """
+    Run the owrap stop command.
+    """
 
     def __init__(self, manager, logger=None, allow_all=False):
         self.manager = manager
@@ -80,11 +65,11 @@ class StopRunner:
         self.allow_all = allow_all
 
     def run(self, session_file=None, no_exit=False, force=False, target=None):
-        """Stop the current session and move it to the trash."""
-        sessions_dir = SESSION_DIR / "sessions"
+        """
+        Stop the current session and move it to the trash.
+        """
+        sessions_dir = SESSIONS_DIR
         global_session = SESSION_DIR / "session"
-        config = _read_config()
-
         if force:
             KillServersRunner().run()
             count = 0
@@ -94,7 +79,7 @@ class StopRunner:
                 remove_session(sid)
                 count += 1
             if global_session.exists():
-                data = _parse(global_session)
+                data = _parse_session(global_session)
                 gsid = data.get("session_id", "")
                 global_session.unlink(missing_ok=True)
                 if gsid:
@@ -167,7 +152,9 @@ class StopRunner:
 
 
 class EndRunner:
-    """Runner for the ``owrap end`` command."""
+    """
+    Run the owrap end command.
+    """
 
     def __init__(self, manager, logger=None, allow_all=False):
         self.manager = manager
@@ -175,8 +162,10 @@ class EndRunner:
         self.allow_all = allow_all
 
     def run(self, session_file=None, target=None):
-        """End the resolved or targeted session and move it to the trash."""
-        sessions_dir = SESSION_DIR / "sessions"
+        """
+        End the resolved or targeted session and move it to the trash.
+        """
+        sessions_dir = SESSIONS_DIR
 
         session_id = ""
         matched_sid = ""
@@ -195,7 +184,7 @@ class EndRunner:
             if target:
                 print(f"OWRAP END: no session matching '{target}'.")
                 sys.exit(0)
-            candidate = SESSION_DIR / 'sessions' / f'{self.manager.session_id}.session'
+            candidate = SESSIONS_DIR / f"{self.manager.session_id}.session"
             if candidate.exists():
                 session_file = str(candidate)
 
@@ -236,10 +225,14 @@ class EndRunner:
 
 
 class RestoreRunner(BaseRunner):
-    """Runner for the ``owrap restore`` command."""
+    """
+    Run the owrap restore command.
+    """
 
     def run(self, args):
-        """Restore a trashed session back to its active location."""
+        """
+        Restore a trashed session back to its active location.
+        """
         session_id = args.session_id
         try:
             restore_from_trash(session_id)
@@ -254,13 +247,17 @@ class RestoreRunner(BaseRunner):
 
 
 class KillServersRunner:
-    """Runner that kills all owrap task and server processes."""
+    """
+    Kill all owrap task and server processes.
+    """
 
     def __init__(self, manager=None, logger=None, allow_all=False):
         pass
 
     def run(self, session_id: str | None = None):
-        """Kill running tasks and servers, optionally filtered by *session_id*."""
+        """
+        Kill running tasks and servers, optionally filtered by session.
+        """
         from ..utils.dispatch.pool import POOL_FILE, _read_pool
 
         killed_tasks = 0
@@ -361,22 +358,24 @@ class KillServersRunner:
 
 
 class CleanupRunner(BaseRunner):
-    """Runner for the ``owrap cleanup`` command."""
+    """
+    Run the owrap cleanup command.
+    """
 
     TWO_HOURS = 2 * 3600
 
     def run(self, args):
-        """Remove stale session files, orphaned context, and dead server state."""
+        """
+        Remove stale session files, orphaned context, and dead server state.
+        """
         partial = getattr(args, "session_id", None)
-        sessions_dir = SESSION_DIR / "sessions"
+        sessions_dir = SESSIONS_DIR
         global_session = SESSION_DIR / "session"
 
         state = self.manager._read_state()
         server_alive = False
-        server_url = None
         if state:
             pid = state.get("pid")
-            server_url = state.get("url")
             if pid:
                 try:
                     os.kill(pid, 0)

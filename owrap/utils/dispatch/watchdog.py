@@ -66,7 +66,8 @@ def _retry_hint(kind):
 
 
 class Watchdog:
-    """Monitor a log file for staleness and invoke callbacks on stall/kill.
+    """
+    Monitor a log file for staleness and invoke callbacks on stall or kill.
 
     Owns kind/sentinel_path/url and its own has_output/model_logged state,
     so it can classify and report a stall/kill/unresponsive event itself —
@@ -220,7 +221,7 @@ class Watchdog:
                 tail = f.read().decode('utf-8', errors='ignore')
         except OSError:
             return False
-        lines = [l for l in tail.splitlines() if l.strip()]
+        lines = [line for line in tail.splitlines() if line.strip()]
         if not lines:
             return False
         last = lines[-1]
@@ -241,7 +242,7 @@ class Watchdog:
                 tail = f.read().decode('utf-8', errors='ignore')
         except OSError:
             return False
-        lines = [l for l in tail.splitlines() if l.strip()]
+        lines = [line for line in tail.splitlines() if line.strip()]
         if not lines:
             return False
         last = lines[-1]

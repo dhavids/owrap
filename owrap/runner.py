@@ -1,4 +1,4 @@
-import argparse
+import json
 import shutil
 import sys
 import time
@@ -13,7 +13,7 @@ from .commands import (
     AbortRunner, ExecRunner, ReadRunner, RunRunner,
     SetupRunner, WaitRunner,
 )
-from .commands.sync_cmd import SyncRunner
+from .commands.sync import SyncRunner
 from .commands.daemon import DaemonRunner
 from .manager import Manager
 from .utils.paths import _read_config, get_workspace_config
@@ -33,6 +33,13 @@ def _cmd_start(args, manager, logger, allow_all):
         session_id=getattr(args, 'session_id', None),
         area=getattr(args, 'area', None),
         child=getattr(args, 'child', None),
+        project_id=getattr(args, 'project', None),
+        subproject_id=getattr(args, 'subproject', None),
+        repository_id=getattr(args, 'repository', None),
+        repositories=getattr(args, 'repo_ids', None),
+        branch_parent=getattr(args, 'branch_parent', None),
+        branch_repository=getattr(args, 'branch_repository', None),
+        branch_ref=getattr(args, 'branch_ref', None),
     )
 
 
@@ -80,13 +87,56 @@ def _cmd_detach(args, manager, logger, allow_all):
 
 
 def _cmd_todo(args, manager, logger, allow_all):
-    from .commands.todo_cmd import TodoRunner
+    from .commands.todo import TodoRunner
     if args.target == "clear":
         TodoRunner().run_clear(args.arg2)
     elif args.target == "done":
         TodoRunner().run_done(args.arg2, args.arg3)
     else:
         TodoRunner().run(args.target, args.arg2, args.arg3)
+
+
+def _cmd_branch(args, manager, logger, allow_all):
+    from .session.workflow import SessionWorkflow
+    runner = SessionWorkflow()
+    try:
+        if args.name == "merge":
+            if args.ref:
+                raise ValueError("--ref is only valid when starting a branch")
+            result = runner.merge_branch(
+                args.session or "", apply=args.apply, repo_id=args.repo or "",
+            )
+            for repo_id, entry in result["repositories"].items():
+                print(f"{repo_id}: {entry['ref']} -> {entry['base_ref']}")
+                if entry["commits"]:
+                    print(entry["commits"])
+                if entry["stat"]:
+                    print(entry["stat"])
+            print("Git merge applied." if result["applied"] else
+                  "Preview only. Pass --apply to merge code.")
+        elif args.name == "cleanup":
+            if args.ref or args.repo:
+                raise ValueError("--ref and --repo are invalid for cleanup")
+            if not args.session:
+                raise ValueError("pass --session <child-id> after collapse")
+            result = runner.cleanup_branch(args.session or "", args.apply)
+            for entry in result["repositories"].values():
+                print(f"Worktree: {entry['path']}")
+            print("Worktrees removed." if result["applied"] else
+                  "Preview only. Pass --apply to remove worktrees.")
+        else:
+            if args.apply or args.session or args.repo:
+                raise ValueError("--apply, --session and --repo need merge or cleanup")
+            data = runner.create("branch", args.name or "", args.ref or "")
+            print(f"Branch session: {data['session_id']} ({data['session_name']})")
+            for repo_id, entry in json.loads(
+                data["branch_worktrees"]
+            ).items():
+                print(f"{repo_id}: {entry['path']} [{entry['ref']}]")
+            print(f"__OWRAP_EXPORT__ SESSION_ID={data['session_id']}")
+    except (ValueError, FileNotFoundError, FileExistsError, OSError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(2)
 
 
 def _cmd_restart(args, manager, logger, allow_all):
@@ -104,9 +154,11 @@ def _cmd_setup(args, manager, logger, allow_all):
         path=args.path,
         project_name=args.name,
         workspace=args.workspace,
-        research_root=args.research_root,
+        docs_root=args.docs_root,
         allow_all=args.allow_all,
         oread=args.oread,
+        planners=args.planners,
+        executors=args.executors,
     )
 
 
@@ -220,7 +272,55 @@ def _cmd_update_area(args, manager, logger, allow_all):
 
 def _cmd_spawn(args, manager, logger, allow_all):
     from .session.start import SpawnRunner
+    from .session.workflow import SessionWorkflow
+    from .utils.session.resolver import _parse, resolve
+    sid, path, _ = resolve(mode="refresh")
+    if sid and _parse(path).get("target_kind"):
+        try:
+            data = SessionWorkflow().create("spawn", args.child or "")
+        except (ValueError, FileNotFoundError) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(2)
+        print(f"Child session: {data['session_id']} ({data['session_name']})")
+        print(f"__OWRAP_EXPORT__ SESSION_ID={data['session_id']}")
+        return
+    if not args.child:
+        print("Error: legacy area sessions require a child name", file=sys.stderr)
+        sys.exit(2)
     SpawnRunner(manager, logger, allow_all=allow_all).run(child=args.child)
+
+
+def _cmd_temp(args, manager, logger, allow_all):
+    from .session.workflow import SessionWorkflow
+    try:
+        data = SessionWorkflow().create("temp", args.name or "")
+    except (ValueError, FileNotFoundError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(2)
+    print(f"Temporary session: {data['session_id']} ({data['session_name']})")
+    print(f"__OWRAP_EXPORT__ SESSION_ID={data['session_id']}")
+
+
+def _cmd_collapse(args, manager, logger, allow_all):
+    from .session.workflow import SessionWorkflow
+    try:
+        result = SessionWorkflow().collapse(args.session or "", args.apply)
+    except (ValueError, FileNotFoundError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(2)
+    print(f"Child {result['child']} -> parent {result['parent']}")
+    for heading, entries in result["entries"].items():
+        print(f"{heading}: {len(entries)} new entries")
+        for entry in entries:
+            print(f"  {entry}")
+    print("Collapse applied." if result["applied"] else
+          "Preview only. Pass --apply after review.")
+    if result["applied"]:
+        from .utils.session.resolver import attach, resolve
+        current_sid, _, _ = resolve(mode="refresh")
+        if current_sid == result["child"]:
+            attach(result["parent"])
+            print(f"__OWRAP_EXPORT__ SESSION_ID={result['parent']}")
 
 
 def _cmd_update_home(args, manager, logger, allow_all):
@@ -231,6 +331,14 @@ def _cmd_update_home(args, manager, logger, allow_all):
         new_path=args.path,
         dry_run=args.dry_run,
         migrate=args.migrate,
+    )
+
+
+def _cmd_migrate(args, manager, logger, allow_all):
+    from .commands.migrate import MigrateRunner
+    MigrateRunner().run(
+        home=args.home, record_root=args.docs_root,
+        mapping=args.mapping, apply=args.apply,
     )
 
 
@@ -279,7 +387,7 @@ def _cmd_ctx_hook(args, manager, logger, allow_all):
 
 def _cmd_ctx_worker(args, manager, logger, allow_all):
     from .commands.context_manager import CtxWorkerRunner
-    CtxWorkerRunner().run(input_path=Path(args.input))
+    sys.exit(CtxWorkerRunner().run(input_path=Path(args.input)))
 
 
 def _cmd_ctx(args, manager, logger, allow_all):
@@ -290,32 +398,32 @@ def _cmd_ctx(args, manager, logger, allow_all):
 def _cmd_updr(args, manager, logger, allow_all):
     from .commands.context_manager import CtxWorkerRunner
     mode = None if args.ctx else "updr"
-    CtxWorkerRunner().run_manual(mode=mode, area=args.area)
+    CtxWorkerRunner().run_manual(mode=mode, subproject=args.subproject)
 
 
 def _cmd_touched(args, manager, logger, allow_all):
-    from .commands.touched_cmd import TouchedRunner
+    from .commands.touched import TouchedRunner
     TouchedRunner().run(args.paths, note=args.note)
 
 
 def _cmd_backup(args, manager, logger, allow_all):
-    from .commands.backup_cmd import BackupRunner
+    from .commands.backup import BackupRunner
     BackupRunner().run(args.research)
 
 
 def _cmd_retrieve(args, manager, logger, allow_all):
-    from .commands.backup_cmd import RetrieveRunner
+    from .commands.backup import RetrieveRunner
     RetrieveRunner().run(args.research, timestamp=args.timestamp)
 
 
 def _cmd_delete(args, manager, logger, allow_all):
     if args.what == "backup":
-        from .commands.backup_cmd import DeleteBackupRunner
+        from .commands.backup import DeleteBackupRunner
         DeleteBackupRunner().run(args.research, which=args.which)
 
 
 def _cmd_get(args, manager, logger, allow_all):
-    from .commands.get_cmd import GetRunner
+    from .commands.get import GetRunner
     runner = GetRunner()
     if args.what == "output":
         sys.exit(
@@ -348,6 +456,7 @@ _COMMAND_HANDLERS = {
     "attach": _cmd_attach,
     "detach": _cmd_detach,
     "todo": _cmd_todo,
+    "branch": _cmd_branch,
     "restart": _cmd_restart,
     "setup": _cmd_setup,
     "sync": _cmd_sync,
@@ -362,7 +471,10 @@ _COMMAND_HANDLERS = {
     "daemon": _cmd_daemon,
     "update-area": _cmd_update_area,
     "spawn": _cmd_spawn,
+    "temp": _cmd_temp,
+    "collapse": _cmd_collapse,
     "update-home": _cmd_update_home,
+    "migrate": _cmd_migrate,
     "wait": _cmd_wait,
     "stat": _cmd_stat,
     "cleanup": _cmd_cleanup,
@@ -414,6 +526,39 @@ def main():
         "child", nargs="?", default=None,
         help="Child suffix — session's area becomes '<area>-<child>'",
     )
+    target_group = start_parser.add_mutually_exclusive_group()
+    target_group.add_argument(
+        "--project", "--proj", dest="project",
+        help="Project ID for the session",
+    )
+    target_group.add_argument(
+        "--repository", "--repo", dest="repository",
+        help="Repository ID for a repository-only session",
+    )
+    start_parser.add_argument(
+        "--subproject", "--sub", "--subs", dest="subproject",
+        help="Subproject ID within --project",
+    )
+    start_parser.add_argument(
+        "--repo-id", "--repos", dest="repo_ids", action="append",
+        help="Associated repository ID (repeatable)",
+    )
+    start_parser.add_argument(
+        "--branch-parent", help="Explicit parent ID for a branch subproject",
+    )
+    start_parser.add_argument(
+        "--branch-repository", help="Repository ID containing the branch",
+    )
+    start_parser.add_argument("--branch-ref", help="Git ref for the branch")
+
+    branch_parser = subparsers.add_parser(
+        "branch", help="Start a child session with Git worktrees, or merge its code",
+    )
+    branch_parser.add_argument("name", nargs="?", default=None)
+    branch_parser.add_argument("--ref", help="Git branch ref for a new session")
+    branch_parser.add_argument("--session", help="Branch session ID for merge")
+    branch_parser.add_argument("--repo", help="Repository ID for merge")
+    branch_parser.add_argument("--apply", action="store_true")
 
     stop_parser = subparsers.add_parser("stop", help="Stop an owrap session")
     stop_parser.add_argument(
@@ -532,8 +677,9 @@ def main():
         help="Path to workspace (used with --name for explicit override)",
     )
     setup_parser.add_argument(
-        "--research-root", type=str, default=None,
-        help="Path to research root",
+        "--docs-root", "--records-root", "--research-root", dest="docs_root",
+        metavar="PATH", type=str, default=None,
+        help="Path to project and repository records",
     )
     setup_parser.add_argument(
         "--allow-all", action="store_true", default=None,
@@ -547,8 +693,18 @@ def main():
         "--no-oread", dest="oread", action="store_false",
         help="Do not use oread for file reads",
     )
+    setup_parser.add_argument(
+        "--planner", dest="planners", action="append",
+        choices=("claude", "codex", "opencode"), metavar="HARNESS",
+        help="Install planner manual for HARNESS; repeat for multiple harnesses",
+    )
+    setup_parser.add_argument(
+        "--executor", dest="executors", action="append",
+        choices=("claude", "codex", "opencode"), metavar="HARNESS",
+        help="Install executor manual for HARNESS; repeat for multiple harnesses",
+    )
 
-    sync_parser = subparsers.add_parser(
+    subparsers.add_parser(
         "sync", help="Re-apply staged templates to project files",
     )
 
@@ -786,12 +942,21 @@ def main():
 
     spawn_parser = subparsers.add_parser(
         "spawn",
-        help="Spawn a child area under the current session's area and rebind to it",
+        help="Start a child session inheriting the current target",
     )
     spawn_parser.add_argument(
-        "child",
-        help="Child suffix — current session's area becomes '<area>-<child>'",
+        "child", nargs="?", default=None,
+        help="Optional child name; legacy area sessions require one",
     )
+    temp_parser = subparsers.add_parser(
+        "temp", help="Start an independent temporary session",
+    )
+    temp_parser.add_argument("name", nargs="?", default=None)
+    collapse_parser = subparsers.add_parser(
+        "collapse", help="Preview or apply a child session context collapse",
+    )
+    collapse_parser.add_argument("--session", default=None)
+    collapse_parser.add_argument("--apply", action="store_true")
 
     update_home_parser = subparsers.add_parser(
         "update-home",
@@ -802,6 +967,23 @@ def main():
     )
     update_home_parser.add_argument(
         "path", help="New absolute path for OWRAP_HOME",
+    )
+
+    migrate_parser = subparsers.add_parser(
+        "migrate", help="Preview or apply the legacy session and record migration",
+    )
+    migrate_parser.add_argument(
+        "--home", default=None, help="OWRAP_HOME to migrate",
+    )
+    migrate_parser.add_argument(
+        "--docs-root", default=None, help="Project record root to migrate",
+    )
+    migrate_parser.add_argument(
+        "--map", dest="mapping", default=None,
+        help="YAML file mapping projects to repository checkouts",
+    )
+    migrate_parser.add_argument(
+        "--apply", action="store_true", help="Apply the reviewed migration",
     )
     update_home_parser.add_argument(
         "--dry-run", action="store_true", default=False,
@@ -815,7 +997,7 @@ def main():
         ),
     )
 
-    ctx_hook_parser = subparsers.add_parser(
+    subparsers.add_parser(
         "ctx-hook", help="PreCompact hook handler",
     )
 
@@ -827,7 +1009,7 @@ def main():
         help="Input JSON path",
     )
 
-    ctx_parser = subparsers.add_parser(
+    subparsers.add_parser(
         "ctx", help="Dispatch an Update Context task for this window now",
     )
 
@@ -835,8 +1017,8 @@ def main():
         "updr", help="Dispatch an Update Protocol task for this window now",
     )
     updr_parser.add_argument(
-        "area", nargs="?", default=None,
-        help="Area to update (default: this session's configured area)",
+        "subproject", nargs="?", default=None,
+        help="Subproject to update (default: this session's target)",
     )
     updr_parser.add_argument(
         "--ctx", action="store_true",
@@ -883,7 +1065,10 @@ def main():
         "what",
         choices=[
             "plan", "input", "context", "session", "memory",
-            "project", "todo", "area", "research", "config", "home", "agents",
+            "project", "proj", "todo", "area", "research", "project-id",
+            "subproject", "sub", "subs", "repository", "repo", "repos",
+            "self",
+            "config", "home", "agents",
             "output", "runtime", "transcript",
         ],
     )
@@ -902,7 +1087,7 @@ def main():
         help="Attached window id (default: current CLAUDE_CODE_SESSION_ID)",
     )
 
-    daemon_parser = subparsers.add_parser("daemon", help="Run the owrap daemon")
+    subparsers.add_parser("daemon", help="Run the owrap daemon")
 
     p_parser = subparsers.add_parser(
         "p", help="Hook permission check (reads staged permit.json)",

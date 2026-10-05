@@ -13,11 +13,11 @@ from pathlib import Path
 from .utils.dispatch.terminal import Terminal
 from .utils.log.logger import get_logger
 from .utils.paths import (
-    TASKS_DIR, STATE_FILE, SESSION_DIR, SERVERS_DIR, DOCS_DIR,
+    TASKS_DIR, STATE_FILE, SESSION_DIR, SERVERS_DIR,
     SESSIONS_DIR, RUNNING_DIR, SERVER_LOGS_DIR,
 )
 from .utils.paths import (
-    RUN_LOG, EXEC_LOG, READ_LOG, INPUT_FILE,
+    RUN_LOG, EXEC_LOG, READ_LOG,
     _read_config, get_plan_path,
 )
 from .utils.paths import context_path, context_lock_path
@@ -29,7 +29,9 @@ from .utils.paths import (
 from .utils.session.trash import sweep_trash, move_to_trash
 from .utils.filelock import file_lock
 from .utils.log import rtlog
-from .utils.session.session_resolver import (
+from .utils.log.retention import prune_server_logs
+from .utils.process import is_alive
+from .utils.session.resolver import (
     _parse as _parse_session, _clear_anchor,
     BY_CCSID_DIR, BY_OPENCODE_RUN_ID_DIR,
 )
@@ -95,64 +97,79 @@ class Manager:
     def input_path(self) -> Path:
         return session_input(self.session_id)
 
-    def start(self, port=4096):
+    def start(self, port=None):
         """
         Start the opencode server on the given port and return its URL.
         """
+        if port is None:
+            port = int(_read_config().get("server_port_base", 4096))
         SESSION_DIR.mkdir(parents=True, exist_ok=True)
+        SERVER_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        prune_server_logs(SESSION_DIR, SERVER_LOGS_DIR)
         self._kill_port_occupant(port)
-        tmp_log = SESSION_DIR / f"owrap_start_{int(time.time())}.log"
-        log_fd = open(tmp_log, "w")
+        fd, tmp_path = tempfile.mkstemp(
+            prefix="owrap_start_", suffix=".log", dir=SERVER_LOGS_DIR,
+        )
+        tmp_log = Path(tmp_path)
+        log_fd = os.fdopen(fd, "w")
         script = (
             'opencode serve --port "$1" & '
             'echo "OWRAP_PID=$!"; '
             'wait $!; '
             'echo "OWRAP_EXIT=$?"'
         )
-        proc = subprocess.Popen(
-            ["sh", "-c", script, "sh", str(port)],
-            stdout=log_fd,
-            stderr=log_fd,
-            start_new_session=True,
-            close_fds=True,
-        )
-        log_fd.close()
-        pid = proc.pid
-        url = None
-        deadline = time.time() + 15.0
-        while time.time() < deadline:
-            time.sleep(0.2)
-            try:
-                content = tmp_log.read_text(errors="replace")
-                pid_match = re.search(r"OWRAP_PID=(\d+)", content)
-                if pid_match:
-                    pid = int(pid_match.group(1))
-                if url is None:
-                    match = re.search(r"https?://\S+", content)
-                    if match:
-                        url = match.group().rstrip()
-                        break
-            except OSError:
-                pass
-            if proc.poll() is not None:
-                raise RuntimeError(
-                    "opencode serve exited before producing a URL"
-                )
-        if url is None:
-            proc.terminate()
-            raise RuntimeError(
-                "opencode serve did not produce a URL within 15s"
+        try:
+            proc = subprocess.Popen(
+                ["sh", "-c", script, "sh", str(port)],
+                stdout=log_fd,
+                stderr=log_fd,
+                start_new_session=True,
+                close_fds=True,
             )
-        log_file = str(SERVER_LOGS_DIR / f"owrap_{pid}.log")
-        tmp_log.rename(log_file)
-        state = {
-            "pid": pid, "url": url, "port": port,
-            "log_file": log_file, "tasks": {},
-        }
-        self._write_state(state)
-        if self._logger:
-            self._logger.info("server started pid=%d url=%s", pid, url)
-        return url
+        except OSError:
+            tmp_log.unlink(missing_ok=True)
+            raise
+        finally:
+            log_fd.close()
+        try:
+            pid = proc.pid
+            url = None
+            deadline = time.time() + 15.0
+            while time.time() < deadline:
+                time.sleep(0.2)
+                try:
+                    content = tmp_log.read_text(errors="replace")
+                    pid_match = re.search(r"OWRAP_PID=(\d+)", content)
+                    if pid_match:
+                        pid = int(pid_match.group(1))
+                    if url is None:
+                        match = re.search(r"https?://\S+", content)
+                        if match:
+                            url = match.group().rstrip()
+                            break
+                except OSError:
+                    pass
+                if proc.poll() is not None:
+                    raise RuntimeError(
+                        "opencode serve exited before producing a URL"
+                    )
+            if url is None:
+                proc.terminate()
+                raise RuntimeError(
+                    "opencode serve did not produce a URL within 15s"
+                )
+            log_file = str(SERVER_LOGS_DIR / f"owrap_{pid}.log")
+            tmp_log.rename(log_file)
+            state = {
+                "pid": pid, "url": url, "port": port,
+                "log_file": log_file, "tasks": {},
+            }
+            self._write_state(state)
+            if self._logger:
+                self._logger.info("server started pid=%d url=%s", pid, url)
+            return url
+        finally:
+            prune_server_logs(SESSION_DIR, SERVER_LOGS_DIR)
 
     def stop(self):
         """
@@ -232,7 +249,7 @@ class Manager:
     def set_logger(self, logger: logging.Logger):
         self._logger = logger
 
-    def ensure_running(self, port=4096):
+    def ensure_running(self, port=None):
         """
         Return the server URL, starting the server if not already running.
         """
@@ -410,7 +427,7 @@ class Manager:
         """
         cp = self.context_path
         config = _read_config()
-        research_root = config.get("research_root", "")
+        docs_root = config.get("docs_root") or config.get("research_root", "")
         venv = config.get("venv", "")
         plan = str(get_plan_path(self.session_id)) if self.session_id else "none"
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -438,7 +455,7 @@ class Manager:
             f"server: {url}\n"
             f"plan: {plan}\n"
             "phase: 1\n"
-            f"research_root: {research_root}\n"
+            f"docs_root: {docs_root}\n"
             f"venv: {venv}\n"
             f"last_updated: {now}\n"
             "\n## Focus\n\n"
@@ -621,6 +638,7 @@ class Manager:
         import threading
         if not self.session_id:
             return
+
         def _watchdog_loop():
             while True:
                 time.sleep(600)
@@ -657,12 +675,12 @@ class Manager:
                     )
                     least_busy_url = best["url"]
                     prompt = (
-                        f"--executor Compress the following session "
-                        f"context file. Keep all section headers. "
+                        "--executor Compress the following session "
+                        "context file. Keep all section headers. "
                     )
                     prompt += (
-                        f"Condense entries to the most important facts. "
-                        f"Preserve the structure. "
+                        "Condense entries to the most important facts. "
+                        "Preserve the structure. "
                     )
                     prompt += (
                         f"Return only the compressed content:\n\n{snapshot}"
@@ -689,8 +707,8 @@ class Manager:
         t.start()
 
     def _resolve_log_file(self):
-        """Do not route application logs into SERVER_LOGS_DIR.
-        rtlog is the record now.
+        """
+        Disable the obsolete application log file.
         """
         self._log_file = None
 
@@ -712,13 +730,6 @@ class Manager:
         except Exception:
             os.unlink(tmp_path)
             raise
-
-    def _pid_alive(self, pid):
-        try:
-            os.kill(pid, 0)
-            return True
-        except OSError:
-            return False
 
     def _server_responsive(self, url, timeout=3):
         import socket
@@ -802,7 +813,7 @@ class Manager:
         if pids:
             deadline = time.time() + 3.0
             while time.time() < deadline:
-                if not any(self._pid_alive(p) for p in pids):
+                if not any(is_alive(p) for p in pids):
                     break
                 time.sleep(0.1)
             for pid in pids:
@@ -822,7 +833,7 @@ class Manager:
                 )
 
     def _housekeeping(self):
-        sessions_dir = SESSION_DIR / "sessions"
+        sessions_dir = SESSIONS_DIR
         if sessions_dir.exists():
             active_ids = set()
             for sf in sessions_dir.glob("*.session"):

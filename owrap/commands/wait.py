@@ -62,8 +62,10 @@ class WaitRunner(BaseRunner):
                 if mtime != last_mtime:
                     last_mtime = mtime
                     if log_path.stat().st_size > initial_size:
-                        lines = [l for l in log_path.read_text().splitlines()
-                                 if l.strip() and l[0].isdigit()]
+                        lines = [
+                            line for line in log_path.read_text().splitlines()
+                            if line.strip() and line[0].isdigit()
+                        ]
                         if lines:
                             print(lines[0])
                             sys.exit(0)

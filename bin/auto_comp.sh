@@ -82,7 +82,7 @@ bullets" -- "${cur}") )
                 if [[ "$kind" == "msg" ]] && [ -n "$SESSION_ID" ]; then
                     local home
                     home="$(_owrap_resolve_home)"
-                    local msg_dir="$home/docs/sessions/$SESSION_ID/run/output/msg"
+                    local msg_dir="$home/sessions/$SESSION_ID/run/output/msg"
                     COMPREPLY=( $(compgen -W "$(ls "$msg_dir" 2>/dev/null | sed 's/^msg_//;s/\.log$//')" -- "${cur}") )
                     return 0
                 fi

@@ -4,7 +4,7 @@
     "owrap_context_manager_enabled": true,
     "default_research": "my_project",
     "workspace": "/home/user",
-    "research_root": "/home/user/my_project/docs/research",
+    "docs_root": "/home/user/my_project/docs/research",
     "runner_allow_all": true,
     "permit_bypass_all": false,
     "runner_use_oread": true,
