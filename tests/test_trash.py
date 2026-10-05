@@ -69,7 +69,7 @@ def test_restore_from_trash_round_trips(tmp_path):
         trash_mod.move_to_trash(sid)
         trash_mod.restore_from_trash(sid)
 
-    assert (sessions_dir / f"{sid}.session").exists()
+    assert (sessions_dir / sid / ".session").exists()
     assert (sess_docs / "context.md").exists()
     assert (runtime_dir / sid).exists()
     assert not (trash_dir / sid).exists()

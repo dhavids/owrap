@@ -55,6 +55,25 @@ def test_daemon_exits_when_runner_and_context_manager_both_disabled(tmp_path):
     assert exc_info.value.code == 0
 
 
+def test_daemon_does_not_replace_running_registered_daemon(tmp_path):
+    from owrap.commands.daemon import DaemonRunner
+
+    pid_file = tmp_path / "daemon.pid"
+    pid_file.write_text("1")
+
+    with (
+        patch("owrap.utils.paths.DAEMON_PID_FILE", pid_file),
+        patch("owrap.commands.daemon._read_config", return_value={
+            "owrap_runner_enabled": False,
+            "owrap_context_manager_enabled": True,
+        }),
+        patch("owrap.commands.daemon.time.sleep") as sleep,
+    ):
+        DaemonRunner(MagicMock()).run()
+
+    sleep.assert_not_called()
+
+
 def test_daemon_runs_when_only_context_manager_enabled(tmp_path):
     """
     The daemon must stay available for context-manager work even when the

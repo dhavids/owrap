@@ -62,6 +62,15 @@ def test_context_jobs_share_session_directory():
     )
 
 
+def test_context_counters_stay_in_session_window():
+    from owrap.utils.paths import SESSIONS_DIR, session_ctx_counters_path
+
+    assert session_ctx_counters_path("abc123", "codex-1") == (
+        SESSIONS_DIR / "abc123" / "ctx" / "windows" / "codex-1"
+        / "counters.json"
+    )
+
+
 def test_memory_lock_path_under_locks_dir():
     from owrap.utils.paths import memory_lock_path, LOCKS_DIR
     p = memory_lock_path("myresearch")

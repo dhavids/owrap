@@ -31,7 +31,8 @@ def project_scope(tmp_path, monkeypatch):
         "main: main.md\ncheckout: /tmp/code\n"
     )
     (repository / "main.md").write_text("# Code\n")
-    session_path = sessions / "abc123.session"
+    session_path = sessions / "abc123" / ".session"
+    session_path.parent.mkdir()
     session_path.write_text(
         "session_id=abc123\ntarget_kind=project\nproject_id=demo\n"
         "subproject_id=worker\nworkspace=test\nrepositories=[\"code\"]\n"

@@ -475,6 +475,7 @@ def stage_all(workspace_name: str) -> Path:
 
     Returns the staged directory.
     """
+    _migrate_staged_cache()
     config = get_workspace_config(workspace_name)
     placeholders = resolve_placeholders(config, workspace_name)
     flags = resolve_flags(config)
@@ -532,7 +533,6 @@ def stage_all(workspace_name: str) -> Path:
         }
         permit_path.write_text(json.dumps(permit_data, indent=2))
 
-
     if workspace:
         role_files = resolve_role_files(config)
         planner_staged = out_dir / "planner.md"
@@ -553,3 +553,21 @@ def stage_all(workspace_name: str) -> Path:
                     _strip_marker_block(destination, role)
 
     return out_dir
+
+
+def _migrate_staged_cache() -> None:
+    legacy_root = OWRAP_HOME / "staged"
+    current_root = staged_dir("_workspace").parent
+    if legacy_root == current_root or not legacy_root.is_dir():
+        return
+    current_root.mkdir(parents=True, exist_ok=True)
+    for source in legacy_root.iterdir():
+        target = current_root / source.name
+        if target.exists():
+            if source.is_dir():
+                shutil.rmtree(source)
+            else:
+                source.unlink()
+            continue
+        shutil.move(str(source), str(target))
+    legacy_root.rmdir()

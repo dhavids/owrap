@@ -702,8 +702,14 @@ def test_ctx_worker_isolated_per_ccsid_under_multi_attach(tmp_path, monkeypatch)
     assert "from window A" in transcript_tmp_a.read_text()
     assert "from window B" in transcript_tmp_b.read_text()
 
-    counters_a = json.loads((sessions_dir / f"{owrap_sid}.{ccsid_a}.counters.json").read_text())
-    counters_b = json.loads((sessions_dir / f"{owrap_sid}.{ccsid_b}.counters.json").read_text())
+    counters_a = json.loads((
+        sessions_dir / owrap_sid / "ctx" / "windows" / ccsid_a
+        / "counters.json"
+    ).read_text())
+    counters_b = json.loads((
+        sessions_dir / owrap_sid / "ctx" / "windows" / ccsid_b
+        / "counters.json"
+    ).read_text())
     assert counters_a["transcript_offset"] == 1
     assert counters_b["transcript_offset"] == 1
 
@@ -1014,11 +1020,14 @@ def test_context_job_failure_appears_in_stat(tmp_path, monkeypatch, capsys):
     status = json.loads((job_dir / "status.json").read_text())
     assert status["status"] == "failed"
     assert status["rc"] == 1
+    capsys.readouterr()
     StatRunner(None).run(SimpleNamespace(filter=sid))
     output = capsys.readouterr().out
     assert f"ctx  {job_dir.name[:8]}  done(rc=1)" in output
-    assert str(job_dir / "output.log") in output
-    assert str(job_dir / "transcript.txt") in output
+    relative_job = job_dir.relative_to(sessions_dir / sid)
+    assert f"output: {relative_job / 'output.log'}" in output
+    assert f"transcript: {relative_job / 'transcript.txt'}" in output
+    assert str(sessions_dir / sid) not in output
     assert "model attempt failed" not in output
 
 
@@ -1093,7 +1102,7 @@ def test_context_stat_shows_live_stage_without_window_path(
 
     assert "running (running model)" in output
     assert "window-secret" not in output
-    assert "/ctx/jobs/" in output
+    assert "output: ctx/jobs/" in output
 
 
 def test_ctx_worker_command_exits_with_dispatch_result(tmp_path):
@@ -1541,7 +1550,9 @@ def test_codex_update_only_transcript_advances_offset(tmp_path, monkeypatch):
         CtxWorkerRunner().run(input_path=input_path)
 
     terminal.assert_not_called()
-    counters = json.loads((sessions_dir / f"{sid}.{cid}.counters.json").read_text())
+    counters = json.loads((
+        sessions_dir / sid / "ctx" / "windows" / cid / "counters.json"
+    ).read_text())
     assert counters["transcript_offset"] == 2
 
 

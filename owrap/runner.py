@@ -377,6 +377,15 @@ def _cmd_wait(args, manager, logger, allow_all):
 
 def _cmd_stat(args, manager, logger, allow_all):
     from .session.stat import StatRunner
+    from .utils.dispatch.pool import _ensure_daemon
+
+    config = _read_config()
+    daemon_enabled = (
+        config.get("owrap_runner_enabled", True)
+        or config.get("owrap_context_manager_enabled", True)
+    )
+    if daemon_enabled:
+        _ensure_daemon()
     sys.exit(StatRunner(manager, logger, allow_all).run(args))
 
 

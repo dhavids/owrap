@@ -12,13 +12,13 @@ relocates existing runtime state. Test work uses its own development home.
 
 ## Session files
 
-Every session has a lookup record at
-`{{OWRAP_HOME}}/sessions/<session-id>.session`. It stores identity, target,
-parent session, and mode. Working files live under
-`{{OWRAP_HOME}}/sessions/<session-id>/`:
+Every session stores its lookup record and working files under
+`{{OWRAP_HOME}}/sessions/<session-id>/`. The `.session` file stores identity,
+target, parent session, and mode:
 
 | File | Role |
 |---|---|
+| `.session` | Session identity and target metadata |
 | `context.md` | Current session context |
 | `exec/plan.md` | Session execution plan |
 | `run/input.md` | Task dispatch input |

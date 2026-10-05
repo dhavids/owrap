@@ -6,14 +6,14 @@ if [ -z "$OWRAP_HOME" ]; then
     OWRAP_HOME="$HOME/.owrap"
   fi
 fi
-mkdir -p "$OWRAP_HOME/sessions/by_ccsid"
+mkdir -p "$OWRAP_HOME/sessions/_index/claude"
 SID="${SESSION_ID:-}"
 CCSID="${CLAUDE_CODE_SESSION_ID:-}"
-PTR="$OWRAP_HOME/sessions/by_ccsid/${CCSID}"
+PTR="$OWRAP_HOME/sessions/_index/claude/${CCSID}"
 if [ -z "$SID" ] && [ -n "$CCSID" ] && [ -f "$PTR" ]; then
   SID=$(cat "$PTR")
 fi
-SESSION_FILE="$OWRAP_HOME/sessions/${SID}.session"
+SESSION_FILE="$OWRAP_HOME/sessions/${SID}/.session"
 [ -f "$SESSION_FILE" ] && export OWRAP_SESSION=$(grep "^session_id=" "$SESSION_FILE" | cut -d= -f2)
 cd "<OWRAP_ROOT>"
 exec <PYTHON> -m owrap.runner wait "$@"

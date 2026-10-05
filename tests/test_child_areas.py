@@ -40,7 +40,10 @@ def _write_session(sessions_dir, sid, research=None, area=None):
 
 def _read_session(sessions_dir, sid):
     data = {}
-    for line in (sessions_dir / f"{sid}.session").read_text().splitlines():
+    path = sessions_dir / sid / ".session"
+    if not path.exists():
+        path = sessions_dir / f"{sid}.session"
+    for line in path.read_text().splitlines():
         k, v = line.split("=", 1)
         data[k] = v
     return data
@@ -124,10 +127,10 @@ def test_spawn_success_concatenates_and_prints(
     assert _read_session(resolver_dir, "spawnsid")["area"] == "parent"
     # Find the newly minted child session (the .session file that is not spawnsid)
     child_files = [
-        f for f in resolver_dir.glob("*.session")
-        if f.stem != "spawnsid"
+        f for f in resolver_dir.glob("*/.session")
+        if f.parent.name != "spawnsid"
     ]
     assert len(child_files) == 1
-    child_data = _read_session(resolver_dir, child_files[0].stem)
+    child_data = _read_session(resolver_dir, child_files[0].parent.name)
     assert child_data["area"] == "parent-kid"
     assert child_data.get("parent_session_id") == "spawnsid"

@@ -119,13 +119,14 @@ def isolate_owrap_dirs(tmp_path, monkeypatch):
         ),
             "DAEMON_PID_FILE":  tmp_path / "daemon.pid",
             "DAEMON_STATE_FILE": tmp_path / "daemon.state.json",
+            "DAEMON_LOCK_FILE": tmp_path / "daemon.lock",
     }
     _leaf_file_keys = {
         "RUN_LOG", "READ_LOG", "EXEC_LOG", "TASKS_DIR",
         "FALLBACK_TASK", "FALLBACK_EXEC_OUTPUT", "FALLBACK_EXEC_LOG",
         "FALLBACK_TASK_OUTPUT", "FALLBACK_TASK_LOG", "FALLBACK_EXEC_STATUS",
             "FALLBACK_TASK_STATUS", "FALLBACK_PLAN",
-            "DAEMON_PID_FILE", "DAEMON_STATE_FILE",
+            "DAEMON_PID_FILE", "DAEMON_STATE_FILE", "DAEMON_LOCK_FILE",
     }
     for k, d in dirs.items():
         if k not in _leaf_file_keys:
@@ -184,21 +185,21 @@ def isolate_owrap_dirs(tmp_path, monkeypatch):
         patch("owrap.utils.session.resolver.SESSIONS_DIR",
               dirs["SESSIONS_DIR"]),
         patch("owrap.utils.session.resolver.BY_CCSID_DIR",
-              dirs["SESSIONS_DIR"] / "by_ccsid"),
+              dirs["SESSIONS_DIR"] / "_index" / "claude"),
         patch("owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR",
-              dirs["SESSIONS_DIR"] / "by_opencode_run_id"),
+              dirs["SESSIONS_DIR"] / "_index" / "opencode"),
         patch(
             "owrap.utils.session.resolver.BY_CODEX_SESSION_ID_DIR",
-            dirs["SESSIONS_DIR"] / "by_codex_session_id",
+            dirs["SESSIONS_DIR"] / "_index" / "codex",
         ),
-            patch("owrap.session.start.BY_CCSID_DIR",
-              dirs["SESSIONS_DIR"] / "by_ccsid"),
+        patch("owrap.session.start.BY_CCSID_DIR",
+              dirs["SESSIONS_DIR"] / "_index" / "claude"),
         patch("owrap.session.start.BY_OPENCODE_RUN_ID_DIR",
-              dirs["SESSIONS_DIR"] / "by_opencode_run_id"),
+              dirs["SESSIONS_DIR"] / "_index" / "opencode"),
         patch("owrap.session.start.BY_CODEX_SESSION_ID_DIR",
-              dirs["SESSIONS_DIR"] / "by_codex_session_id"),
+              dirs["SESSIONS_DIR"] / "_index" / "codex"),
         patch("owrap.session.stop.BY_CCSID_DIR",
-              dirs["SESSIONS_DIR"] / "by_ccsid"),
+              dirs["SESSIONS_DIR"] / "_index" / "claude"),
     ]
 
     for p in patches:

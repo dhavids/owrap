@@ -19,11 +19,15 @@ def move_to_trash(session_id: str) -> Path:
     trash_dir = TRASH_DIR / session_id
     trash_dir.mkdir(parents=True, exist_ok=True)
 
-    session_file = SESSIONS_DIR / f"{session_id}.session"
-    if session_file.exists():
-        shutil.move(str(session_file), str(trash_dir / "session"))
-
     sdir = session_dir(session_id)
+    current_metadata = sdir / ".session"
+    legacy_metadata = SESSIONS_DIR / f"{session_id}.session"
+    metadata = (
+        legacy_metadata if not current_metadata.exists()
+        and legacy_metadata.exists() else current_metadata
+    )
+    if metadata.exists() and metadata.parent != sdir:
+        shutil.move(str(metadata), str(trash_dir / "session"))
     if sdir.exists():
         shutil.move(str(sdir), str(trash_dir / "docs_sessions"))
 
@@ -53,12 +57,19 @@ def restore_from_trash(session_id: str) -> None:
 
     session_file = trash_dir / "session"
     if session_file.exists():
-        SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(session_file), str(SESSIONS_DIR / f"{session_id}.session"))
+        target = SESSIONS_DIR / session_id / ".session"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(session_file), str(target))
 
     docs_src = trash_dir / "docs_sessions"
     if docs_src.exists():
-        shutil.move(str(docs_src), str(session_dir(session_id)))
+        target = SESSIONS_DIR / session_id
+        if target.exists():
+            for source in docs_src.iterdir():
+                shutil.move(str(source), str(target / source.name))
+            docs_src.rmdir()
+        else:
+            shutil.move(str(docs_src), str(target))
 
     runtime_src = trash_dir / "runtime"
     if runtime_src.exists():

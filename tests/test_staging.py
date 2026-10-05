@@ -1,6 +1,28 @@
 import json
 from unittest.mock import patch
 
+
+def test_staged_cache_moves_under_runtime(tmp_path):
+    from owrap import staging
+
+    legacy = tmp_path / "staged" / "workspace"
+    legacy.mkdir(parents=True)
+    (legacy / "self.md").write_text("old")
+    current = tmp_path / "runtime" / "staged"
+
+    with (
+        patch("owrap.staging.OWRAP_HOME", tmp_path),
+        patch(
+            "owrap.staging.staged_dir",
+            side_effect=lambda name: current / name,
+        ),
+    ):
+        staging._migrate_staged_cache()
+
+    assert (current / "workspace" / "self.md").read_text() == "old"
+    assert not (tmp_path / "staged").exists()
+
+
 class TestRenderRuleArray:
     def test_allow_groups_no_oread_contains_expected_rules(self):
         from owrap.staging import (
@@ -171,6 +193,8 @@ class TestStageAll:
             staged = stage_all("workspace")
             assert (staged / "planner.md").is_file()
             assert (staged / "executor.md").is_file()
+            assert (staged / "self.md").is_file()
+            assert (staged / "self" / "sessions.md").is_file()
             hooks = json.loads((staged / "codex" / "hooks.json").read_text())
             permit = hooks["hooks"]["PreToolUse"][0]["hooks"][0]
             assert permit["command"] == (

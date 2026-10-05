@@ -13,6 +13,9 @@ from ..utils.paths import (
 )
 from ..utils.memory.goals import read_goals
 from ..utils.memory.records import resolve_memory_target, session_repositories
+from ..utils.session.resolver import (
+    ccsid_pointer, codex_session_id_pointer, session_file,
+)
 
 _EXEC_OUTPUT_MAX_LINES = 15
 
@@ -47,7 +50,7 @@ class GetRunner:
             print("No active session")
             sys.exit(1)
 
-        sf = RUNTIME_HOME / "sessions" / f"{sid}.session"
+        sf = session_file(sid)
         sdata = self._parse_session_file(sf)
         target = None
         if what in ("memory", "project", "todo"):
@@ -383,12 +386,12 @@ class GetRunner:
             return sid
         ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
         if ccsid:
-            ptr = RUNTIME_HOME / "sessions" / "by_ccsid" / ccsid
+            ptr = ccsid_pointer(ccsid)
             if ptr.exists():
                 return ptr.read_text().strip()
         cid = os.environ.get("CODEX_SESSION_ID", "").strip()
         if cid:
-            ptr = RUNTIME_HOME / "sessions" / "by_codex_session_id" / cid
+            ptr = codex_session_id_pointer(cid)
             if ptr.exists():
                 return ptr.read_text().strip()
         return None

@@ -1,11 +1,58 @@
 import json
 import os
+import sys
 import time
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from owrap.manager import Manager
+
+
+def test_ensure_daemon_starts_current_checkout(tmp_path):
+    from owrap.utils.dispatch.pool import _ensure_daemon
+
+    pid_file = tmp_path / "daemon.pid"
+    lock_file = tmp_path / "daemon.lock"
+    root = tmp_path / "checkout"
+    root.mkdir()
+    process = MagicMock(pid=3210)
+
+    with (
+        patch("owrap.utils.dispatch.pool.DAEMON_PID_FILE", pid_file),
+        patch("owrap.utils.dispatch.pool.DAEMON_LOCK_FILE", lock_file),
+        patch("owrap.utils.dispatch.pool.OWRAP_ROOT", root),
+        patch(
+            "owrap.utils.dispatch.pool.subprocess.Popen",
+            return_value=process,
+        ) as popen,
+    ):
+        _ensure_daemon()
+
+    command = popen.call_args.args[0]
+    assert command[0] == sys.executable
+    assert command[1:] == ["-m", "owrap.runner", "daemon"]
+    assert popen.call_args.kwargs["cwd"] == str(root)
+    assert pid_file.read_text() == "3210"
+
+
+def test_ensure_daemon_keeps_running_process(tmp_path):
+    from owrap.utils.dispatch.pool import _ensure_daemon
+
+    pid_file = tmp_path / "daemon.pid"
+    pid_file.write_text(str(os.getpid()))
+
+    with (
+        patch("owrap.utils.dispatch.pool.DAEMON_PID_FILE", pid_file),
+        patch(
+            "owrap.utils.dispatch.pool.DAEMON_LOCK_FILE",
+            tmp_path / "daemon.lock",
+        ),
+        patch("owrap.utils.dispatch.pool.subprocess.Popen") as popen,
+    ):
+        _ensure_daemon()
+
+    popen.assert_not_called()
 
 
 def test_dev_port_range_does_not_use_live_port():

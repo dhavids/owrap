@@ -91,6 +91,7 @@ POOL_FILE = RUNTIME_DIR / "pool.json"
 POOL_LOCK_FILE = RUNTIME_DIR / "pool.lock"
 DAEMON_PID_FILE = RUNTIME_DIR / "daemon.pid"
 DAEMON_STATE_FILE = RUNTIME_DIR / "daemon.state"
+DAEMON_LOCK_FILE = RUNTIME_DIR / "daemon.lock"
 STATS_FILE = RUNTIME_DIR / "stats.json"
 
 _config_cache: dict | None = None
@@ -128,9 +129,15 @@ def session_dir(session_id: str) -> Path:
 
 
 def session_ctx_counters_path(session_id: str, harness_id: str) -> Path:
+    current = (
+        session_dir(session_id) / "ctx" / "windows" / harness_id
+        / "counters.json"
+    )
     name = f"{session_id}.{harness_id}.counters.json"
-    current = SESSIONS_DIR / name
+    flat = SESSIONS_DIR / name
     legacy = LEGACY_SESSIONS_DIR / name
+    if not current.exists() and flat.exists():
+        return flat
     return legacy if not current.exists() and legacy.exists() else current
 
 
@@ -343,7 +350,7 @@ def get_maintenance_model(
 
 
 def staged_dir(project_name: str):
-    return RUNTIME_HOME / "staged" / project_name
+    return RUNTIME_DIR / "staged" / project_name
 
 
 def get_plan_path(session_id: str) -> Path:

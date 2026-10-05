@@ -14,6 +14,16 @@ _owrap_resolve_home() {
     fi
 }
 
+_owrap_session_ids() {
+    local home="$1"
+    local session_dir
+    for session_dir in "$home"/sessions/*; do
+        if [ -f "$session_dir/.session" ]; then
+            basename "$session_dir"
+        fi
+    done
+}
+
 _owrap_complete() {
     local cur="${COMP_WORDS[COMP_CWORD]}"
     local prev="${COMP_WORDS[COMP_CWORD-1]}"
@@ -60,7 +70,8 @@ bullets" -- "${cur}") )
         --session-id|--session)
             local home
             home="$(_owrap_resolve_home)"
-            COMPREPLY=( $(compgen -W "$(ls "$home/sessions/" 2>/dev/null | sed 's/\.session$//')" -- "${cur}") )
+            COMPREPLY=( $(compgen -W "$(_owrap_session_ids "$home")" \
+-- "${cur}") )
             return 0
             ;;
         -i)
@@ -70,7 +81,8 @@ bullets" -- "${cur}") )
             fi
             local home
             home="$(_owrap_resolve_home)"
-            COMPREPLY=( $(compgen -W "$(ls "$home/sessions/" 2>/dev/null | sed 's/\.session$//')" -- "${cur}") )
+            COMPREPLY=( $(compgen -W "$(_owrap_session_ids "$home")" \
+-- "${cur}") )
             return 0
             ;;
         --id)

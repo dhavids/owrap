@@ -93,6 +93,10 @@ def test_todo_edits_subproject_goals_and_get_reads_records(
         "owrap.commands.todo.session_file",
         lambda sid: session_file,
     )
+    monkeypatch.setattr(
+        "owrap.commands.get.session_file",
+        lambda sid: session_file,
+    )
     monkeypatch.setattr("owrap.commands.get.RUNTIME_HOME", home)
 
     TodoRunner().run("owrap/migration", "New migration goal")

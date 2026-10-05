@@ -3,6 +3,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import time
 from contextlib import contextmanager
@@ -10,9 +11,10 @@ from pathlib import Path
 
 from ..paths import (
     _read_config, SERVERS_DIR, RUNNING_DIR,
-    DAEMON_PID_FILE, POOL_FILE, POOL_LOCK_FILE,
-    SERVER_LOGS_DIR,
+    DAEMON_LOCK_FILE, DAEMON_PID_FILE, OWRAP_ROOT, POOL_FILE,
+    POOL_LOCK_FILE, SERVER_LOGS_DIR,
 )
+from ..filelock import file_lock
 from ..log import rtlog
 from ..process import is_alive as _is_alive
 
@@ -574,21 +576,23 @@ def _estimate_remaining(url: str, now: float | None = None) -> float:
 
 
 def _ensure_daemon():
-    daemon_pid_file = DAEMON_PID_FILE
-    owrap_dir = Path.home() / "marl" / "owrap"
-    if daemon_pid_file.exists():
-        try:
-            pid = int(daemon_pid_file.read_text().strip())
-            os.kill(pid, 0)
-            return
-        except (ValueError, OSError):
-            pass
-    # start daemon
-    proc = subprocess.Popen(
-        ["owrap", "daemon"],
-        start_new_session=True,
-        cwd=str(owrap_dir) if owrap_dir.exists() else None,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    daemon_pid_file.write_text(str(proc.pid))
+    """
+    Start this checkout's daemon when it is not already running.
+    """
+    with file_lock(DAEMON_LOCK_FILE):
+        if DAEMON_PID_FILE.exists():
+            try:
+                pid = int(DAEMON_PID_FILE.read_text().strip())
+                os.kill(pid, 0)
+                return
+            except (ValueError, OSError):
+                DAEMON_PID_FILE.unlink(missing_ok=True)
+
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "owrap.runner", "daemon"],
+            start_new_session=True,
+            cwd=str(OWRAP_ROOT),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        DAEMON_PID_FILE.write_text(str(proc.pid))

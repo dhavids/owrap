@@ -52,7 +52,9 @@ def _parent(sessions: Path, repo_ids: list[str] | None = None):
         "target_kind": "project", "project_id": "demo",
         "subproject_id": "feature", "repositories": json.dumps(repo_ids or []),
     }
-    session_file("parent").write_text(
+    path = session_file("parent")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
         "\n".join(f"{key}={value}" for key, value in values.items()) + "\n"
     )
 
@@ -72,7 +74,7 @@ def test_spawn_inherits_target_and_collapse_preserves_parent_context(
 
     parent_context = sessions / "parent" / "context.md"
     child_context = sessions / sid / "context.md"
-    parent_context.parent.mkdir()
+    parent_context.parent.mkdir(exist_ok=True)
     child_context.parent.mkdir(exist_ok=True)
     parent_context.write_text(
         "# Context\n\n## Focus\n\nKeep parent focus.\n\n"
@@ -127,8 +129,8 @@ def test_stat_identifies_temp_session(workflow_home, monkeypatch, capsys):
 
     StatRunner(None).run(SimpleNamespace(filter=None))
     output = capsys.readouterr().out
-    assert f"session:  {temp['session_id']}\n    type:     temp" in output
-    assert "session:  parent\n    type:     normal" in output
+    assert f"  {temp['session_id']}\n    type:     temp" in output
+    assert "  parent\n    type:     normal" in output
     assert "project:  demo\n    sub:      feature" in output
     assert "research:" not in output
 

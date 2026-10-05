@@ -2,6 +2,7 @@ import os
 import sys
 import threading
 import time
+
 from ..base import BaseRunner
 from ..utils.dispatch.pool import (
     get_pool, _active_load, shutdown_idle, ensure_min_servers,
@@ -48,21 +49,14 @@ class DaemonRunner(BaseRunner):
         from ..utils.paths import DAEMON_PID_FILE, DAEMON_STATE_FILE
         daemon_pid_file = DAEMON_PID_FILE
         my_pid = os.getpid()
-        try:
-            import subprocess as _sp
-            result = _sp.run(
-                ["pgrep", "-f", "owrap.runner daemon"],
-                capture_output=True, text=True
-            )
-            for _pid_str in result.stdout.strip().splitlines():
-                try:
-                    _sib = int(_pid_str)
-                    if _sib != my_pid:
-                        os.kill(_sib, 15)
-                except (ValueError, OSError):
-                    pass
-        except Exception:
-            pass
+        if daemon_pid_file.exists():
+            try:
+                daemon_pid = int(daemon_pid_file.read_text().strip())
+                if daemon_pid != my_pid:
+                    os.kill(daemon_pid, 0)
+                    return
+            except (ValueError, OSError):
+                pass
         daemon_pid_file.write_text(str(my_pid))
 
         daemon_start_file = DAEMON_STATE_FILE.with_name("daemon.start")

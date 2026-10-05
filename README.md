@@ -131,7 +131,7 @@ the session identities and project records form one migration state.
 The development CLI adds `owrap start --project <id>` for a project session.
 `setup` writes a workspace config under `OWRAP_HOME/configs/` and stages
 `CLAUDE.md`, `AGENTS.md`, and the `self.md` reference pages under
-`OWRAP_HOME/staged/<workspace>/`. After starting or attaching a session, run
+`OWRAP_HOME/runtime/staged/<workspace>/`. After starting or attaching a session, run
 `owrap sync` to install workspace settings and hooks.
 In the development checkout, `setup` accepts only workspace and memory paths
 under `dev/owrap/files/`.
