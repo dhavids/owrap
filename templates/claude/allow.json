@@ -88,7 +88,7 @@
       "rules": [
         "Read({{SELF_PATH}})",
         "Read({{SELF_PATH_TILDE}})",
-        "Read({{OWRAP_HOME}}/staged/**)"
+        "Read({{OWRAP_HOME}}/runtime/staged/**)"
       ],
       "condition": null,
       "display": {"section": "files", "text": "`{{SELF_PATH}}` and its reference pages — read only"}

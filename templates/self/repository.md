@@ -11,14 +11,14 @@ schema_version: 1
 kind: repository
 id: example-repo
 title: Example Repository
-main: main.md
+main: memory.md
 checkout: /absolute/path/to/example-repo
 ```
 
 `checkout` is the exact local Git checkout root. `remote` is optional. Paths
 in the Markdown below are relative to this checkout.
 
-## `main.md`
+## `memory.md`
 
 ```markdown
 # Example Repository
@@ -27,17 +27,21 @@ in the Markdown below are relative to this checkout.
 
 Current system shape and durable constraints.
 
+
 ## Components
 
 - `src/module.py` — Role of this component.
+
 
 ## Interfaces
 
 Current public commands, APIs, and data contracts.
 
+
 ## Environment
 
 Build, test, and configuration instructions.
+
 
 ## Notes
 

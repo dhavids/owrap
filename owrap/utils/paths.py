@@ -91,6 +91,7 @@ POOL_FILE = RUNTIME_DIR / "pool.json"
 POOL_LOCK_FILE = RUNTIME_DIR / "pool.lock"
 DAEMON_PID_FILE = RUNTIME_DIR / "daemon.pid"
 DAEMON_STATE_FILE = RUNTIME_DIR / "daemon.state"
+DAEMON_LOCK_FILE = RUNTIME_DIR / "daemon.lock"
 STATS_FILE = RUNTIME_DIR / "stats.json"
 
 _config_cache: dict | None = None
@@ -128,9 +129,15 @@ def session_dir(session_id: str) -> Path:
 
 
 def session_ctx_counters_path(session_id: str, harness_id: str) -> Path:
+    current = (
+        session_dir(session_id) / "ctx" / "windows" / harness_id
+        / "counters.json"
+    )
     name = f"{session_id}.{harness_id}.counters.json"
-    current = SESSIONS_DIR / name
+    flat = SESSIONS_DIR / name
     legacy = LEGACY_SESSIONS_DIR / name
+    if not current.exists() and flat.exists():
+        return flat
     return legacy if not current.exists() and legacy.exists() else current
 
 
@@ -156,14 +163,32 @@ def session_exec_output_path(session_id: str) -> Path:
     return session_dir(session_id) / "exec" / "output.log"
 
 
+def session_ctx_root(session_id: str) -> Path:
+    """
+    Return the session's context workspace root.
+    """
+    return session_dir(session_id) / "ctx"
+
+
 def session_ctx_dir(session_id: str, ccsid: str) -> Path:
     """
-    Return the per-window context-manager scratch directory.
+    Return the per-window context-manager state directory.
 
-    It is scoped by ccsid because
-    multiple Claude Code windows (ccsids) can attach to one owrap session.
+    Existing per-window directories remain readable after the layout change.
     """
-    return session_dir(session_id) / "ctx" / ccsid
+    root = session_ctx_root(session_id)
+    current = root / "windows" / ccsid
+    legacy = root / ccsid
+    if legacy.exists() and not current.exists():
+        return legacy
+    return current
+
+
+def session_ctx_jobs_dir(session_id: str) -> Path:
+    """
+    Return the session-wide context job directory.
+    """
+    return session_ctx_root(session_id) / "jobs"
 
 
 def session_ctx_input_path(session_id: str, ccsid: str) -> Path:
@@ -325,7 +350,7 @@ def get_maintenance_model(
 
 
 def staged_dir(project_name: str):
-    return RUNTIME_HOME / "staged" / project_name
+    return RUNTIME_DIR / "staged" / project_name
 
 
 def get_plan_path(session_id: str) -> Path:

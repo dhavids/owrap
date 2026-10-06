@@ -12,7 +12,8 @@ from ..utils.paths import (
 )
 from ..utils.session.resolver import (
     resolve, remove_session, BY_CCSID_DIR, list_sessions,
-    _parse as _parse_session,
+    _parse as _parse_session, session_file as metadata_file,
+    session_files,
 )
 from ..utils.session.trash import move_to_trash, restore_from_trash
 from ..utils.process import is_alive as _pid_alive
@@ -112,7 +113,7 @@ class StopRunner:
             for s in list_sessions():
                 if s["session_id"].startswith(target) or s.get("research", "") == target:
                     sid = s["session_id"]
-                    sf = sessions_dir / f"{sid}.session"
+                    sf = metadata_file(sid)
                     break
             if sid is None:
                 print(
@@ -174,7 +175,7 @@ class EndRunner:
             for s in list_sessions():
                 if s["session_id"].startswith(target) or s.get("research", "") == target:
                     matched_sid = s["session_id"]
-                    session_file = str(sessions_dir / f"{matched_sid}.session")
+                    session_file = str(metadata_file(matched_sid))
                     break
             else:
                 print(f"OWRAP END: no session matching '{target}'.")
@@ -184,7 +185,7 @@ class EndRunner:
             if target:
                 print(f"OWRAP END: no session matching '{target}'.")
                 sys.exit(0)
-            candidate = SESSIONS_DIR / f"{self.manager.session_id}.session"
+            candidate = metadata_file(self.manager.session_id)
             if candidate.exists():
                 session_file = str(candidate)
 
@@ -388,7 +389,7 @@ class CleanupRunner(BaseRunner):
 
         if partial:
             if sessions_dir.exists():
-                for sf in sessions_dir.glob("*.session"):
+                for sf in session_files():
                     data = _parse_session(sf)
                     sid_val = data.get("session_id", "")
                     if sid_val.startswith(partial) or sf.stem.startswith(partial):
@@ -403,7 +404,7 @@ class CleanupRunner(BaseRunner):
                     _cleanup_context(data.get("session_id", ""), removed)
         else:
             if sessions_dir.exists():
-                for sf in sessions_dir.glob("*.session"):
+                for sf in session_files():
                     age = now - sf.stat().st_mtime
                     is_ppid = sf.stem.isdigit()
                     if age > self.TWO_HOURS or is_ppid:
@@ -424,7 +425,7 @@ class CleanupRunner(BaseRunner):
 
         active_sids = set()
         if sessions_dir.exists():
-            for sf in sessions_dir.glob("*.session"):
+            for sf in session_files():
                 data = _parse_session(sf)
                 sid = data.get("session_id", "").strip()
                 if sid:

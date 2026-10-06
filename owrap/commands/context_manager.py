@@ -27,14 +27,15 @@ from ..utils.dispatch.terminal import Terminal
 from ..utils.filelock import file_lock
 from ..utils.log import context_jobs
 from ..utils.memory.records import (
-    resolve_memory_target, touched_repository_paths,
+    register_discovered_repositories, resolve_memory_target,
+    touched_repository_paths,
 )
 from ..constants import (
     CTX_SCOPED_TASK_TEMPLATE, CTX_CONTEXT_BLOCK,
     CTX_PROJECT_BLOCK, CTX_REPOSITORY_BLOCK, ANTI_SUMMARY_SUFFIX,
 )
 
-MAX_EXCERPT_CHARS = 4000
+MAX_EXCERPT_CHARS = 12000
 MAX_CODEX_EXCERPT_CHARS = 12000
 MAX_RESULT_CHARS = 100
 
@@ -394,6 +395,9 @@ class CtxWorkerRunner:
             repository_paths = touched_repository_paths(
                 target, changed_paths, session_data.get("workspace", ""),
             )
+            repository_paths.update(register_discovered_repositories(
+                target, changed_paths, session_data.get("workspace", ""),
+            ))
         combined_texts = new_assistant_texts + touched_lines
 
         if not combined_texts:
@@ -410,17 +414,21 @@ class CtxWorkerRunner:
             MAX_CODEX_EXCERPT_CHARS if source == "codex" else MAX_EXCERPT_CHARS
         )
         if len(excerpt) > excerpt_limit:
+            dropped = len(excerpt) - excerpt_limit
+            print(f"ctx-worker: excerpt truncated, dropped {dropped} chars")
             excerpt = excerpt[-excerpt_limit:]
 
-        # Scoped sandbox — the model never sees a real path.
-        ctx_dir = session_ctx_dir(owrap_sid, ccsid)
+        job_dir = getattr(self, "_job_dir", None)
+        # Keep each model attempt isolated from other windows and jobs.
+        ctx_dir = job_dir / "work" if job_dir else session_ctx_dir(owrap_sid, ccsid)
         ctx_dir.mkdir(parents=True, exist_ok=True)
         # A stray opencode.json here disqualifies OpenCode's free-tier models.
         (ctx_dir / "opencode.json").unlink(missing_ok=True)
 
         transcript_tmp = session_ctx_transcript_path(owrap_sid, ccsid)
+        if job_dir:
+            transcript_tmp = ctx_dir / "transcript.txt"
         transcript_tmp.write_text(excerpt)
-        job_dir = getattr(self, "_job_dir", None)
         if job_dir:
             (job_dir / "transcript.txt").write_text(excerpt)
             context_jobs.update(job_dir, stage="building task")

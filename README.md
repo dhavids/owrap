@@ -11,6 +11,10 @@ can target the same project or subproject.
 - `owrap temp [name]` starts an independent session with no project target.
   Without a name, owrap assigns `temp-<session-id>`. Its context, plans, and
   logs live in `OWRAP_HOME/sessions/<session-id>/`, like other sessions.
+- `owrap main` returns an active project session to its main record.
+- `owrap sub <id> [-f]` selects or creates a regular subproject; close names
+  require correction or `-f` before creation.
+- `owrap subs` lists the active project's subprojects.
 - `owrap branch [name] [--ref <git-ref>]` starts a child session and makes one
   Git worktree per linked repository in `<workspace>/branches/<session-id>/`.
   The source checkouts must be clean. This command does not merge code.
@@ -28,6 +32,10 @@ can target the same project or subproject.
 session's project target. Legacy research/area sessions retain their existing
 `spawn` behavior during migration.
 `owrap stat` shows each session's type: `normal`, `spawn`, `branch`, or `temp`.
+Context jobs show their live stage while running. Completed jobs remain visible
+for two minutes, then leave the status view. Their output and transcript are
+stored under `sessions/<session>/ctx/jobs/<job>/`; harness session IDs remain
+internal metadata and do not appear in these paths.
 
 Session-aware bridge between the planner (currently Claude Code) and opencode (executor). A planner instance designs plans and dispatches work; an opencode-backed executor does the actual reading, writing, and running. owrap provides background agents and task dispatch, parallel session isolation, and graceful server lifecycle management.
 
@@ -123,7 +131,7 @@ the session identities and project records form one migration state.
 The development CLI adds `owrap start --project <id>` for a project session.
 `setup` writes a workspace config under `OWRAP_HOME/configs/` and stages
 `CLAUDE.md`, `AGENTS.md`, and the `self.md` reference pages under
-`OWRAP_HOME/staged/<workspace>/`. After starting or attaching a session, run
+`OWRAP_HOME/runtime/staged/<workspace>/`. After starting or attaching a session, run
 `owrap sync` to install workspace settings and hooks.
 In the development checkout, `setup` accepts only workspace and memory paths
 under `dev/owrap/files/`.
@@ -282,3 +290,10 @@ The suite refuses to run outside the `dev/owrap` checkout. It creates a private
 pytest temporary directories, and uses ports starting at 15096. It does not
 run global server cleanup. See [tests/md/run_tests.md](tests/md/run_tests.md)
 for the coverage table and manual smoke tests.
+
+Tests covering dispatch/server-lifecycle machinery (`orun`, `oexec`, `owrap f`,
+`oagent`, daemon, server pool, watchdog) carry the `runner` marker. Run
+`pytest tests/ -m "not runner"` to skip them — useful when working outside that
+subsystem, and currently also the only reliable way to run the suite at all,
+since the `runner`-marked tests hang when run together (real daemon/server
+processes not torn down between tests).

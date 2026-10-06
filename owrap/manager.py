@@ -33,6 +33,7 @@ from .utils.log.retention import prune_server_logs
 from .utils.process import is_alive
 from .utils.session.resolver import (
     _parse as _parse_session, _clear_anchor,
+    session_files,
     BY_CCSID_DIR, BY_OPENCODE_RUN_ID_DIR,
 )
 
@@ -836,7 +837,7 @@ class Manager:
         sessions_dir = SESSIONS_DIR
         if sessions_dir.exists():
             active_ids = set()
-            for sf in sessions_dir.glob("*.session"):
+            for sf in session_files():
                 try:
                     for line in sf.read_text().splitlines():
                         if line.startswith("session_id="):
@@ -845,7 +846,8 @@ class Manager:
                     pass
             if active_ids and SESSIONS_DIR.exists():
                 for d in SESSIONS_DIR.iterdir():
-                    if d.is_dir() and d.name not in active_ids:
+                    managed = d.name not in {"_index", "f"}
+                    if d.is_dir() and managed and d.name not in active_ids:
                         shutil.rmtree(d, ignore_errors=True)
 
         self._sweep_bare_sessions(sessions_dir)
@@ -863,7 +865,7 @@ class Manager:
             return
         now = time.time()
         threshold = BARE_SESSION_AGE_MINUTES * 60
-        for sf in sessions_dir.glob("*.session"):
+        for sf in session_files():
             try:
                 data = _parse_session(sf)
             except Exception:

@@ -12,12 +12,13 @@ starts with a letter or digit. Display titles may change without renaming IDs.
   projects/<project>/main.md
   projects/<project>/<subproject>.md
   repositories/<repository>/<repository>.yaml
-  repositories/<repository>/main.md
+  repositories/<repository>/memory.md
 ```
 
 The YAML files contain identity, links, and paths. Markdown files contain the
 human-readable goals, decisions, and architecture. File references in YAML
 are relative to the memory root; repository `checkout` paths are absolute.
+
 
 ## Record templates
 
@@ -32,6 +33,7 @@ parent's repository associations unless its own YAML entry supplies
 may be linked from several projects while keeping a single architecture file.
 Never infer a parent or repository link from a name or path.
 
+
 ## Ownership
 
 Project and subproject files own goals, current status, dated decisions, and
@@ -43,4 +45,6 @@ project and the current interface in the repository file.
 Read [Sessions](sessions.md) for how a session points to these records and
 [Context](context.md) for update behavior. Existing research and area files
 remain readable during migration. Review a source-to-destination preview
-before moving their content into these records.
+before moving their content into these records. Read the top-level
+[reference](../self.md#formatting) for the Markdown section-spacing rule
+these records must follow.

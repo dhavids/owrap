@@ -10,11 +10,14 @@ from pathlib import Path
 from ..base import BaseRunner
 from ..utils.log import context_jobs
 from ..utils.process import is_alive as _is_alive
-from ..utils.session.resolver import _parse as _parse_session
+from ..utils.session.resolver import (
+    _parse as _parse_session,
+    session_files,
+)
 from ..utils.paths import (
     RUNNING_DIR, RECENTLY_DONE_DIR, session_input,
     _read_config, SERVER_LOGS_DIR, SESSION_DIR, SESSIONS_DIR, STATS_FILE,
-    DAEMON_PID_FILE, DAEMON_STATE_FILE, RUNTIME_LOG,
+    DAEMON_PID_FILE, DAEMON_STATE_FILE, RUNTIME_LOG, session_dir,
 )
 
 
@@ -87,6 +90,9 @@ def _print_context_jobs(jobs, show_session=True):
             recent = time.time() - job.get("queued", 0) < 5
             if not recent and (not pid or not _is_alive(pid)):
                 status = "stale/crashed"
+        stage = job.get("stage", "")
+        if status in ("queued", "running") and stage:
+            status = f"{status} ({stage})"
         if status == "succeeded":
             status = "done(ok)"
         elif status == "failed":
@@ -98,11 +104,24 @@ def _print_context_jobs(jobs, show_session=True):
         sid = job.get("session_id", "?")
         job_id = job.get("job_id", "?")[:8]
         session = f"[{sid}]  " if show_session else ""
-        print(f"  {kind}  {session}{job_id}  {status}  {elapsed:.0f}s")
-        log_path = Path(job.get("log_path", ""))
+        age = ""
+        if job.get("finished"):
+            age = f"  {_age_str(job['finished'])} ago"
+        print(
+            f"  {kind}  {session}{job_id}  {status}{age}  {elapsed:.0f}s"
+        )
+        log_path = _context_job_path(job.get("log_path", ""), sid)
         print(f"    output: {log_path}")
-        transcript = Path(job.get("transcript_path", ""))
+        transcript = _context_job_path(job.get("transcript_path", ""), sid)
         print(f"    transcript: {transcript}")
+
+
+def _context_job_path(value: str, session_id: str) -> Path:
+    path = Path(value)
+    try:
+        return path.relative_to(session_dir(session_id))
+    except ValueError:
+        return path
 
 
 def _print_identity(data: dict) -> None:
@@ -292,25 +311,24 @@ class StatRunner(BaseRunner):
             _print_context_jobs(ctx_jobs)
             print()
 
-        session_files = []
+        metadata_files = []
         if sessions_dir.exists():
-            session_files = sorted(
-                sessions_dir.glob("*.session"),
+            metadata_files = sorted(
+                session_files(),
                 key=lambda p: p.stat().st_mtime,
                 reverse=True,
             )
 
-        if session_files:
-            n = len(session_files)
+        if metadata_files:
+            n = len(metadata_files)
             label = "session:" if n == 1 else f"sessions ({n}):"
             print(label)
-            for sf in session_files:
+            for sf in metadata_files:
                 data = _parse_session(sf)
-                claude_id = sf.stem
-                marker = "  [current]" if claude_id == current_id else ""
+                sid = data.get("session_id") or sf.parent.name
+                marker = "  [current]" if sid == current_id else ""
                 age = _age_str(sf.stat().st_mtime)
-                print(f"  {claude_id}{marker}")
-                print(f"    session:  {data.get('session_id', '?')}")
+                print(f"  {sid}{marker}")
                 print(f"    type:     {data.get('session_mode') or 'normal'}")
                 _print_identity(data)
                 print(f"    age:      {age}")

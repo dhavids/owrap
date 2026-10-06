@@ -38,7 +38,9 @@ def replace_section(text: str, heading: str, new_block: str) -> str:
     """
     Replace the section at `heading` with new_block (which must itself
     start with the same heading line). Appended at the end if `heading`
-    isn't already present.
+    isn't already present. Leaves exactly one blank line between the
+    heading and its own content, and exactly two blank lines before
+    whatever section follows.
     """
     level = _heading_level(heading)
     lines = text.splitlines()
@@ -48,16 +50,21 @@ def replace_section(text: str, heading: str, new_block: str) -> str:
             start = i
             break
     new_lines = new_block.rstrip("\n").splitlines()
+    # Guarantee the heading-to-content gap regardless of caller formatting.
+    if len(new_lines) > 1 and new_lines[1].strip():
+        new_lines = [new_lines[0], ""] + new_lines[1:]
     if start is None:
         prefix = text.rstrip("\n")
-        sep = "\n\n" if prefix else ""
+        sep = "\n\n\n" if prefix else ""
         return prefix + sep + "\n".join(new_lines) + "\n"
     end = len(lines)
     for i in range(start + 1, len(lines)):
         if lines[i].startswith("#") and _heading_level(lines[i]) <= level:
             end = i
             break
-    return "\n".join(lines[:start] + new_lines + lines[end:]).rstrip("\n") + "\n"
+    tail = lines[end:]
+    sep = ["", ""] if tail else []
+    return "\n".join(lines[:start] + new_lines + sep + tail).rstrip("\n") + "\n"
 
 
 def merge_log_entries(

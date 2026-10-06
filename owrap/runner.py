@@ -10,7 +10,7 @@ from .session import (
     UpdateAreaRunner, RestoreRunner,
 )
 from .commands import (
-    AbortRunner, ExecRunner, ReadRunner, RunRunner,
+    AbortRunner, ExecRunner, ProjectRunner, ReadRunner, RunRunner,
     SetupRunner, WaitRunner,
 )
 from .commands.sync import SyncRunner
@@ -20,7 +20,7 @@ from .utils.paths import _read_config, get_workspace_config
 from .utils.arg_parser import OwrapArgumentParser
 from .utils.log import rtlog
 
-_UNLOGGED_CMDS = {"stat", "get", "permit", "wait", "set"}
+_UNLOGGED_CMDS = {"stat", "get", "permit", "subs", "wait", "set"}
 
 
 # Command Handlers
@@ -94,6 +94,30 @@ def _cmd_todo(args, manager, logger, allow_all):
         TodoRunner().run_done(args.arg2, args.arg3)
     else:
         TodoRunner().run(args.target, args.arg2, args.arg3)
+
+
+def _cmd_main(args, manager, logger, allow_all):
+    try:
+        ProjectRunner().main()
+    except (ValueError, FileNotFoundError, FileExistsError, OSError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+
+def _cmd_sub(args, manager, logger, allow_all):
+    try:
+        ProjectRunner().sub(args.name, force=args.force)
+    except (ValueError, FileNotFoundError, FileExistsError, OSError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+
+def _cmd_subs(args, manager, logger, allow_all):
+    try:
+        ProjectRunner().subs()
+    except (ValueError, FileNotFoundError, OSError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(2)
 
 
 def _cmd_branch(args, manager, logger, allow_all):
@@ -353,6 +377,15 @@ def _cmd_wait(args, manager, logger, allow_all):
 
 def _cmd_stat(args, manager, logger, allow_all):
     from .session.stat import StatRunner
+    from .utils.dispatch.pool import _ensure_daemon
+
+    config = _read_config()
+    daemon_enabled = (
+        config.get("owrap_runner_enabled", True)
+        or config.get("owrap_context_manager_enabled", True)
+    )
+    if daemon_enabled:
+        _ensure_daemon()
     sys.exit(StatRunner(manager, logger, allow_all).run(args))
 
 
@@ -456,6 +489,9 @@ _COMMAND_HANDLERS = {
     "attach": _cmd_attach,
     "detach": _cmd_detach,
     "todo": _cmd_todo,
+    "main": _cmd_main,
+    "sub": _cmd_sub,
+    "subs": _cmd_subs,
     "branch": _cmd_branch,
     "restart": _cmd_restart,
     "setup": _cmd_setup,
@@ -640,6 +676,21 @@ def main():
     todo_parser.add_argument(
         "arg3", nargs="?", default=None,
         help="Todo text when arg2 is a position, or (after 'done') the selector",
+    )
+
+    subparsers.add_parser(
+        "main", help="Select the current session's main project record",
+    )
+    sub_parser = subparsers.add_parser(
+        "sub", help="Select or create a subproject for the current session",
+    )
+    sub_parser.add_argument("name", help="Subproject ID")
+    sub_parser.add_argument(
+        "-f", "--force", action="store_true",
+        help="Create NAME even when it resembles an existing subproject",
+    )
+    subparsers.add_parser(
+        "subs", help="List subprojects for the current session's project",
     )
 
     restart_parser = subparsers.add_parser(

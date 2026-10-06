@@ -10,6 +10,9 @@ only during migration.
 |---|---|
 | `owrap start --project <id> [--subproject <id>]` | Start a targeted project session |
 | `owrap start --repository <id>` | Start a repository-only session |
+| `owrap main` | Return the current project session to its main record |
+| `owrap sub <id> [-f]` | Select or create a regular subproject |
+| `owrap subs` | List the current project's subprojects |
 | `owrap spawn [name]` | Create a child session with inherited target |
 | `owrap temp [name]` | Create an independent session |
 | `owrap branch [name] [--ref <ref>]` | Create a child session with Git worktrees |
@@ -18,9 +21,10 @@ only during migration.
 | `owrap branch cleanup --session <id> [--apply]` | Remove merged branch worktrees |
 | `owrap attach <id>` | Bind this window to a session |
 | `owrap refresh` | Refresh session context and orientation |
-| `owrap stat` | Show sessions, types, tasks, and server status |
+| `owrap stat` | Show sessions, types, recent tasks, live stages, and server status |
 | `owrap get <kind>` | Read the active session's resource |
 | `owrap end` | End the current session |
+
 
 ## Record and context commands
 
@@ -32,6 +36,7 @@ only during migration.
 | `owrap ctx` | Queue a session context update |
 | `owrap updr [subproject] [--ctx]` | Queue durable record updates, optionally with context |
 | `owrap sync` | Stage and merge workspace instructions |
+
 
 ## Dispatch commands
 
@@ -45,10 +50,12 @@ only during migration.
 | `owait run` | Wait for task completion |
 | `owrap f <path>` | Run a direct fallback task or plan |
 
+
 ## Duration defaults
 
 Expected durations and watchdog limits come from workspace configuration.
 Check `owrap get config` for current values before changing timeouts.
+
 
 ## Exit codes
 

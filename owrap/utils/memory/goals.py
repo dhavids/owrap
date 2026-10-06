@@ -96,7 +96,9 @@ def edit_goals(
         ]
         intro = "\n".join(preamble).strip()
         goal_body = "\n\n".join(part for part in (intro, "\n".join(lines)) if part)
-        content = before + "\n\n" + goal_body + "\n\n" + after
+        # before/after's own whitespace is regex-dependent, so rebuild it fresh.
+        tail_sep = "\n\n\n" if after else "\n"
+        content = before.rstrip() + "\n\n" + goal_body.rstrip() + tail_sep + after
         fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
         try:
             with os.fdopen(fd, "w") as handle:

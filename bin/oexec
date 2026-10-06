@@ -6,20 +6,20 @@ if [ -z "$OWRAP_HOME" ]; then
     OWRAP_HOME="$HOME/.owrap"
   fi
 fi
-mkdir -p "$OWRAP_HOME/sessions/by_ccsid"
-mkdir -p "$OWRAP_HOME/sessions/by_opencode_run_id"
+mkdir -p "$OWRAP_HOME/sessions/_index/claude"
+mkdir -p "$OWRAP_HOME/sessions/_index/opencode"
 SID="${SESSION_ID:-}"
 CCSID="${CLAUDE_CODE_SESSION_ID:-}"
-PTR="$OWRAP_HOME/sessions/by_ccsid/${CCSID}"
+PTR="$OWRAP_HOME/sessions/_index/claude/${CCSID}"
 if [ -z "$SID" ] && [ -n "$CCSID" ] && [ -f "$PTR" ]; then
   SID=$(cat "$PTR")
 fi
 OID="${OPENCODE_RUN_ID:-}"
-OID_PTR="$OWRAP_HOME/sessions/by_opencode_run_id/${OID}"
+OID_PTR="$OWRAP_HOME/sessions/_index/opencode/${OID}"
 if [ -z "$SID" ] && [ -n "$OID" ] && [ -f "$OID_PTR" ]; then
   SID=$(cat "$OID_PTR")
 fi
-SESSION_FILE="$OWRAP_HOME/sessions/${SID}.session"
+SESSION_FILE="$OWRAP_HOME/sessions/${SID}/.session"
 [ -f "$SESSION_FILE" ] && export OWRAP_SESSION=$(grep "^session_id=" "$SESSION_FILE" | cut -d= -f2)
 [ -f "$SESSION_FILE" ] && export OWRAP_RESEARCH=$(grep "^research=" "$SESSION_FILE" | cut -d= -f2)
 cd "<OWRAP_ROOT>"

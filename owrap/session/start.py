@@ -348,7 +348,7 @@ class RefreshRunner(BaseRunner):
         Execute the refresh workflow: validate session, update context, and exit.
         """
         if session_id is not None:
-            session_path = SESSIONS_DIR / f"{session_id}.session"
+            session_path = _sf(session_id)
             if not session_path.exists():
                 print(f"ERROR: session '{session_id}' not found. "
                       "Use 'owrap stat' to list sessions.")

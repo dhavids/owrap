@@ -9,7 +9,8 @@ from .paths import (
     get_project_file_path, get_plan_path, get_self_path, session_log,
     session_input,
     get_workspace_config,
-    session_dir, session_exec_output_path, session_ctx_dir,
+    session_dir, session_exec_output_path, session_ctx_root, session_ctx_dir,
+    session_ctx_jobs_dir,
     session_ctx_input_path, session_ctx_transcript_path, session_tasks_dir,
     session_msg_output_dir, session_task_output_dir,
 )
@@ -25,7 +26,8 @@ __all__ = [
     "get_project_file_path", "get_plan_path", "get_self_path",
     "session_log", "session_input",
     "get_workspace_config",
-    "session_dir", "session_exec_output_path", "session_ctx_dir",
+    "session_dir", "session_exec_output_path", "session_ctx_root",
+    "session_ctx_dir", "session_ctx_jobs_dir",
     "session_ctx_input_path", "session_ctx_transcript_path", "session_tasks_dir",
     "session_msg_output_dir", "session_task_output_dir",
 ]

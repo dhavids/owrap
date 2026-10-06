@@ -2,16 +2,17 @@ import difflib
 import json
 import os
 import secrets
+import shutil
 import sys
 import time
 from pathlib import Path
 
 from ..paths import SESSIONS_DIR
 
-BY_CCSID_DIR = SESSIONS_DIR / "by_ccsid"
-BY_OPENCODE_RUN_ID_DIR = SESSIONS_DIR / "by_opencode_run_id"
-BY_CODEX_SESSION_ID_DIR = SESSIONS_DIR / "by_codex_session_id"
-
+SESSION_INDEX_DIR = SESSIONS_DIR / "_index"
+BY_CCSID_DIR = SESSION_INDEX_DIR / "claude"
+BY_OPENCODE_RUN_ID_DIR = SESSION_INDEX_DIR / "opencode"
+BY_CODEX_SESSION_ID_DIR = SESSION_INDEX_DIR / "codex"
 
 def _parse(path: Path) -> dict:
     data = {}
@@ -32,19 +33,100 @@ def _write(path: Path, data: dict):
 
 
 def session_file(session_id: str) -> Path:
-    return SESSIONS_DIR / f"{session_id}.session"
+    current = SESSIONS_DIR / session_id / ".session"
+    legacy = SESSIONS_DIR / f"{session_id}.session"
+    return legacy if not current.exists() and legacy.exists() else current
+
+
+def session_files() -> list[Path]:
+    """
+    Return all current and legacy session metadata files.
+    """
+    migrate_session_storage()
+    return sorted(SESSIONS_DIR.glob("*/.session"))
+
+
+def migrate_session_storage() -> int:
+    """
+    Move flat session metadata, counters, and indexes into grouped paths.
+    """
+    if not SESSIONS_DIR.exists():
+        return 0
+    moved = 0
+    for source in list(SESSIONS_DIR.glob("*.session")):
+        data = _parse(source)
+        sid = data.get("session_id") or source.stem
+        target = SESSIONS_DIR / sid / ".session"
+        moved += _move_legacy_file(source, target)
+
+    for source in list(SESSIONS_DIR.glob("*.counters.json")):
+        name = source.name.removesuffix(".counters.json")
+        sid, separator, harness_id = name.partition(".")
+        if separator:
+            target = (
+                SESSIONS_DIR / sid / "ctx" / "windows" / harness_id
+                / "counters.json"
+            )
+        else:
+            target = SESSIONS_DIR / sid / "ctx" / "counters.json"
+        moved += _move_legacy_file(source, target)
+
+    index_dirs = (
+        (BY_CCSID_DIR, SESSIONS_DIR / "by_ccsid"),
+        (BY_OPENCODE_RUN_ID_DIR, SESSIONS_DIR / "by_opencode_run_id"),
+        (BY_CODEX_SESSION_ID_DIR, SESSIONS_DIR / "by_codex_session_id"),
+    )
+    for target, source in index_dirs:
+        if target == source:
+            continue
+        if not source.is_dir():
+            continue
+        target.mkdir(parents=True, exist_ok=True)
+        for pointer in source.iterdir():
+            if pointer.is_file():
+                moved += _move_legacy_file(pointer, target / pointer.name)
+        try:
+            source.rmdir()
+        except OSError:
+            pass
+    return moved
+
+
+def _move_legacy_file(source: Path, target: Path) -> int:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        if target.read_bytes() == source.read_bytes():
+            source.unlink()
+            return 1
+        return 0
+    shutil.move(str(source), str(target))
+    return 1
 
 
 def ccsid_pointer(ccsid: str) -> Path:
-    return BY_CCSID_DIR / ccsid
+    return _pointer(BY_CCSID_DIR, ccsid)
 
 
 def opencode_run_id_pointer(oid: str) -> Path:
-    return BY_OPENCODE_RUN_ID_DIR / oid
+    return _pointer(BY_OPENCODE_RUN_ID_DIR, oid)
 
 
 def codex_session_id_pointer(cid: str) -> Path:
-    return BY_CODEX_SESSION_ID_DIR / cid
+    return _pointer(BY_CODEX_SESSION_ID_DIR, cid)
+
+
+def _pointer(directory: Path, name: str) -> Path:
+    current = directory / name
+    legacy_names = {
+        "claude": "by_ccsid",
+        "opencode": "by_opencode_run_id",
+        "codex": "by_codex_session_id",
+    }
+    legacy_name = legacy_names.get(directory.name)
+    if legacy_name is None:
+        return current
+    legacy = SESSIONS_DIR / legacy_name / name
+    return legacy if not current.exists() and legacy.exists() else current
 
 
 def owrap_sid_for_codex_session_id(cid: str) -> str | None:
@@ -87,7 +169,7 @@ def list_sessions() -> list:
     cur_oid = os.environ.get("OPENCODE_RUN_ID", "")
     cur_cid = os.environ.get("CODEX_SESSION_ID", "")
     if SESSIONS_DIR.exists():
-        for sf in sorted(SESSIONS_DIR.glob("*.session")):
+        for sf in session_files():
             d = _parse(sf)
             sid = d.get("session_id") or sf.stem
             d["session_id"] = sid
@@ -103,6 +185,7 @@ def resolve(mode: str) -> tuple:
     """
     Resolve the current owrap session, minting one in start mode.
     """
+    migrate_session_storage()
     env_sid = os.environ.get("SESSION_ID", "").strip()
     ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
     cid = os.environ.get("CODEX_SESSION_ID", "").strip()
@@ -603,7 +686,7 @@ def migrate_legacy_files():
         return 0
     BY_CCSID_DIR.mkdir(parents=True, exist_ok=True)
     converted = 0
-    for sf in list(SESSIONS_DIR.glob("*.session")):
+    for sf in session_files():
         stem = sf.stem
         if not uuid_re.match(stem):
             continue

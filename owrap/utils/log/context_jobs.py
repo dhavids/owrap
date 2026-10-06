@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
+from ...constants import RECENT_TASK_RETENTION_S
 from ..filelock import file_lock
 from .. import paths
 from . import rtlog
@@ -18,7 +19,7 @@ def create(session_id: str, window_id: str, kind: str) -> Path:
     """
     Create one queued context job and return its directory.
     """
-    job_dir = paths.session_ctx_dir(session_id, window_id) / "jobs" / uuid4().hex
+    job_dir = paths.session_ctx_jobs_dir(session_id) / uuid4().hex
     job_dir.mkdir(parents=True)
     update(
         job_dir, job_id=job_dir.name, session_id=session_id,
@@ -98,7 +99,9 @@ def recent(session_id: str | None = None, limit: int = 8) -> list[dict]:
     root = paths.SESSIONS_DIR
     if not root.exists():
         return jobs
-    for status_path in root.glob("*/ctx/*/jobs/*/status.json"):
+    status_paths = list(root.glob("*/ctx/jobs/*/status.json"))
+    status_paths.extend(root.glob("*/ctx/*/jobs/*/status.json"))
+    for status_path in status_paths:
         try:
             data = json.loads(status_path.read_text())
             if session_id and data.get("session_id") != session_id:
@@ -109,6 +112,7 @@ def recent(session_id: str | None = None, limit: int = 8) -> list[dict]:
             continue
     active = []
     done = []
+    now = time.time()
     for job in jobs:
         status = job.get("status")
         pid = job.get("pid")
@@ -119,10 +123,12 @@ def recent(session_id: str | None = None, limit: int = 8) -> list[dict]:
                 alive = True
             except OSError:
                 pass
-        recent_queue = time.time() - job.get("queued", 0) < 5
+        recent_queue = now - job.get("queued", 0) < 5
         if status in ("queued", "running") and (alive or recent_queue):
             active.append(job)
-        else:
+            continue
+        ended = job.get("finished", job.get("updated", job.get("queued", 0)))
+        if now - ended <= RECENT_TASK_RETENTION_S:
             done.append(job)
     active.sort(key=lambda job: job.get("queued", 0), reverse=True)
     done.sort(
