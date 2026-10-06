@@ -27,14 +27,15 @@ from ..utils.dispatch.terminal import Terminal
 from ..utils.filelock import file_lock
 from ..utils.log import context_jobs
 from ..utils.memory.records import (
-    resolve_memory_target, touched_repository_paths,
+    register_discovered_repositories, resolve_memory_target,
+    touched_repository_paths,
 )
 from ..constants import (
     CTX_SCOPED_TASK_TEMPLATE, CTX_CONTEXT_BLOCK,
     CTX_PROJECT_BLOCK, CTX_REPOSITORY_BLOCK, ANTI_SUMMARY_SUFFIX,
 )
 
-MAX_EXCERPT_CHARS = 4000
+MAX_EXCERPT_CHARS = 12000
 MAX_CODEX_EXCERPT_CHARS = 12000
 MAX_RESULT_CHARS = 100
 
@@ -394,6 +395,9 @@ class CtxWorkerRunner:
             repository_paths = touched_repository_paths(
                 target, changed_paths, session_data.get("workspace", ""),
             )
+            repository_paths.update(register_discovered_repositories(
+                target, changed_paths, session_data.get("workspace", ""),
+            ))
         combined_texts = new_assistant_texts + touched_lines
 
         if not combined_texts:
@@ -410,6 +414,8 @@ class CtxWorkerRunner:
             MAX_CODEX_EXCERPT_CHARS if source == "codex" else MAX_EXCERPT_CHARS
         )
         if len(excerpt) > excerpt_limit:
+            dropped = len(excerpt) - excerpt_limit
+            print(f"ctx-worker: excerpt truncated, dropped {dropped} chars")
             excerpt = excerpt[-excerpt_limit:]
 
         job_dir = getattr(self, "_job_dir", None)

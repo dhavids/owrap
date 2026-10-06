@@ -2,6 +2,10 @@ import json
 import time
 from unittest.mock import MagicMock
 
+import pytest
+
+pytestmark = pytest.mark.runner
+
 
 def test_watchdog_notifies_stall_on_no_growth(tmp_path):
     from owrap.utils.dispatch.watchdog import Watchdog

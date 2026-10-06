@@ -33,14 +33,14 @@ def test_replace_section_appends_when_missing():
     text = "## Focus\nold\n"
     result = replace_section(text, "## Decisions", "## Decisions\n- new")
     assert "## Focus\nold" in result
-    assert "## Decisions\n- new" in result
+    assert "## Decisions\n\n- new" in result
 
 
 def test_replace_section_preserves_untouched_sections():
     text = "## A\n1\n\n## B\n2\n\n## C\n3\n"
     result = replace_section(text, "## B", "## B\nchanged")
     assert "## A\n1" in result
-    assert "## B\nchanged" in result
+    assert "## B\n\nchanged" in result
     assert "## C\n3" in result
 
 
@@ -97,7 +97,7 @@ def test_merge_log_entries_caps_by_dropping_oldest_when_appending():
     result = merge_log_entries(
         text, "## Decisions", ["- four"], cap=3,
     )
-    lines = [l for l in extract_section(result, "## Decisions").splitlines()[1:]]
+    lines = [l for l in extract_section(result, "## Decisions").splitlines()[2:]]
     assert lines == ["- two", "- three", "- four"]
 
 
@@ -106,7 +106,7 @@ def test_merge_log_entries_caps_by_dropping_oldest_when_prepending():
     result = merge_log_entries(
         text, "## Decisions", ["- four"], cap=3, prepend=True,
     )
-    lines = [l for l in extract_section(result, "## Decisions").splitlines()[1:]]
+    lines = [l for l in extract_section(result, "## Decisions").splitlines()[2:]]
     assert lines == ["- four", "- three", "- two"]
 
 
@@ -115,7 +115,7 @@ def test_merge_log_entries_no_cap_keeps_everything():
     result = merge_log_entries(
         text, "### Components", ["- c", "- d"], cap=None,
     )
-    lines = extract_section(result, "### Components").splitlines()[1:]
+    lines = extract_section(result, "### Components").splitlines()[2:]
     assert lines == ["- a", "- b", "- c", "- d"]
 
 

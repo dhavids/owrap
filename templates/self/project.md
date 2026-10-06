@@ -30,17 +30,21 @@ not form cycles. An optional `repositories` list overrides inherited links.
 
 What this project aims to achieve and its scope.
 
+
 ## Goals
 
 - [ ] One actionable outcome.
+
 
 ## Status
 
 Current state and blockers.
 
+
 ## Decisions
 
 - YYYY-MM-DD — Decision and reason.
+
 
 ## Notes
 

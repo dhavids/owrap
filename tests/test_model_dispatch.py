@@ -9,6 +9,8 @@ from owrap.utils.paths import _read_config
 _LIVE_CONFIG = _read_config()
 EXPECTED_RUNNER_MODEL = _LIVE_CONFIG.get("runner_model", "opencode-go/qwen3.6-plus")
 
+pytestmark = pytest.mark.runner
+
 
 class TestGetDispatchModel:
     @pytest.mark.parametrize("config,override,default_to_fast,expected", [

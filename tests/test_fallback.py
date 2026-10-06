@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytestmark = pytest.mark.runner
+
 
 class FakeProcess:
     def __init__(self, pid, final_rc):

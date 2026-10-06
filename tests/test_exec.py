@@ -2,6 +2,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+pytestmark = pytest.mark.runner
+
 
 def test_exec_runner_calls_opencode_with_exec(tmp_path, mock_manager):
     log_dir = tmp_path / "exec" / "output"

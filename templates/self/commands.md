@@ -25,6 +25,7 @@ only during migration.
 | `owrap get <kind>` | Read the active session's resource |
 | `owrap end` | End the current session |
 
+
 ## Record and context commands
 
 | Command | Effect |
@@ -35,6 +36,7 @@ only during migration.
 | `owrap ctx` | Queue a session context update |
 | `owrap updr [subproject] [--ctx]` | Queue durable record updates, optionally with context |
 | `owrap sync` | Stage and merge workspace instructions |
+
 
 ## Dispatch commands
 
@@ -48,10 +50,12 @@ only during migration.
 | `owait run` | Wait for task completion |
 | `owrap f <path>` | Run a direct fallback task or plan |
 
+
 ## Duration defaults
 
 Expected durations and watchdog limits come from workspace configuration.
 Check `owrap get config` for current values before changing timeouts.
+
 
 ## Exit codes
 

@@ -1,8 +1,12 @@
 import json
+import os
 import re
+import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..filelock import file_lock
 from ..paths import _read_config, get_workspace_config
 
 _SLUG = re.compile(r"[a-z0-9][a-z0-9-]*\Z")
@@ -58,7 +62,8 @@ def _record(
 ) -> dict:
     if not path.is_file():
         if allow_missing:
-            return {"main": "main.md", "repositories": [], "subprojects": {}}
+            default_main = "memory.md" if kind == "repository" else "main.md"
+            return {"main": default_main, "repositories": [], "subprojects": {}}
         raise FileNotFoundError(f"{kind} record not found: {path}")
     try:
         import yaml
@@ -102,7 +107,7 @@ def resolve_memory_target(
             directory / f"{repo_id}.yaml", "repository", repo_id,
             allow_missing,
         )
-        path = _markdown_path(directory, record.get("main", "main.md"))
+        path = _markdown_path(directory, record.get("main", "memory.md"))
         return MemoryTarget(kind, "", "", None, (repo_id,), (path,))
 
     project_id = _slug(session.get("project_id", ""), "project")
@@ -152,7 +157,7 @@ def resolve_memory_target(
             repo_dir / f"{repo_id}.yaml", "repository", repo_id,
             allow_missing,
         )
-        repo_paths.append(_markdown_path(repo_dir, repo.get("main", "main.md")))
+        repo_paths.append(_markdown_path(repo_dir, repo.get("main", "memory.md")))
     project_path = _markdown_path(directory, file_name)
     branch_parent = ""
     branch_repository = ""
@@ -227,3 +232,158 @@ def touched_repository_paths(
                 selected[repo_id] = record_path
                 break
     return selected
+
+
+def _write_atomic(path: Path, content: str) -> None:
+    fd, name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(content)
+        if path.exists():
+            os.chmod(name, path.stat().st_mode)
+        os.replace(name, path)
+    finally:
+        Path(name).unlink(missing_ok=True)
+
+
+def _dump_yaml(record: dict) -> str:
+    try:
+        import yaml
+    except ImportError as exc:
+        raise ValueError("PyYAML is required to write repository records") from exc
+    return yaml.safe_dump(record, sort_keys=False, allow_unicode=True)
+
+
+def _git_root(path: Path) -> Path | None:
+    """
+    Return the git repository root containing path, or None if there isn't
+    one.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=path if path.is_dir() else path.parent,
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    return Path(result.stdout.strip()).resolve()
+
+
+def _git_remote(root: Path) -> str:
+    """
+    Return the origin remote URL for a git repo root, or "" if it has none.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _repo_id_for_root(root: Path) -> str:
+    """
+    Derive a repository id slug from a git root's directory name.
+    """
+    slug = re.sub(r"[^a-z0-9-]+", "-", root.name.lower()).strip("-")
+    return slug or "repo"
+
+
+def _register_repository(root: Path, git_root: Path) -> str | None:
+    """
+    Create a repository record for git_root if one doesn't exist yet, or
+    confirm an existing record already points at it. Returns its id, or
+    None if an existing record with the same id points at a different
+    checkout.
+    """
+    repo_id = _repo_id_for_root(git_root)
+    directory = root / "repositories" / repo_id
+    yaml_path = directory / f"{repo_id}.yaml"
+    with file_lock(yaml_path.with_suffix(".yaml.lock")):
+        if yaml_path.exists():
+            record = _record(yaml_path, "repository", repo_id)
+            checkout_value = record.get("checkout", "")
+            if not checkout_value or Path(checkout_value).resolve() != git_root:
+                return None
+            return repo_id
+        directory.mkdir(parents=True, exist_ok=True)
+        record = {
+            "schema_version": 1, "kind": "repository", "id": repo_id,
+            "title": repo_id.replace("-", " ").title(),
+            "main": "memory.md", "checkout": str(git_root),
+        }
+        remote = _git_remote(git_root)
+        if remote:
+            record["remote"] = remote
+        _write_atomic(yaml_path, _dump_yaml(record))
+        _write_atomic(
+            directory / "memory.md",
+            f"# {repo_id}\n\n"
+            "## Architecture\n\n\n"
+            "## Components\n\n\n"
+            "## Interfaces\n\n\n"
+            "## Environment\n\n\n"
+            "## Notes\n",
+        )
+    return repo_id
+
+
+def _add_project_repository(root: Path, project_id: str, repo_id: str) -> None:
+    """
+    Append repo_id to a project's repositories list, if not already there.
+    """
+    directory = root / "projects" / project_id
+    yaml_path = directory / f"{project_id}.yaml"
+    with file_lock(yaml_path.with_suffix(".yaml.lock")):
+        record = _record(yaml_path, "project", project_id)
+        repositories = record.setdefault("repositories", [])
+        if repo_id not in repositories:
+            repositories.append(repo_id)
+            _write_atomic(yaml_path, _dump_yaml(record))
+
+
+def register_discovered_repositories(
+    target: MemoryTarget, paths: list[str], workspace: str,
+) -> dict[str, Path]:
+    """
+    Detect git repositories among touched paths that aren't yet registered
+    for a project target, create their repository records if missing, add
+    them to the project's repositories list, and return their main records.
+    """
+    if not paths or target.kind != "project":
+        return {}
+    root = docs_root(workspace)
+    known_roots = set()
+    for repo_id in target.repository_ids:
+        directory = root / "repositories" / repo_id
+        record = _record(directory / f"{repo_id}.yaml", "repository", repo_id)
+        checkout_value = record.get("checkout", "")
+        if isinstance(checkout_value, str) and checkout_value:
+            checkout = Path(checkout_value)
+            if checkout.is_absolute() and checkout.is_dir():
+                known_roots.add(checkout.resolve())
+
+    discovered = {}
+    for value in paths:
+        source = Path(value)
+        if not source.is_absolute():
+            source = Path(workspace) / source
+        git_root = _git_root(source)
+        if git_root is None or git_root in known_roots:
+            continue
+        known_roots.add(git_root)
+        repo_id = _register_repository(root, git_root)
+        if repo_id is None:
+            continue
+        _add_project_repository(root, target.project_id, repo_id)
+        repo_dir = root / "repositories" / repo_id
+        repo_record = _record(repo_dir / f"{repo_id}.yaml", "repository", repo_id)
+        discovered[repo_id] = _markdown_path(
+            repo_dir, repo_record.get("main", "memory.md"),
+        )
+    return discovered

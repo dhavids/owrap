@@ -68,6 +68,17 @@ def _record_text(title: str, goals: list[str], notes: list[str]) -> str:
     )
 
 
+def _repository_record_text(title: str) -> str:
+    return (
+        f"# {title}\n\n"
+        "## Architecture\n\n\n"
+        "## Components\n\n\n"
+        "## Interfaces\n\n\n"
+        "## Environment\n\n\n"
+        "## Notes\n\nMigrated repository record.\n"
+    )
+
+
 def _write_once(path: Path, content: str) -> None:
     if path.exists():
         if path.read_text() != content:
@@ -251,7 +262,8 @@ class MigrateRunner:
                 "schema_version": 1,
                 "kind": "repository",
                 "id": repo_id,
-                "main": "main.md",
+                "title": repo_id.replace("-", " ").title(),
+                "main": "memory.md",
                 "checkout": entry["checkout"],
             }
             if entry["remote"]:
@@ -261,8 +273,8 @@ class MigrateRunner:
                 yaml.safe_dump(record, sort_keys=False),
             )
             _write_once(
-                directory / "main.md",
-                _record_text(repo_id, [], ["Migrated repository record."]),
+                directory / "memory.md",
+                _repository_record_text(repo_id),
             )
 
     def _migrate_projects(self, plan: dict) -> None:
@@ -310,6 +322,7 @@ class MigrateRunner:
             "schema_version": 1,
             "kind": "project",
             "id": project_id,
+            "title": project_id.replace("-", " ").title(),
             "main": "main.md",
             "repositories": plan["project_repositories"].get(
                 project_id, [],

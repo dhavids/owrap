@@ -290,3 +290,10 @@ The suite refuses to run outside the `dev/owrap` checkout. It creates a private
 pytest temporary directories, and uses ports starting at 15096. It does not
 run global server cleanup. See [tests/md/run_tests.md](tests/md/run_tests.md)
 for the coverage table and manual smoke tests.
+
+Tests covering dispatch/server-lifecycle machinery (`orun`, `oexec`, `owrap f`,
+`oagent`, daemon, server pool, watchdog) carry the `runner` marker. Run
+`pytest tests/ -m "not runner"` to skip them — useful when working outside that
+subsystem, and currently also the only reliable way to run the suite at all,
+since the `runner`-marked tests hang when run together (real daemon/server
+processes not torn down between tests).

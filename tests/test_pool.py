@@ -8,6 +8,8 @@ import pytest
 
 from owrap.manager import Manager
 
+pytestmark = pytest.mark.runner
+
 
 def test_ensure_daemon_starts_current_checkout(tmp_path):
     from owrap.utils.dispatch.pool import _ensure_daemon

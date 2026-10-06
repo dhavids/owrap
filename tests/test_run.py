@@ -3,6 +3,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+pytestmark = pytest.mark.runner
+
 
 def test_run_runner_msg_validation_newlines(mock_manager):
     from owrap.commands.run import RunRunner

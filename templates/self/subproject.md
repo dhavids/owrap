@@ -31,17 +31,21 @@ Place this file next to project `main.md` at
 
 Scope of this subproject. Parent: [Example Project](main.md).
 
+
 ## Goals
 
 - [ ] One actionable outcome for this subproject.
+
 
 ## Status
 
 Current state and blockers for this work.
 
+
 ## Decisions
 
 - YYYY-MM-DD — Decision and reason.
+
 
 ## Notes
 

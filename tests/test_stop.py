@@ -4,6 +4,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytestmark = pytest.mark.runner
+
 
 def test_stop_force_kills_servers_via_kill_servers_runner(tmp_path):
     """

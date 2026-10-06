@@ -10,6 +10,7 @@ Multiple sessions may target the same record without sharing their plans.
 `~/.owrap`. `owrap update-home <path>` changes the pointer; `--migrate`
 relocates existing runtime state. Test work uses its own development home.
 
+
 ## Session files
 
 Every session stores its lookup record and working files under
@@ -30,6 +31,7 @@ The session record uses `target_kind=project` with `project_id` and optional
 `repositories` field stores associated repository IDs. `owrap stat` shows
 `type: normal`, `spawn`, `branch`, or `temp` from `session_mode`.
 
+
 ## Create and attach
 
 `owrap start --project <id> [--subproject <id>]` targets a project node.
@@ -42,6 +44,7 @@ repository links. It records `parent_session_id` and creates no checkout.
 `owrap temp [name]` creates a standalone session with no required target or
 parent. If unnamed, it receives `temp-<session-id>`. Its files use the normal
 session paths above.
+
 
 ## Branch sessions
 
@@ -56,6 +59,7 @@ Pass `--apply` to merge. A branch with several repositories requires a
 separate `--repo` merge for each one. After code merge, collapse the session;
 then `owrap branch cleanup --session <id> --apply` removes clean, merged
 worktrees and refs. Spawn and temp sessions make no branch folders.
+
 
 ## Collapse
 

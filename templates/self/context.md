@@ -16,6 +16,7 @@ sections:
 Session context helps continuation. Durable project decisions and repository
 architecture belong in their canonical record files.
 
+
 ## Update Context
 
 `{{BIN_DIR}}/owrap ctx` queues a context update for the current window. The
@@ -28,13 +29,15 @@ Use `owrap touched <path> [<path> ...] [--note <text>]` when an important file
 change should be included in the next context pass. `owrap refresh` and
 `owrap attach` show the last context update status.
 
+
 ## Update records
 
 `owrap updr` updates durable records associated with the current session.
 For a project target, goals, status, and decisions belong in its project or
 subproject Markdown file. Shared architecture belongs in each associated
-repository's `main.md`. An update must preserve user-owned `## Notes` and
-must not infer an association from a name alone.
+repository's `memory.md`. An update must preserve user-owned `## Notes`, must
+not infer an association from a name alone, and must follow the
+[top-level reference](../self.md#formatting)'s section-spacing rule.
 
 `owrap updr --ctx` requests a record and context update from one transcript
 excerpt. Existing research and area routing remains during migration; use the

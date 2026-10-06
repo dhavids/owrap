@@ -6,6 +6,7 @@ If a session's `context.md` is missing, run `{{BIN_DIR}}/owrap refresh` for
 that session. If a required section is missing, restore the headings listed
 in [Context](context.md#context-file) before resuming context updates.
 
+
 ## Decision pruning
 
 Review a project's current `## Decisions` before removing entries. A later
@@ -14,11 +15,13 @@ current code and repository record, then remove only confirmed duplicates or
 obsolete entries. Preserve the user's `## Notes`. Keep a Git commit or backup
 before pruning durable project files.
 
+
 ## DO NOW
 
 `#DO NOW` identifies a recovery action in an owrap response. Read the named
 section in this reference and perform that action. Session counters live under
 `{{OWRAP_HOME}}/sessions/` and are maintained by owrap.
+
 
 ## Fallback dispatch
 
