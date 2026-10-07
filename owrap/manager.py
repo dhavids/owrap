@@ -437,7 +437,6 @@ class Manager:
             text = cp.read_text()
             for field, value in (
                 ("session", self.session_id or "none"),
-                ("research", self.research or "none"),
                 ("server", url),
                 ("plan", plan),
                 ("last_updated", now),
@@ -446,13 +445,13 @@ class Manager:
                     rf"^{field}:.*$", f"{field}: {value}",
                     text, flags=re.MULTILINE,
                 )
+            text = re.sub(r"^research:.*\n", "", text, flags=re.MULTILINE)
             cp.write_text(text)
             self._cap_context_sections(cp)
             return
         content = (
             "## Session\n\n"
             f"session: {self.session_id or 'none'}\n"
-            f"research: {self.research or 'none'}\n"
             f"server: {url}\n"
             f"plan: {plan}\n"
             "phase: 1\n"

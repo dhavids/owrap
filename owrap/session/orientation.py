@@ -71,10 +71,20 @@ def print_orientation(
         else:
             print(f"  repository: {target.repository_ids[0]}")
     if ctx_status in ("pending", "failed"):
-        print(
-            f"  ⚠ last context-manager dispatch: {ctx_status} — "
-            f"run `owrap ctx`/`owrap updr` again if this is stale",
-        )
+        from ..commands.context_manager import read_opencode_status_detail
+        detail = read_opencode_status_detail()
+        if detail["status"] == "down":
+            reason = f" ({detail['reason']})" if detail["reason"] else ""
+            print(
+                f"  ⚠ last context-manager dispatch: {ctx_status} — "
+                f"opencode is down{reason}; run `owrap ctx-template`, "
+                f"update the files by hand, then `owrap ctx-ack`",
+            )
+        else:
+            print(
+                f"  ⚠ last context-manager dispatch: {ctx_status} — "
+                f"run `owrap ctx`/`owrap updr` again if this is stale",
+            )
     print()
     if runner_enabled:
         print(
