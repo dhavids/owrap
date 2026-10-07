@@ -491,7 +491,15 @@ SUBCOMMANDS = [
              "help": "Attached window id (default: current CLAUDE_CODE_SESSION_ID)"},
         ],
     },
-    {"name": "daemon", "help": "Run the owrap daemon"},
+    {
+        "name": "daemon", "help": "Run the owrap daemon (or start/stop/restart it)",
+        "args": [
+            {"flags": ["action"], "nargs": "?", "default": None,
+             "choices": ["start", "stop", "restart"],
+             "help": "Manage a background daemon instead of running in "
+                     "the foreground"},
+        ],
+    },
     {
         "name": "p", "help": "Hook permission check (reads staged permit.json)",
         "args": [{"flags": ["--workspace"], "default": None}],

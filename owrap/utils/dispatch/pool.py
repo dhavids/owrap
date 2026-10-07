@@ -2,6 +2,7 @@ import fcntl
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -575,24 +576,76 @@ def _estimate_remaining(url: str, now: float | None = None) -> float:
     return total
 
 
-def _ensure_daemon():
+def _spawn_daemon():
     """
-    Start this checkout's daemon when it is not already running.
+    Unconditionally start a new daemon process and record its pid.
+    """
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "owrap.runner", "daemon"],
+        start_new_session=True,
+        cwd=str(OWRAP_ROOT),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    DAEMON_PID_FILE.write_text(str(proc.pid))
+
+
+def _ensure_daemon() -> bool:
+    """
+    Start this checkout's daemon when it is not already running. Returns
+    whether a new daemon was actually spawned.
     """
     with file_lock(DAEMON_LOCK_FILE):
         if DAEMON_PID_FILE.exists():
             try:
                 pid = int(DAEMON_PID_FILE.read_text().strip())
                 os.kill(pid, 0)
-                return
+                return False
             except (ValueError, OSError):
                 DAEMON_PID_FILE.unlink(missing_ok=True)
+        _spawn_daemon()
+        return True
 
-        proc = subprocess.Popen(
-            [sys.executable, "-m", "owrap.runner", "daemon"],
-            start_new_session=True,
-            cwd=str(OWRAP_ROOT),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        DAEMON_PID_FILE.write_text(str(proc.pid))
+
+def _stop_daemon(timeout: float = 3.0) -> bool:
+    """
+    Stop the running daemon, if any. Returns whether a process was
+    actually signaled (False if nothing was running).
+    """
+    with file_lock(DAEMON_LOCK_FILE):
+        if not DAEMON_PID_FILE.exists():
+            return False
+        try:
+            pid = int(DAEMON_PID_FILE.read_text().strip())
+        except ValueError:
+            DAEMON_PID_FILE.unlink(missing_ok=True)
+            return False
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            DAEMON_PID_FILE.unlink(missing_ok=True)
+            return False
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                break
+            time.sleep(0.1)
+        else:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+        DAEMON_PID_FILE.unlink(missing_ok=True)
+        return True
+
+
+def _restart_daemon():
+    """
+    Stop the running daemon (if any) and start a fresh one, so it
+    picks up code changes since it was first spawned.
+    """
+    _stop_daemon()
+    with file_lock(DAEMON_LOCK_FILE):
+        _spawn_daemon()

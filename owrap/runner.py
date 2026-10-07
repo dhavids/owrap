@@ -288,6 +288,21 @@ def _cmd_killservers(args, manager, logger, allow_all):
 
 
 def _cmd_daemon(args, manager, logger, allow_all):
+    from .utils.dispatch.pool import _ensure_daemon, _stop_daemon, _restart_daemon
+
+    action = getattr(args, "action", None)
+    if action == "start":
+        started = _ensure_daemon()
+        print("daemon: started" if started else "daemon: already running")
+        return
+    if action == "stop":
+        stopped = _stop_daemon()
+        print("daemon: stopped" if stopped else "daemon: not running")
+        return
+    if action == "restart":
+        _restart_daemon()
+        print("daemon: restarted")
+        return
     DaemonRunner(manager, logger, allow_all=allow_all).run()
 
 
