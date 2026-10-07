@@ -2140,9 +2140,9 @@ def test_dispatch_marks_opencode_down_with_subscription_reason(
     with patch("owrap.commands.context_manager.Terminal", mock_terminal_cls):
         CtxWorkerRunner().run(input_path=input_path)
 
-    # rc=1 (not -1), so status stays "up" — only reason is recorded.
+    # No valid output came back, regardless of rc — status goes "down".
     detail = read_opencode_status_detail()
-    assert detail["status"] == "up"
+    assert detail["status"] == "down"
     assert detail["reason"].startswith("subscription_required")
 
 
