@@ -101,31 +101,34 @@ class DaemonRunner(BaseRunner):
                             )
                             ctx_check_thread.start()
 
-                    if tick_config.get("owrap_runner_enabled", True):
-                        pool = get_pool()
-                        before_n = len(pool)
-                        total_load = sum(_active_load(e["url"]) for e in pool)
-                        if total_load == 0:
-                            if idle_since is None:
-                                idle_since = time.time()
-                            shutdown_idle(idle_s=idle_shutdown_s)
-                        else:
-                            idle_since = None
-                            shutdown_idle(idle_s=idle_shutdown_s)
+                    # Idle cleanup always runs, even disabled — it only
+                    # tears down leftover servers, never starts new ones.
+                    runner_enabled = tick_config.get("owrap_runner_enabled", True)
+                    pool = get_pool()
+                    before_n = len(pool)
+                    total_load = sum(_active_load(e["url"]) for e in pool)
+                    if total_load == 0:
+                        if idle_since is None:
+                            idle_since = time.time()
+                        shutdown_idle(idle_s=idle_shutdown_s)
+                    else:
+                        idle_since = None
+                        shutdown_idle(idle_s=idle_shutdown_s)
+                    if runner_enabled:
                         ensure_min_servers()
-                        pool = get_pool()
-                        after_n = len(pool)
-                        after_load = sum(_active_load(e["url"]) for e in pool)
-                        started = max(0, after_n - before_n)
-                        killed = max(0, before_n - after_n)
-                        idle_changed = (idle_since is None) != (prev_idle is None)
-                        if started or killed or idle_changed:
-                            rtlog.log(
-                                "daemon.act", sid="daemon", killed=killed,
-                                started=started, pool_size=after_n,
-                                total_load=after_load,
-                            )
-                        prev_idle = idle_since
+                    pool = get_pool()
+                    after_n = len(pool)
+                    after_load = sum(_active_load(e["url"]) for e in pool)
+                    started = max(0, after_n - before_n)
+                    killed = max(0, before_n - after_n)
+                    idle_changed = (idle_since is None) != (prev_idle is None)
+                    if started or killed or idle_changed:
+                        rtlog.log(
+                            "daemon.act", sid="daemon", killed=killed,
+                            started=started, pool_size=after_n,
+                            total_load=after_load,
+                        )
+                    prev_idle = idle_since
 
                     try:
                         daemon_state_file.write_text(_json.dumps({
