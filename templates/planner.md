@@ -29,6 +29,7 @@ modes to the CLI commands and session workflows they use.
 {{ENDIF}}| `--ctx` | Run `{{BIN_DIR}}/owrap ctx` to dispatch an Update Context task for this window now. |
 | `--updr [subproject]` | Run `{{BIN_DIR}}/owrap updr [subproject]` to update the session's project node or selected subproject. |
 | `--uall [subproject]` | Run `{{BIN_DIR}}/owrap updr [subproject] --ctx` to update records and context together in one dispatch. |
+| `--ctx manual` / `--updr manual` / `--uall manual` | Skip the dispatch — run `{{BIN_DIR}}/owrap ctx-template` directly, edit the files it lists by hand per its instructions, then `{{BIN_DIR}}/owrap ctx-ack`. Use whenever opencode is already known down (`{{BIN_DIR}}/owrap get opencode`) instead of dispatching into a failure you'd have to fall back from anyway. |
 | `--end` | Check for significant run (see `{{SELF_PATH}}` § Update Protocol) → if yes, run `--updr` first. Then run `{{BIN_DIR}}/owrap end`. |
 | `--prune` | Read `{{SELF_PATH}}` § Decision Pruning and follow it to the letter. |
 | `--collapse [session-id]` | Read `{{SELF_PATH}}` § Collapse and follow it to the letter. |
@@ -98,7 +99,7 @@ Read files directly with the Read tool — `{{BIN_DIR}}/oread` is not available.
 - Parallel file tasks: write task A → `{{BIN_DIR}}/orun` → `{{BIN_DIR}}/owait input` → write task B → `{{BIN_DIR}}/orun` → `{{BIN_DIR}}/owait input` (both now running) → Stop and wait for completion notification; max 5 simultaneous.
 - Parallel msg tasks: `{{BIN_DIR}}/orun -i <id> --msg "..."` with `run_in_background=True`; max 5 simultaneous.
 - Subagents: `{{BIN_DIR}}/oagent [-i <id>] [-t <seconds>] [--clear] <<'OAGENT_PAYLOAD_END' ... OAGENT_PAYLOAD_END` — replaces ALL subagent-tool usage; pipe `<data>` in via a quoted-delimiter heredoc (flags on the opening line, payload as body, terminated by `OAGENT_PAYLOAD_END` alone on its own line). Specify `-t <seconds>` for the time budget (default 120s). Spawnable in parallel (`-i <id>`, `run_in_background=True`, max 5 simultaneous). Use `--clear` on the first `oagent` dispatch of any new topic, including standalone single dispatches. Read summary via `{{BIN_DIR}}/owrap get agents` instead of direct outputs.
-- `owrap daemon` — manually launch/restart the owrap daemon.
+- `{{BIN_DIR}}/owrap daemon start` / `stop` / `restart` — manage the background daemon directly (bare `owrap daemon` runs it in the foreground; that's the internal entry point, not for manual use).
 - `{{BIN_DIR}}/owrap get output [msg|task|agent|exec] [--id <id>]` — output path (latest if omitted) + head/tail preview.
 - `{{BIN_DIR}}/owrap abort <target>` — abort a running job: bare `task` (all task-kind jobs) or `task<timestamp>` (one specific file task, id copied from its label/`owrap stat` output), bare `msg` (all msg-kind jobs) or `msg1`/`msg2` (parallel msg tasks dispatched via `-i <id>`), `exec`. Sends SIGTERM and cleans up the sentinel.
 - All file references in plan steps, task files, `--msg` args: absolute paths only.
