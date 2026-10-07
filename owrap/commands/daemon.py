@@ -103,17 +103,19 @@ class DaemonRunner(BaseRunner):
 
                     # Idle cleanup always runs, even disabled — it only
                     # tears down leftover servers, never starts new ones.
+                    # No minimum to protect once the runner is disabled.
                     runner_enabled = tick_config.get("owrap_runner_enabled", True)
+                    min_n = None if runner_enabled else 0
                     pool = get_pool()
                     before_n = len(pool)
                     total_load = sum(_active_load(e["url"]) for e in pool)
                     if total_load == 0:
                         if idle_since is None:
                             idle_since = time.time()
-                        shutdown_idle(idle_s=idle_shutdown_s)
+                        shutdown_idle(idle_s=idle_shutdown_s, min_n=min_n)
                     else:
                         idle_since = None
-                        shutdown_idle(idle_s=idle_shutdown_s)
+                        shutdown_idle(idle_s=idle_shutdown_s, min_n=min_n)
                     if runner_enabled:
                         ensure_min_servers()
                     pool = get_pool()
