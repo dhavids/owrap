@@ -2085,7 +2085,11 @@ def test_dispatch_skips_fallback_chain_after_two_idle_primary_tries(
     }))
 
     def _run(cmd_str, *args, **kwargs):
-        return {"returncode": -1, "idled_out": True, "stdout": ""}
+        # The banner alone (no real reply) must still count as "no output".
+        return {
+            "returncode": -1, "idled_out": True,
+            "stdout": "\nmodel: primary/model\n\n",
+        }
 
     mock_terminal_cls = MagicMock()
     mock_terminal = MagicMock()

@@ -24,6 +24,7 @@ from ..utils.parser.sections import (
 )
 from ..utils.parser.text import extract_useful_lines
 from ..utils.dispatch.terminal import Terminal
+from ..utils.dispatch.watchdog import strip_boilerplate
 from ..utils.filelock import file_lock
 from ..utils.log import context_jobs
 from ..utils.memory.records import (
@@ -605,7 +606,8 @@ class CtxWorkerRunner:
                 file=sys.stderr,
             )
             if len(attempt_metas) == 2 and all(
-                m["idled_out"] and not m["stdout"].strip() for m in attempt_metas
+                m["idled_out"] and not strip_boilerplate(m["stdout"])
+                for m in attempt_metas
             ):
                 print(
                     "ctx-worker: primary model gave no output twice in a "
@@ -713,7 +715,7 @@ class CtxWorkerRunner:
                 f"{models} gave no response"
             )
         for meta in reversed(attempt_metas):
-            stripped = meta["stdout"].strip()
+            stripped = strip_boilerplate(meta["stdout"])
             if stripped:
                 line = stripped.splitlines()[-1][:160]
                 return f"model_error: {meta['model']} — {line}"
