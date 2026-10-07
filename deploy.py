@@ -267,6 +267,10 @@ def promote(
             cwd=target,
             check=True,
         )
+        subprocess.run(
+            [str(Path.home() / "bin" / "owrap"), "sync"],
+            check=True,
+        )
     if push:
         git(target, "push", "origin", LIVE_BRANCH)
     print(f"Promoted {short_commit} to {target} on {LIVE_BRANCH}.")
