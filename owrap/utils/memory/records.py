@@ -3,10 +3,12 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from ..filelock import file_lock
+from ..parser.sections import extract_section, replace_section
 from ..paths import _read_config, get_workspace_config
 
 _SLUG = re.compile(r"[a-z0-9][a-z0-9-]*\Z")
@@ -345,6 +347,92 @@ def _add_project_repository(root: Path, project_id: str, repo_id: str) -> None:
         if repo_id not in repositories:
             repositories.append(repo_id)
             _write_atomic(yaml_path, _dump_yaml(record))
+
+
+def _project_stub_text(project_id: str) -> str:
+    return (
+        f"# {project_id}\n\n"
+        "## Overview\n\n\n"
+        "## Goals\n\n\n"
+        "## Status\n\n\n"
+        "## Decisions\n\n\n"
+        "## Notes\n"
+    )
+
+
+def _subproject_stub_text(project_id: str, subproject_id: str) -> str:
+    title = subproject_id.replace("-", " ").title()
+    return (
+        f"# {title}\n\n"
+        f"## Overview\n\nPart of [{project_id}](main.md).\n\n\n"
+        "## Goals\n\n\n"
+        "## Status\n\n\n"
+        "## Decisions\n\n\n"
+        "## Notes\n"
+    )
+
+
+def ensure_project_exists(
+    workspace: str, project_id: str, subproject_id: str = "",
+) -> None:
+    """
+    Create a project record, and a regular subproject within it if given,
+    for whichever part doesn't already exist.
+    """
+    project_id = _slug(project_id, "project")
+    root = docs_root(workspace)
+    directory = root / "projects" / project_id
+    yaml_path = directory / f"{project_id}.yaml"
+    with file_lock(yaml_path.with_suffix(".yaml.lock")):
+        if not yaml_path.exists():
+            directory.mkdir(parents=True, exist_ok=True)
+            record = {
+                "schema_version": 1, "kind": "project", "id": project_id,
+                "title": project_id, "main": "main.md",
+                "repositories": [], "subprojects": {},
+            }
+            _write_atomic(yaml_path, _dump_yaml(record))
+            _write_atomic(directory / "main.md", _project_stub_text(project_id))
+        else:
+            record = _record(yaml_path, "project", project_id)
+        if not subproject_id:
+            return
+        subproject_id = _slug(subproject_id, "subproject")
+        subprojects = record.setdefault("subprojects", {})
+        if not isinstance(subprojects, dict):
+            raise ValueError(f"invalid subprojects for project {project_id}")
+        if subproject_id in subprojects:
+            return
+        markdown_path = directory / f"{subproject_id}.md"
+        if markdown_path.exists():
+            raise FileExistsError(
+                f"subproject file already exists: {markdown_path}"
+            )
+        subprojects[subproject_id] = {
+            "kind": "regular", "file": markdown_path.name, "parent": "main",
+        }
+        _write_atomic(
+            markdown_path, _subproject_stub_text(project_id, subproject_id),
+        )
+        _write_atomic(yaml_path, _dump_yaml(record))
+
+
+def add_decision(path: Path, text: str) -> str:
+    """
+    Prepend one timestamped bullet to a project or subproject's Decisions
+    section, returning the full bullet line written.
+    """
+    with file_lock(path.with_suffix(path.suffix + ".lock")):
+        content = path.read_text()
+        line = f"- {time.strftime('%Y-%m-%d %H:%M')} — {text}"
+        existing = extract_section(content, "## Decisions")
+        lines = existing.splitlines()[1:] if existing else []
+        while lines and not lines[0].strip():
+            lines = lines[1:]
+        new_block = "\n".join(["## Decisions", "", line] + lines)
+        content = replace_section(content, "## Decisions", new_block)
+        _write_atomic(path, content)
+    return line
 
 
 def register_discovered_repositories(

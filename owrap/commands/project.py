@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ..utils.filelock import file_lock
 from ..utils.memory.records import (
-    _record, _slug, docs_root, resolve_memory_target,
+    _record, _slug, _subproject_stub_text, docs_root, resolve_memory_target,
 )
 from ..utils.session.resolver import (
     _parse, resolve, set_session_identity,
@@ -31,20 +31,6 @@ def _yaml_text(record: dict) -> str:
     except ImportError as exc:
         raise ValueError("PyYAML is required to edit project records") from exc
     return yaml.safe_dump(record, sort_keys=False, allow_unicode=True)
-
-
-def _subproject_text(project_id: str, subproject_id: str) -> str:
-    title = subproject_id.replace("-", " ").title()
-    return (
-        f"# {title}\n\n"
-        "## Overview\n\n"
-        f"Part of [{project_id}](main.md).\n\n"
-        "## Goals\n\n"
-        "## Status\n\n"
-        "## Decisions\n\n"
-        "## Findings\n\n"
-        "## Notes\n"
-    )
 
 
 class ProjectRunner:
@@ -104,7 +90,7 @@ class ProjectRunner:
                 try:
                     with markdown_path.open("x") as handle:
                         created = True
-                        handle.write(_subproject_text(project_id, name))
+                        handle.write(_subproject_stub_text(project_id, name))
                     _write_atomic(yaml_path, _yaml_text(record))
                 except Exception:
                     _write_atomic(yaml_path, before_yaml)

@@ -17,7 +17,7 @@ from ..utils.paths import (
 )
 from ..utils.session.resolver import (
     _parse, session_file, owrap_sid_for_ccsid, all_attached_ccsid_pairs,
-    owrap_sid_for_codex_session_id,
+    owrap_sid_for_codex_session_id, all_attached_codex_session_id_pairs,
 )
 from ..utils.parser.sections import (
     extract_section, replace_section, split_top_sections, merge_log_entries,
@@ -38,6 +38,22 @@ from ..constants import (
 MAX_EXCERPT_CHARS = 12000
 MAX_CODEX_EXCERPT_CHARS = 12000
 MAX_RESULT_CHARS = 100
+
+
+def _ts_ns(stamp) -> int | None:
+    """
+    Parse a transcript entry's `timestamp` field (ISO-8601, `Z` suffix)
+    into integer nanoseconds since epoch. None if missing or unparseable.
+    """
+    if not isinstance(stamp, str):
+        return None
+    try:
+        value = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return int(value.timestamp() * 1_000_000_000)
 
 
 class CtxWorkerRunner:
@@ -238,18 +254,19 @@ class CtxWorkerRunner:
             context_jobs.update(job_dir, pid=process.pid)
         label = mode or "ctx+updr"
         print(
-            f"{label} dispatch queued as job {job_dir.name[:8]} — check `owrap stat` "
+            f"{label} dispatch queued as job {job_dir.name} — check `owrap stat` "
             f"or follow {log_path}",
         )
 
     def check_all_attached(self):
         """
         Background trigger check (item 16): for every currently-attached
-        window, dispatch an Update Context / Update Protocol pass if its
-        transcript has grown since its last checkpoint. Cheap to call on a
-        timer — `_dispatch` itself exits before touching the model when a
-        window's excerpt since its checkpoint is empty, so a window with
-        nothing new costs only a transcript line-count check.
+        Claude or Codex window, dispatch an Update Context / Update
+        Protocol pass if its transcript has grown since its last
+        checkpoint. Cheap to call on a timer — `_dispatch` itself exits
+        before touching the model when a window's excerpt since its
+        checkpoint is empty, so a window with nothing new costs only a
+        transcript line-count check.
 
         Called from the daemon loop; never raises — one window's failure
         is logged and skipped rather than blocking every other window.
@@ -270,6 +287,20 @@ class CtxWorkerRunner:
             except Exception as e:
                 print(
                     f"ctx-worker: background check failed for ccsid={ccsid}: {e}",
+                    file=sys.stderr,
+                )
+        for cid, owrap_sid in all_attached_codex_session_id_pairs():
+            try:
+                transcript_path = codex_transcript_path(cid)
+                if transcript_path is None or not transcript_path.exists():
+                    continue
+                self._dispatch_tracked(
+                    owrap_sid, cid, str(transcript_path), config,
+                    do_context=True, do_protocol=True, source="codex",
+                )
+            except Exception as e:
+                print(
+                    f"ctx-worker: background check failed for codex sid={cid}: {e}",
                     file=sys.stderr,
                 )
 
@@ -301,11 +332,13 @@ class CtxWorkerRunner:
 
     def _set_ctx_status(self, owrap_sid: str, real_context_path: Path, status: str):
         """
-        Set `ctx_status` in context.md's Session block, inserting the
-        field if it isn't there yet. No-op if context.md doesn't exist.
+        Set `ctx_status` and bump `last_updated` in context.md's Session
+        block, inserting either field if it isn't there yet. No-op if
+        context.md doesn't exist.
         """
         if not real_context_path.exists():
             return
+        now_full = datetime.now().strftime("%Y-%m-%d %H:%M")
         with file_lock(context_lock_path(owrap_sid)):
             lines = real_context_path.read_text().splitlines()
             start = None
@@ -320,12 +353,19 @@ class CtxWorkerRunner:
                 if lines[i].startswith("## "):
                     end = i
                     break
+            saw_status = saw_updated = False
             for i in range(start, end):
                 if lines[i].startswith("ctx_status:"):
                     lines[i] = f"ctx_status: {status}"
-                    break
-            else:
+                    saw_status = True
+                elif lines[i].startswith("last_updated:"):
+                    lines[i] = f"last_updated: {now_full}"
+                    saw_updated = True
+            if not saw_status:
                 lines.insert(start + 1, f"ctx_status: {status}")
+                end += 1
+            if not saw_updated:
+                lines.insert(start + 1, f"last_updated: {now_full}")
             real_context_path.write_text("\n".join(lines) + "\n")
 
     def _dispatch(
@@ -358,27 +398,35 @@ class CtxWorkerRunner:
         do_protocol = bool(do_protocol and target)
 
         counters = self._read_counters(owrap_sid, ccsid)
-        transcript_offset = counters.get("transcript_offset", 0)
+        cursor_ns = counters.get("transcript_cursor_ns", 0)
 
         if not transcript_path or not Path(transcript_path).exists():
             print("ctx-worker: transcript path missing", file=sys.stderr)
             return 1
 
         transcript_lines = Path(transcript_path).read_text().splitlines()
-        total_lines = len(transcript_lines)
 
         # Floor at this window's last attach — a window can switch sessions.
-        attach_floor = self._last_attach_line(transcript_lines, owrap_sid)
-        effective_offset = max(transcript_offset, attach_floor)
-        event_ns = self._latest_event_ns(transcript_lines[effective_offset:])
+        # Timestamp-based, not line-index-based: Claude Code's crash/resume
+        # flow can re-append old transcript entries verbatim later in the
+        # file, and a replayed entry keeps its original (old) timestamp, so
+        # it can't masquerade as a newer attach the way a line number would.
+        attach_ts_ns = self._last_attach_ts_ns(transcript_lines, owrap_sid)
+        effective_cursor_ns = max(cursor_ns, attach_ts_ns)
+        # Never move the cursor backward — an empty/malformed transcript
+        # read shouldn't re-expose content already marked consumed.
+        new_cursor_ns = max(
+            self._latest_event_ns(transcript_lines) or 0, effective_cursor_ns,
+        )
+        event_ns = new_cursor_ns
 
         if source == "codex":
             new_assistant_texts = self._extract_codex_excerpt_lines(
-                transcript_lines, effective_offset,
+                transcript_lines, effective_cursor_ns,
             )
         else:
             new_assistant_texts = self._extract_excerpt_lines(
-                transcript_lines, effective_offset,
+                transcript_lines, effective_cursor_ns,
             )
         touched_entries = self._load_touched_entries(owrap_sid, ccsid)
         touched_lines = [
@@ -403,9 +451,9 @@ class CtxWorkerRunner:
         if not combined_texts:
             print("ctx-worker: nothing to summarize", flush=True)
             if self._has_recognized_transcript_entries(
-                transcript_lines, effective_offset, source,
+                transcript_lines, effective_cursor_ns, source,
             ):
-                counters["transcript_offset"] = total_lines
+                counters["transcript_cursor_ns"] = new_cursor_ns
                 self._write_counters(owrap_sid, counters, ccsid)
             return 0
 
@@ -457,7 +505,7 @@ class CtxWorkerRunner:
             for repo_id in repository_paths:
                 blocks += CTX_REPOSITORY_BLOCK.format(repo_id=repo_id)
         if not blocks:
-            counters["transcript_offset"] = total_lines
+            counters["transcript_cursor_ns"] = new_cursor_ns
             self._write_counters(owrap_sid, counters, ccsid)
             if touched_entries:
                 self._clear_touched_entries(owrap_sid, ccsid)
@@ -482,8 +530,8 @@ class CtxWorkerRunner:
         }
 
         print(
-            f"ctx-worker: transcript lines "
-            f"{transcript_offset}..{total_lines}",
+            f"ctx-worker: transcript since "
+            f"{self._fmt_ts_ns(effective_cursor_ns)}..{self._fmt_ts_ns(new_cursor_ns)}",
             flush=True,
         )
 
@@ -529,7 +577,7 @@ class CtxWorkerRunner:
             repository_paths, owrap_sid, project_snapshot, event_ns,
             repository_snapshots, project_section,
         )
-        counters["transcript_offset"] = total_lines
+        counters["transcript_cursor_ns"] = new_cursor_ns
         self._write_counters(owrap_sid, counters, ccsid)
         if touched_entries:
             self._clear_touched_entries(owrap_sid, ccsid)
@@ -647,11 +695,11 @@ class CtxWorkerRunner:
                 text = replace_section(text, "## Status", status)
             decisions = self._entry_lines(block, "## Decisions")
             if decisions:
-                today = time.strftime("%Y-%m-%d")
-                lines = [f"- {today} — {line.removeprefix('- ').strip()}"
+                stamp = time.strftime("%Y-%m-%d %H:%M")
+                lines = [f"- {stamp} — {line.removeprefix('- ').strip()}"
                          for line in decisions if line.startswith("- ")]
                 text = merge_log_entries(
-                    text, "## Decisions", lines, cap=None,
+                    text, "## Decisions", lines, cap=None, prepend=True,
                     key_fn=self._record_decision_key,
                 )
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -710,24 +758,33 @@ class CtxWorkerRunner:
         return replace_section(text, heading, block)
 
     def _record_decision_key(self, line):
-        stripped = re.sub(r"^-\s*\d{4}-\d{2}-\d{2}\s*—\s*", "", line)
+        stripped = re.sub(
+            r"^-\s*\d{4}-\d{2}-\d{2}(\s+\d{2}:\d{2})?\s*—\s*", "", line,
+        )
         return self._bullet_key(stripped)
 
     def _latest_event_ns(self, lines):
         latest = None
         for line in lines:
             try:
-                stamp = json.loads(line).get("timestamp")
-                if not isinstance(stamp, str):
-                    continue
-                value = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
-                if value.tzinfo is None:
-                    value = value.replace(tzinfo=timezone.utc)
-                instant = int(value.timestamp() * 1_000_000_000)
-                latest = max(latest or instant, instant)
-            except (ValueError, TypeError, json.JSONDecodeError):
+                entry = json.loads(line)
+            except json.JSONDecodeError:
                 continue
+            ts = _ts_ns(entry.get("timestamp"))
+            if ts is not None:
+                latest = max(latest or ts, ts)
         return latest
+
+    @staticmethod
+    def _fmt_ts_ns(ns: int) -> str:
+        """
+        Render a nanosecond timestamp as UTC ISO-8601, for log messages.
+        """
+        if not ns:
+            return "(start)"
+        return datetime.fromtimestamp(
+            ns / 1_000_000_000, tz=timezone.utc,
+        ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
     def _merge_context(self, context_block, real_context_path, owrap_sid):
         """
@@ -795,34 +852,48 @@ class CtxWorkerRunner:
             return True
         return (Path(workspace) / path_str).exists()
 
-    def _last_attach_line(self, lines: list, owrap_sid: str) -> int:
+    def _last_attach_ts_ns(self, lines: list, owrap_sid: str) -> int:
         """
-        Index of the line right after the most recent
+        Nanosecond timestamp of the most recent
         `__OWRAP_EXPORT__ SESSION_ID=<owrap_sid>` marker in the transcript
-        — every owrap start/attach/refresh/sub/spawn prints this to
-        its own stdout, which lands in the transcript as a tool_result.
+        — every owrap start/attach/refresh/sub/spawn prints this to its
+        own stdout, which lands in the transcript as a tool_result.
         Returns 0 if the marker never appears (e.g. a session predating
         this convention, or a transcript that doesn't go back far enough).
+
+        Timestamp-based rather than line-index-based: Claude Code's
+        crash/resume flow can re-append an old transcript entry verbatim
+        later in the file, at a higher line number but carrying its
+        original (old) timestamp — a line-index floor would mistake that
+        replay for a brand-new attach and skip everything in between.
         """
         marker = f"__OWRAP_EXPORT__ SESSION_ID={owrap_sid}"
-        last_idx = -1
-        for i, line in enumerate(lines):
-            if marker in line:
-                last_idx = i
-        return last_idx + 1 if last_idx >= 0 else 0
+        latest = 0
+        for line in lines:
+            if marker not in line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            ts = _ts_ns(entry.get("timestamp"))
+            if ts is not None:
+                latest = max(latest, ts)
+        return latest
 
-    def _extract_excerpt_lines(self, lines: list, offset: int) -> list:
+    def _extract_excerpt_lines(self, lines: list, cursor_ns: int) -> list:
         """
-        Return excerpt lines from transcript JSONL lines after `offset`:
-        assistant prose text, real Bash commands and Edit/Write/Read file
-        paths from tool_use blocks (prefixed `$ `/`[Name] ` so the model can
-        tell narration from a literal invocation), and the useful part of
-        each tool_result for those tracked tools (see `extract_useful_lines`).
+        Return excerpt lines from transcript JSONL lines timestamped after
+        `cursor_ns`: assistant prose text, real Bash commands and
+        Edit/Write/Read file paths from tool_use blocks (prefixed
+        `$ `/`[Name] ` so the model can tell narration from a literal
+        invocation), and the useful part of each tool_result for those
+        tracked tools (see `extract_useful_lines`).
         """
         texts = []
         pending = {}
         skip_update_turn = False
-        for index, line in enumerate(lines):
+        for line in lines:
             if not line.strip():
                 continue
             try:
@@ -840,7 +911,8 @@ class CtxWorkerRunner:
                 )
                 if prompt.strip():
                     skip_update_turn = self._is_context_update_request(prompt)
-            if index < offset:
+            entry_ts = _ts_ns(entry.get("timestamp"))
+            if entry_ts is None or entry_ts <= cursor_ns:
                 continue
             if entry_type == "assistant":
                 for block in content:
@@ -889,13 +961,14 @@ class CtxWorkerRunner:
                         texts.append(f"-> {useful}")
         return texts
 
-    def _extract_codex_excerpt_lines(self, lines: list, offset: int) -> list:
+    def _extract_codex_excerpt_lines(self, lines: list, cursor_ns: int) -> list:
         """
-        Extract assistant messages and file changes from Codex rollouts.
+        Extract assistant messages and file changes from Codex rollouts
+        timestamped after `cursor_ns`.
         """
         texts = []
         skip_update_turn = False
-        for index, line in enumerate(lines):
+        for line in lines:
             try:
                 entry = json.loads(line)
             except json.JSONDecodeError:
@@ -917,7 +990,8 @@ class CtxWorkerRunner:
                     )
                     if message.strip():
                         skip_update_turn = self._is_context_update_request(message)
-            if index < offset:
+            entry_ts = _ts_ns(entry.get("timestamp"))
+            if entry_ts is None or entry_ts <= cursor_ns:
                 continue
             if entry.get("type") == "response_item":
                 if payload.get("type") != "message" or payload.get("role") != "assistant":
@@ -1024,12 +1098,15 @@ class CtxWorkerRunner:
 
     @staticmethod
     def _has_recognized_transcript_entries(
-        lines: list, offset: int, source: str,
+        lines: list, cursor_ns: int, source: str,
     ) -> bool:
-        for line in lines[offset:]:
+        for line in lines:
             try:
                 entry = json.loads(line)
             except json.JSONDecodeError:
+                continue
+            entry_ts = _ts_ns(entry.get("timestamp"))
+            if entry_ts is None or entry_ts <= cursor_ns:
                 continue
             payload = entry.get("payload", {})
             if source == "codex":

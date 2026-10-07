@@ -91,44 +91,10 @@ promotions add a commit to `main` with both the previous live commit and the
 reviewed `dev` commit as parents. Run `--push` only when the promoted commit
 should be published to `origin/main`.
 
-### Legacy record migration
-
-`owrap migrate` previews conversion of legacy project, memory, todo, and
-session records. `--map` accepts a reviewed YAML file with explicit repository
-checkouts and project links:
-
-```yaml
-repositories:
-  example-repo:
-    checkout: /absolute/path/to/example-repo
-    remote: git@example.com:team/example.git
-projects:
-  example-project: [example-repo]
-  project-without-code: []
-```
-
-An empty list explicitly records that a project has no repository. An omitted
-project is reported as unmapped. Preview and apply use the same inputs:
-
 ```bash
-owrap migrate --home /path/to/.owrap --docs-root /path/to/research \
-  --map /path/to/migration.yaml
-owrap migrate --home /path/to/.owrap --docs-root /path/to/research \
-  --map /path/to/migration.yaml --apply
+~/bin/owrap start --project owrap    # begin a project session
 ```
 
-Before applying, archive both `OWRAP_HOME` and the documentation repository to
-a location outside those trees. Stop active owrap jobs during the migration.
-To roll back, keep the failed trees for inspection, extract both archives into
-sibling staging directories on the same filesystems, verify them, then rename
-the restored directories into their original paths. Restore the pair together;
-the session identities and project records form one migration state.
-
-```bash
-~/bin/owrap start owrap             # current live CLI: begin an owrap session
-```
-
-The development CLI adds `owrap start --project <id>` for a project session.
 `setup` writes a workspace config under `OWRAP_HOME/configs/` and stages
 `CLAUDE.md`, `AGENTS.md`, and the `self.md` reference pages under
 `OWRAP_HOME/runtime/staged/<workspace>/`. After starting or attaching a session, run

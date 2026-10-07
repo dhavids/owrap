@@ -19,7 +19,7 @@ def create(session_id: str, window_id: str, kind: str) -> Path:
     """
     Create one queued context job and return its directory.
     """
-    job_dir = paths.session_ctx_jobs_dir(session_id) / uuid4().hex
+    job_dir = paths.session_ctx_jobs_dir(session_id) / uuid4().hex[:10]
     job_dir.mkdir(parents=True)
     update(
         job_dir, job_id=job_dir.name, session_id=session_id,

@@ -4,7 +4,7 @@ Session management runners and orientation printing.
 
 from .start import (
     StartRunner, RefreshRunner, AttachRunner, DetachRunner,
-    RestartRunner, UpdateAreaRunner, SpawnRunner,
+    RestartRunner,
 )
 from .stop import (
     StopRunner, EndRunner, KillServersRunner,
@@ -14,7 +14,7 @@ from .orientation import print_orientation
 
 __all__ = [
     "StartRunner", "RefreshRunner", "AttachRunner", "DetachRunner",
-    "RestartRunner", "UpdateAreaRunner", "SpawnRunner", "StopRunner",
+    "RestartRunner", "StopRunner",
     "EndRunner", "KillServersRunner", "CleanupRunner", "RestoreRunner",
     "print_orientation",
 ]

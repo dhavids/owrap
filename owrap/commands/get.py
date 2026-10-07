@@ -59,6 +59,9 @@ class GetRunner:
             except (OSError, ValueError) as exc:
                 print(f"ERROR: {exc}")
                 sys.exit(2)
+            if target is None:
+                print(f"No project/repository target configured for session {sid}")
+                sys.exit(1)
 
         if what == "session":
             self._print_session(sid, sdata, sf)
@@ -140,58 +143,36 @@ class GetRunner:
             return
 
         if what in ("memory", "project", "todo"):
-            if target:
-                if what == "project":
-                    if not target.project_path:
-                        print("Repository-only session has no project file")
-                        sys.exit(2)
-                    paths = (target.project_path,)
-                elif what == "memory":
-                    paths = target.repository_paths
-                else:
-                    if not target.project_path:
-                        print("Repository-only session has no project goals")
-                        sys.exit(2)
-                    try:
-                        goals = read_goals(target.project_path)
-                    except (OSError, ValueError) as exc:
-                        print(f"ERROR: {exc}")
-                        sys.exit(2)
-                    print(f"# goals: {target.project_path}")
-                    for index, (done, goal) in enumerate(goals, 1):
-                        mark = "x" if done else " "
-                        print(f"{index}. [{mark}] {goal}")
-                    return
-                if not paths:
-                    print("No repositories associated with this project")
+            if what == "project":
+                if not target.project_path:
+                    print("Repository-only session has no project file")
                     sys.exit(2)
-                for path in paths:
-                    if not path.is_file():
-                        print(f"Record Markdown not found: {path}")
-                        sys.exit(2)
-                    print(f"# {what}: {path}")
-                    print(path.read_text().strip())
-                return
-            research = sdata.get("research", "")
-            if not research:
-                print(f"No research configured for session {sid}")
-                sys.exit(1)
-            workspace = sdata.get("workspace", "")
-            research_root = self._get_research_root(workspace)
-            if what == "memory":
-                fpath = Path(research_root) / "memory" / f"{research}.md"
-            elif what == "project":
-                fpath = Path(research_root) / "projects" / f"{research}.md"
+                paths = (target.project_path,)
+            elif what == "memory":
+                paths = target.repository_paths
             else:
-                fpath = Path(research_root) / "todo" / f"{research}.md"
-            if not fpath.exists():
-                print(f"{what}/{research}.md does not exist (research: {research})")
-                sys.exit(1)
-            area = sdata.get("area", "")
-            header = f"# {what}: {fpath}"
-            content = self._extract_content(fpath, area)
-            print(header)
-            print(content)
+                if not target.project_path:
+                    print("Repository-only session has no project goals")
+                    sys.exit(2)
+                try:
+                    goals = read_goals(target.project_path)
+                except (OSError, ValueError) as exc:
+                    print(f"ERROR: {exc}")
+                    sys.exit(2)
+                print(f"# goals: {target.project_path}")
+                for index, (done, goal) in enumerate(goals, 1):
+                    mark = "x" if done else " "
+                    print(f"{index}. [{mark}] {goal}")
+                return
+            if not paths:
+                print("No repositories associated with this project")
+                sys.exit(2)
+            for path in paths:
+                if not path.is_file():
+                    print(f"Record Markdown not found: {path}")
+                    sys.exit(2)
+                print(f"# {what}: {path}")
+                print(path.read_text().strip())
             return
 
         fmap = {
@@ -207,7 +188,7 @@ class GetRunner:
             print("  session  — session fields table")
             print("  agents   — agents/output.log for this session")
             print("           (all subagent summaries)")
-            print("  memory   — linked repository record (legacy memory file)")
+            print("  memory   — linked repository record (memory.md)")
             print("  project  — project or subproject record")
             print("  todo     — goals for the project or subproject target")
             print("  area, research — legacy aliases for subproject and project")
@@ -405,17 +386,6 @@ class GetRunner:
                     data[k.strip()] = v.strip()
         return data
 
-    def _get_research_root(self, workspace):
-        if workspace:
-            cfg_path = RUNTIME_HOME / "configs" / f"{workspace}.json"
-            if cfg_path.exists():
-                import json
-                cfg = json.loads(cfg_path.read_text())
-                root = cfg.get("docs_root") or cfg.get("research_root")
-                if root:
-                    return root
-        return f"{workspace}/docs/research" if workspace else ""
-
     def _print_session(self, sid, sdata, sf):
         if not sf.exists():
             print("No active session")
@@ -435,28 +405,6 @@ class GetRunner:
         print(header)
         for row in rows:
             print(row)
-
-    def _extract_content(self, fpath, area):
-        content = fpath.read_text()
-        if not area:
-            return content
-        lines = content.splitlines(keepends=True)
-        marker = f"## {area}"
-        in_section = False
-        result = []
-        for line in lines:
-            if line.strip() == marker:
-                in_section = True
-                result.append(line)
-                continue
-            if in_section:
-                stripped = line.strip()
-                if stripped.startswith("## ") and not stripped.startswith("### "):
-                    break
-                result.append(line)
-        if not result:
-            return content
-        return "".join(result).rstrip()
 
     def _resolve_most_recent_file(self, directory, pattern="*.log"):
         """
