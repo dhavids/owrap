@@ -134,7 +134,8 @@ def test_daemon_cleans_up_leftover_server_while_runner_disabled(tmp_path):
         with pytest.raises(_StopLoop):
             DaemonRunner(MagicMock()).run()
 
-    mock_shutdown_idle.assert_called()
+    # No minimum protected once the runner itself is disabled.
+    mock_shutdown_idle.assert_called_with(idle_s=300.0, min_n=0)
 
 
 def test_daemon_cleans_pid_file_on_exit(tmp_path):
