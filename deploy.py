@@ -5,6 +5,7 @@ Promote a filtered development snapshot into the live main checkout.
 
 import argparse
 import hashlib
+import re
 import shutil
 import stat
 import subprocess
@@ -98,9 +99,26 @@ def validate_target(target: Path, apply: bool) -> None:
     git(target, "switch", "--track", f"{remote}/main")
 
 
+def strip_dev_sections(readme: Path) -> None:
+    """
+    Remove every top-level `## ...-Dev` section from a promoted README.
+    """
+    if not readme.is_file():
+        return
+    text = readme.read_text()
+    parts = re.split(r"(?m)^(?=## )", text)
+    kept = [parts[0]]
+    for part in parts[1:]:
+        if part.splitlines()[0].rstrip().lower().endswith("-dev"):
+            continue
+        kept.append(part)
+    readme.write_text("".join(kept).rstrip() + "\n")
+
+
 def build_release(source: Path, commit: str, destination: Path) -> None:
     """
-    Extract Git's export filtered tree for a development commit.
+    Extract Git's export filtered tree for a development commit, with the
+    promoted README's dev-only section stripped.
     """
     archive_path = destination.parent / "release.tar"
     with archive_path.open("wb") as archive_file:
@@ -123,6 +141,7 @@ def build_release(source: Path, commit: str, destination: Path) -> None:
             if not path.is_relative_to(root):
                 raise RuntimeError(f"unsafe archive path: {member.name}")
         archive.extractall(destination)
+    strip_dev_sections(destination / "README.md")
 
 
 def manifest(root: Path) -> dict[str, tuple[int, str]]:

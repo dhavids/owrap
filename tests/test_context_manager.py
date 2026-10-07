@@ -138,6 +138,10 @@ def _patch_dirs(monkeypatch, tmp_path):
         "owrap.utils.session.resolver.BY_CODEX_SESSION_ID_DIR",
         sessions_dir / "by_codex_session_id",
     )
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.OPENCODE_STATUS_FILE",
+        tmp_path / "opencode_status.json",
+    )
     return docs_dir, sessions_dir
 
 
@@ -303,6 +307,19 @@ def test_extract_excerpt_lines_includes_edit_write_read_paths():
     assert result == [
         "[Edit] owrap/foo.py", "[Write] owrap/bar.py", "[Read] owrap/baz.py",
     ]
+
+
+def test_extract_excerpt_lines_includes_notebook_edit_path():
+    worker = CtxWorkerRunner()
+    entries = [
+        {"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "t1", "name": "NotebookEdit",
+             "input": {"notebook_path": "owrap/analysis.ipynb"}},
+        ]}},
+    ]
+    lines = _lines_with_ts(entries)
+    result = worker._extract_excerpt_lines(lines, 0)
+    assert result == ["[NotebookEdit] owrap/analysis.ipynb"]
 
 
 def test_extract_excerpt_lines_ignores_untracked_tool_result():
@@ -1042,6 +1059,85 @@ def test_ctx_dispatch_falls_back_to_context_fallback_model(tmp_path, monkeypatch
     })
     assert "-m" in cmd
     assert cmd[cmd.index("-m") + 1] == "opencode/deepseek-v4-flash-free"
+
+
+def test_manual_ctx_template_prints_target_paths(tmp_path, monkeypatch, capsys):
+    from owrap.commands.context_manager import ManualCtxRunner
+    _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
+    ccsid = "claude-fallback"
+    owrap_sid = "fallback01"
+    _make_project_session(sessions_dir, owrap_sid, ccsid)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", ccsid)
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.resolve_memory_target",
+        lambda data: SimpleNamespace(
+            project_path=Path("/tmp/project.md"), project_id="owrap",
+            subproject_id="", repository_ids=("repo1",),
+            repository_paths=(Path("/tmp/repo1.md"),),
+        ),
+    )
+
+    ManualCtxRunner().template()
+
+    out = capsys.readouterr().out
+    assert "opencode status:" in out
+    assert "# Project: owrap — /tmp/project.md" in out
+    assert "# Repository: repo1 — /tmp/repo1.md" in out
+
+
+def test_manual_ctx_template_prints_full_excerpt_without_truncation(
+    tmp_path, monkeypatch, capsys,
+):
+    from owrap.commands.context_manager import ManualCtxRunner, MAX_EXCERPT_CHARS
+    _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
+    ccsid = "claude-fallback-excerpt"
+    owrap_sid = "fallback02"
+    _make_session_file(sessions_dir, owrap_sid, ccsid)
+    long_text = "x" * (MAX_EXCERPT_CHARS + 5000)
+    transcript = tmp_path / "transcript.jsonl"
+    _make_transcript_jsonl(transcript, [
+        {"type": "assistant", "message": {"role": "assistant",
+         "content": [{"type": "text", "text": long_text}]}},
+    ])
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", ccsid)
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.claude_transcript_path",
+        lambda ccsid, workspace: transcript,
+    )
+
+    ManualCtxRunner().template()
+
+    out = capsys.readouterr().out
+    assert long_text in out
+    assert "Transcript excerpt since the last update (not truncated)" in out
+
+
+def test_manual_ctx_ack_advances_cursor_and_sets_status_ok(tmp_path, monkeypatch):
+    from owrap.commands.context_manager import ManualCtxRunner
+    _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
+    ccsid = "claude-ack"
+    owrap_sid = "ack01"
+    _make_session_file(sessions_dir, owrap_sid, ccsid)
+    context_md = _make_context_md(sessions_dir, owrap_sid)
+
+    transcript = tmp_path / "transcript.jsonl"
+    _make_transcript_jsonl(transcript, [
+        {"type": "assistant", "message": {"role": "assistant",
+         "content": [{"type": "text", "text": "did it by hand"}]}},
+    ])
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", ccsid)
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.claude_transcript_path",
+        lambda ccsid, workspace: transcript,
+    )
+
+    ManualCtxRunner().ack()
+
+    assert _ctx_status(context_md) == "ok"
+    counters = json.loads((
+        sessions_dir / owrap_sid / "ctx" / "windows" / ccsid / "counters.json"
+    ).read_text())
+    assert counters["transcript_cursor_ns"] == _entry_ts_ns(0)
 
 
 def test_run_manual_ctx_queues_background_dispatch(tmp_path, monkeypatch):
@@ -1897,6 +1993,153 @@ def test_dispatch_leaves_excerpt_queued_when_all_attempts_fail(tmp_path, monkeyp
     assert _ctx_status(context_md) == "failed"
     counters_path = sessions_dir / f"{owrap_sid}.{ccsid}.counters.json"
     assert not counters_path.exists()
+
+
+# Opencode health flag
+
+def test_dispatch_marks_opencode_down_after_full_timeout_chain(tmp_path, monkeypatch):
+    """
+    Every model in the chain timing out (rc=-1) means opencode itself is
+    unreachable, not just a validation miss on this excerpt, so the
+    shared health flag flips to "down".
+    """
+    from owrap.commands.context_manager import read_opencode_status
+    _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
+    ccsid = "claude-timeout"
+    owrap_sid = "timeout01"
+    _make_session_file(sessions_dir, owrap_sid, ccsid)
+
+    transcript = tmp_path / "transcript.jsonl"
+    _make_transcript_jsonl(transcript, [
+        {"type": "assistant", "message": {"role": "assistant",
+         "content": [{"type": "text", "text": "did work"}]}},
+    ])
+    input_path = tmp_path / "hook_input.json"
+    input_path.write_text(json.dumps({
+        "session_id": ccsid, "transcript_path": str(transcript),
+    }))
+
+    mock_terminal_cls, mock_run = _patch_terminal(rc=-1, output_text=None)
+    with patch("owrap.commands.context_manager.Terminal", mock_terminal_cls):
+        CtxWorkerRunner().run(input_path=input_path)
+
+    assert read_opencode_status() == "down"
+
+
+def test_dispatch_marks_opencode_up_after_success(tmp_path, monkeypatch):
+    from owrap.commands.context_manager import (
+        read_opencode_status, OPENCODE_STATUS_FILE,
+    )
+    _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
+    ccsid = "claude-recovered"
+    owrap_sid = "recovered01"
+    _make_session_file(sessions_dir, owrap_sid, ccsid)
+    OPENCODE_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    OPENCODE_STATUS_FILE.write_text(json.dumps({"status": "down"}))
+
+    transcript = tmp_path / "transcript.jsonl"
+    _make_transcript_jsonl(transcript, [
+        {"type": "assistant", "message": {"role": "assistant",
+         "content": [{"type": "text", "text": "did work"}]}},
+    ])
+    input_path = tmp_path / "hook_input.json"
+    input_path.write_text(json.dumps({
+        "session_id": ccsid, "transcript_path": str(transcript),
+    }))
+
+    mock_terminal_cls, mock_run = _patch_terminal()
+    with patch("owrap.commands.context_manager.Terminal", mock_terminal_cls):
+        CtxWorkerRunner().run(input_path=input_path)
+
+    assert read_opencode_status() == "up"
+
+
+def test_dispatch_skips_fallback_chain_after_two_idle_primary_tries(
+    tmp_path, monkeypatch,
+):
+    """
+    The primary model going idle twice with zero real output means
+    opencode itself is unreachable — trying the fallback rung against
+    the same dead infra would just repeat the wait, so it must not run.
+    """
+    from owrap.commands.context_manager import read_opencode_status_detail
+    _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
+    ccsid = "claude-idle"
+    owrap_sid = "idle01"
+    _make_session_file(sessions_dir, owrap_sid, ccsid)
+
+    transcript = tmp_path / "transcript.jsonl"
+    _make_transcript_jsonl(transcript, [
+        {"type": "assistant", "message": {"role": "assistant",
+         "content": [{"type": "text", "text": "did work"}]}},
+    ])
+    input_path = tmp_path / "hook_input.json"
+    input_path.write_text(json.dumps({
+        "session_id": ccsid, "transcript_path": str(transcript),
+    }))
+    base_config_path = tmp_path / "base_config.json"
+    base_config_path.write_text(json.dumps({
+        "default_workspace": "test",
+        "context_manager_model": "primary/model",
+        "context_fallback_model": "fallback/model",
+    }))
+
+    def _run(cmd_str, *args, **kwargs):
+        return {"returncode": -1, "idled_out": True, "stdout": ""}
+
+    mock_terminal_cls = MagicMock()
+    mock_terminal = MagicMock()
+    mock_terminal.run.side_effect = _run
+    mock_terminal_cls.return_value = mock_terminal
+
+    with patch("owrap.utils.paths.BASE_CONFIG_FILE", base_config_path), \
+         patch("owrap.commands.context_manager.Terminal", mock_terminal_cls):
+        CtxWorkerRunner().run(input_path=input_path)
+
+    assert mock_terminal.run.call_count == 2
+    detail = read_opencode_status_detail()
+    assert detail["status"] == "down"
+    assert detail["reason"].startswith("no_output")
+
+
+def test_dispatch_marks_opencode_down_with_subscription_reason(
+    tmp_path, monkeypatch,
+):
+    from owrap.commands.context_manager import read_opencode_status_detail
+    _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
+    ccsid = "claude-nosub"
+    owrap_sid = "nosub01"
+    _make_session_file(sessions_dir, owrap_sid, ccsid)
+
+    transcript = tmp_path / "transcript.jsonl"
+    _make_transcript_jsonl(transcript, [
+        {"type": "assistant", "message": {"role": "assistant",
+         "content": [{"type": "text", "text": "did work"}]}},
+    ])
+    input_path = tmp_path / "hook_input.json"
+    input_path.write_text(json.dumps({
+        "session_id": ccsid, "transcript_path": str(transcript),
+    }))
+
+    def _run(cmd_str, *args, **kwargs):
+        return {
+            "returncode": 1, "idled_out": False,
+            "stdout": "Error: An active OpenCode Go subscription is "
+                      "required to use Go models.",
+        }
+
+    mock_terminal_cls = MagicMock()
+    mock_terminal = MagicMock()
+    mock_terminal.run.side_effect = _run
+    mock_terminal_cls.return_value = mock_terminal
+
+    with patch("owrap.commands.context_manager.Terminal", mock_terminal_cls):
+        CtxWorkerRunner().run(input_path=input_path)
+
+    # rc=1 (not -1), so status stays "up" — only reason is recorded.
+    detail = read_opencode_status_detail()
+    assert detail["status"] == "up"
+    assert detail["reason"].startswith("subscription_required")
 
 
 # Deterministic model output merge

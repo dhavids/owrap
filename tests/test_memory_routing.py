@@ -8,7 +8,8 @@ from owrap.commands.get import GetRunner
 from owrap.commands.context_manager import CtxWorkerRunner
 from owrap.commands.todo import TodoRunner
 from owrap.utils.memory.records import (
-    resolve_memory_target, touched_repository_paths,
+    count_bullets, normalize_identity_kind, resolve_memory_target,
+    touched_repository_paths,
 )
 from owrap.utils.session import resolver
 
@@ -113,8 +114,6 @@ def test_todo_edits_subproject_goals_and_get_reads_records(
     GetRunner().run("sub", session_id="abc123")
     assert capsys.readouterr().out.strip() == "migration"
     GetRunner().run("repo", session_id="abc123")
-    assert capsys.readouterr().out.strip() == "owrap-dev"
-    GetRunner().run("repos", session_id="abc123")
     assert capsys.readouterr().out.strip() == "owrap-dev"
     GetRunner().run("proj", session_id="abc123")
     assert "Existing goal" in capsys.readouterr().out
@@ -380,6 +379,7 @@ def test_ctx_dispatch_routes_subproject_override_and_touched_repo(
                 0, "# Subproject: migration\n## Status\nMigration running.\n"
             "# Repository: owrap-dev\n## Components\n"
             "- module.py — parser\n",
+            {"idled_out": False, "stdout": ""},
         ),
     )
 
@@ -394,3 +394,31 @@ def test_ctx_dispatch_routes_subproject_override_and_touched_repo(
     assert "# Repository: owrap-dev" in prompt
     assert "Migration running." in (project / "migration.md").read_text()
     assert "module.py — parser" in (repo / "memory.md").read_text()
+
+
+def test_normalize_identity_kind_aliases_only_the_singular_forms():
+    assert normalize_identity_kind("proj") == "project"
+    assert normalize_identity_kind("sub") == "subproject"
+    assert normalize_identity_kind("repo") == "repository"
+    # "subs"/"repos" mean multiple — never aliases for a single target.
+    assert normalize_identity_kind("subs") == "subs"
+    assert normalize_identity_kind("repos") == "repos"
+    assert normalize_identity_kind("project") == "project"
+
+
+def test_count_bullets_counts_only_entries_under_the_heading(tmp_path):
+    path = tmp_path / "main.md"
+    path.write_text(
+        "# Demo\n\n## Decisions\n\n- first\n- second\n\n"
+        "## Notes\n\n- not counted\n"
+    )
+    assert count_bullets(path, "## Decisions") == 2
+
+
+def test_count_bullets_is_zero_for_missing_file_or_heading(tmp_path):
+    missing = tmp_path / "missing.md"
+    assert count_bullets(missing, "## Decisions") == 0
+
+    path = tmp_path / "main.md"
+    path.write_text("# Demo\n\n## Notes\n\n- a note\n")
+    assert count_bullets(path, "## Decisions") == 0

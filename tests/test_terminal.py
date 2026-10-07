@@ -1,5 +1,6 @@
 import io
 import threading
+import time
 
 from owrap.utils.dispatch.terminal import Terminal
 
@@ -58,3 +59,42 @@ class TestTerminalRunStandard:
         assert "hello\n" in tee_content
         assert "\x1b[0mhello" in result["stdout"]
         assert result["returncode"] == 0
+
+    def test_idle_timeout_kills_before_the_hard_timeout(self):
+        """
+        A process that prints once then goes silent must be killed after
+        idle_timeout, well before the much longer hard timeout — fail
+        fast on a stuck dispatch instead of waiting it out.
+        """
+        t = Terminal(verbose=False, signals="none")
+        start = time.monotonic()
+        result = t.run(
+            "python3 -c 'print(\"hi\", flush=True); import time; time.sleep(30)'",
+            capture_output=True, print_output=True,
+            timeout=120, idle_timeout=1,
+        )
+        elapsed = time.monotonic() - start
+        assert result["returncode"] == -1
+        assert result["idled_out"] is True
+        assert result["timed_out"] is False
+        assert "hi" in result["stdout"]
+        assert elapsed < 10
+
+    def test_new_output_resets_the_idle_clock(self):
+        """
+        A process that keeps producing output, slower than idle_timeout
+        between lines, must not be killed early.
+        """
+        t = Terminal(verbose=False, signals="none")
+        result = t.run(
+            "python3 -c '"
+            "import time\n"
+            "for i in range(3):\n"
+            "    print(i, flush=True)\n"
+            "    time.sleep(0.3)\n"
+            "'",
+            capture_output=True, print_output=True,
+            timeout=30, idle_timeout=2,
+        )
+        assert result["returncode"] == 0
+        assert "0" in result["stdout"] and "2" in result["stdout"]

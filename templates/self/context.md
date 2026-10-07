@@ -29,6 +29,13 @@ Use `owrap touched <path> [<path> ...] [--note <text>]` when an important file
 change should be included in the next context pass. `owrap refresh` and
 `owrap attach` show the last context update status.
 
+If `ctx_status` isn't `ok`, check `owrap get opencode`. `owrap get opencode
+reason` gives `<code>: <detail>` — `no_output: ...` (nothing responded),
+`subscription_required: <model> — <error>` (plan restriction on that model),
+or `model_error: <model> — <output>` (an unclassified failure). If status
+reports `down`, run `owrap ctx-template [subproject]`, update the listed
+files yourself following its instructions, then run `owrap ctx-ack`.
+
 
 ## Update records
 

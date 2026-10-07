@@ -257,7 +257,7 @@ class StartRunner(BaseRunner):
         area_val = _sp(_sf(session_id)).get("area")
         print_orientation(
             session_id, None, plan_path=plan_path,
-            input_path=input_path, context_path=cp, area=area_val,
+            input_path=input_path, context_path=cp,
             runner_enabled=_read_config().get("owrap_runner_enabled", True),
             target=_orientation_target(session_id),
         )
@@ -375,7 +375,7 @@ class RefreshRunner(BaseRunner):
         cp = context_path(session_id)
         print_orientation(
             session_id, project_name, plan_path=plan_path,
-            input_path=input_path, context_path=cp, area=area_val,
+            input_path=input_path, context_path=cp,
             runner_enabled=_read_config().get("owrap_runner_enabled", True),
             target=_orientation_target(session_id),
         )
@@ -430,7 +430,7 @@ class AttachRunner(BaseRunner):
         )
         print_orientation(
             sid, research, url, plan_path, input_path,
-            context_path=cp, area=area, attach=True,
+            context_path=cp, attach=True,
             runner_enabled=_read_config().get("owrap_runner_enabled", True),
             target=_orientation_target(sid),
         )

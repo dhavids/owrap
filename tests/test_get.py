@@ -91,6 +91,153 @@ def test_get_self_without_session(get_runner, tmp_path, capsys):
     assert "# Staged reference" in captured.out
 
 
+def test_get_opencode_without_session(get_runner, tmp_path, capsys):
+    status_path = tmp_path / "opencode_status.json"
+    status_path.write_text('{"status": "down"}')
+    with patch("owrap.commands.context_manager.OPENCODE_STATUS_FILE", status_path):
+        get_runner.run("opencode")
+    assert capsys.readouterr().out.strip() == "down"
+
+
+def _make_decisions_fixture(tmp_path, monkeypatch, decision_count):
+    from owrap.commands.get import GetRunner
+    from owrap.utils.paths import SESSIONS_DIR
+    root = tmp_path / "records"
+    project = root / "projects" / "demo"
+    project.mkdir(parents=True)
+    (project / "demo.yaml").write_text(
+        "schema_version: 1\nkind: project\nid: demo\n"
+        "main: main.md\nrepositories: []\nsubprojects: {}\n"
+    )
+    decisions = "\n".join(f"- decision {i}" for i in range(decision_count))
+    (project / "main.md").write_text(f"# Demo\n\n## Decisions\n\n{decisions}\n")
+    session_path = SESSIONS_DIR / "abc123" / ".session"
+    session_path.parent.mkdir(parents=True)
+    session_path.write_text(
+        "session_id=abc123\ntarget_kind=project\nproject_id=demo\n"
+        "subproject_id=\nworkspace=test\n"
+    )
+    monkeypatch.setattr(
+        "owrap.utils.memory.records.get_workspace_config",
+        lambda _: {"docs_root": str(root)},
+    )
+    return GetRunner()
+
+
+def test_get_decisions_under_notice_threshold(tmp_path, monkeypatch, capsys):
+    runner = _make_decisions_fixture(tmp_path, monkeypatch, 10)
+    runner.run("decisions", session_id="abc123")
+    out = capsys.readouterr().out
+    assert "decisions: 10" in out
+    assert "consider pruning" not in out
+    assert "PRUNE NOW" not in out
+
+
+def test_get_decisions_at_notice_threshold(tmp_path, monkeypatch, capsys):
+    runner = _make_decisions_fixture(tmp_path, monkeypatch, 35)
+    runner.run("decisions", session_id="abc123")
+    out = capsys.readouterr().out
+    assert "decisions: 35" in out
+    assert "consider pruning (35+)" in out
+    assert "prune down to 5-10" in out
+
+
+def test_get_decisions_at_escalate_threshold(tmp_path, monkeypatch, capsys):
+    runner = _make_decisions_fixture(tmp_path, monkeypatch, 40)
+    runner.run("decisions", session_id="abc123")
+    out = capsys.readouterr().out
+    assert "decisions: 40" in out
+    assert "PRUNE NOW (40+)" in out
+    assert "prune down to 5-10" in out
+
+
+def test_get_opencode_reason(get_runner, tmp_path, capsys):
+    status_path = tmp_path / "opencode_status.json"
+    status_path.write_text('{"status": "down", "reason": "no_output"}')
+    with patch("owrap.commands.context_manager.OPENCODE_STATUS_FILE", status_path):
+        get_runner.run("opencode", kind="reason")
+    assert capsys.readouterr().out.strip() == "no_output"
+
+
+def test_cmd_get_runtime_history_delegates_to_run_runtime_history():
+    from types import SimpleNamespace
+    from owrap.runner import _cmd_get
+
+    args = SimpleNamespace(
+        what="runtime", kind="history", count=3, tail=5, ev=None, sid=None,
+    )
+    with patch("owrap.commands.get.GetRunner") as get_runner_cls, \
+         pytest.raises(SystemExit):
+        get_runner_cls.return_value.run_runtime_history.return_value = 0
+        _cmd_get(args, None, None, False)
+
+    get_runner_cls.return_value.run_runtime_history.assert_called_once_with(
+        count=3, sid=None,
+    )
+
+
+def test_run_runtime_defaults_sid_to_the_attached_session(
+    get_runner, tmp_path, capsys, monkeypatch,
+):
+    import json
+    log_path = tmp_path / "runtime.log"
+    events = [
+        {"ev": "cmd.end", "sid": "other", "cmd": "ctx"},
+        {"ev": "cmd.end", "sid": "abc123", "cmd": "exec"},
+    ]
+    log_path.write_text("\n".join(json.dumps(e) for e in events) + "\n")
+    monkeypatch.setenv("SESSION_ID", "abc123")
+    with patch("owrap.commands.get.RUNTIME_LOG", log_path):
+        get_runner.run_runtime(tail=5)
+    out = capsys.readouterr().out
+    assert "exec" in out
+    assert "ctx" not in out
+
+
+def test_run_runtime_explicit_sid_overrides_the_default(
+    get_runner, tmp_path, capsys, monkeypatch,
+):
+    import json
+    log_path = tmp_path / "runtime.log"
+    events = [
+        {"ev": "cmd.end", "sid": "other", "cmd": "ctx"},
+        {"ev": "cmd.end", "sid": "abc123", "cmd": "exec"},
+    ]
+    log_path.write_text("\n".join(json.dumps(e) for e in events) + "\n")
+    monkeypatch.setenv("SESSION_ID", "abc123")
+    with patch("owrap.commands.get.RUNTIME_LOG", log_path):
+        get_runner.run_runtime(tail=5, sid="other")
+    out = capsys.readouterr().out
+    assert "ctx" in out
+    assert "exec" not in out
+
+
+def test_run_runtime_history_pairs_argv_and_caps_count(
+    get_runner, tmp_path, capsys, monkeypatch,
+):
+    import json
+    log_path = tmp_path / "runtime.log"
+    events = [
+        {"ev": "cmd.start", "sid": "abc123", "pid": 1, "cmd": "ctx",
+         "argv": "ctx"},
+        {"ev": "cmd.end", "sid": "abc123", "pid": 1, "cmd": "ctx", "rc": 0,
+         "dur_s": 0.01, "ts": "2026-10-07T13:39:56.000"},
+        {"ev": "cmd.start", "sid": "abc123", "pid": 2, "cmd": "ctx-worker",
+         "argv": "ctx-worker --input /tmp/job/manual.json"},
+        {"ev": "cmd.end", "sid": "abc123", "pid": 2, "cmd": "ctx-worker",
+         "rc": 1, "dur_s": 365.32, "ts": "2026-10-07T13:46:01.000"},
+    ]
+    log_path.write_text("\n".join(json.dumps(e) for e in events) + "\n")
+    monkeypatch.setenv("SESSION_ID", "abc123")
+    with patch("owrap.commands.get.RUNTIME_LOG", log_path):
+        get_runner.run_runtime_history(count=1)
+    out = capsys.readouterr().out
+    assert "ctx-worker" in out and "done(rc=1)" in out and "365.32s" in out
+    assert "argv: ctx-worker --input /tmp/job/manual.json" in out
+    # Capped to the last 1 — the earlier `ctx` dispatch is excluded.
+    assert "argv: ctx\n" not in out
+
+
 def test_get_plan_empty(get_runner, fake_owrap, capsys):
     empty_plan = fake_owrap / "sessions" / "abc123" / "exec" / "plan.md"
     empty_plan.write_text("\n")

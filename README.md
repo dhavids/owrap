@@ -1,47 +1,28 @@
 # owrap
 
-## Session workflows
+owrap has two independent roles for an AI planner (currently Claude Code or
+Codex) working in a workspace:
 
-Sessions keep their context, plans, and activity under `OWRAP_HOME`. A project
-or repository target identifies where durable work belongs; several sessions
-can target the same project or subproject.
+1. **Context manager** — keeps each session's `context.md` and the
+   workspace's project/repository records current from the transcript
+   (`owrap ctx`/`updr`/`uall`, a PreCompact hook, and a background daemon
+   check). Dispatches to one of opencode's free models, not the planner's
+   own model. If opencode is unreachable (`owrap get opencode`), the
+   planner can do the update itself via `owrap ctx-template`/`ctx-ack`.
+   Runs regardless of whether the role below is enabled.
+2. **Opencode wrapper** — dispatches planner work to an opencode-backed
+   executor (`orun`/`oexec`/`oagent`/`owrap f`), with session isolation, a
+   server pool, and watchdog-based stall/failure handling. Toggled off
+   independently via `owrap_runner_enabled: false`.
 
-- `owrap spawn [name]` starts a child session with the current project's or
-  repository's target and repository links. It creates no checkout.
-- `owrap temp [name]` starts an independent session with no project target.
-  Without a name, owrap assigns `temp-<session-id>`. Its context, plans, and
-  logs live in `OWRAP_HOME/sessions/<session-id>/`, like other sessions.
-- `owrap main` returns an active project session to its main record.
-- `owrap sub <id> [-f]` selects or creates a regular subproject; close names
-  require correction or `-f` before creation.
-- `owrap subs` lists the active project's subprojects.
-- `owrap branch [name] [--ref <git-ref>]` starts a child session and makes one
-  Git worktree per linked repository in `<workspace>/branches/<session-id>/`.
-  The source checkouts must be clean. This command does not merge code.
-- `owrap branch merge [--session <id>] [--repo <id>]` previews code changes.
-  Add `--apply` to merge; a branch with several repositories requires `--repo`
-  for each merge.
-- `owrap collapse [--session <id>]` previews new child context entries. Add
-  `--apply` to copy them to the parent and return the window there. Branch
-  sessions require their code to be merged first.
-- `owrap branch cleanup --session <child-id>` previews worktree removal. Add
-  `--apply` after code merge and session collapse. Plain child and temp
-  sessions never create worktrees.
-
-`attach` connects a window to an existing session. It does not change the
-session's project target. Legacy research/area sessions retain their existing
-`spawn` behavior during migration.
-`owrap stat` shows each session's type: `normal`, `spawn`, `branch`, or `temp`.
-Context jobs show their live stage while running. Completed jobs remain visible
-for two minutes, then leave the status view. Their output and transcript are
-stored under `sessions/<session>/ctx/jobs/<job>/`; harness session IDs remain
-internal metadata and do not appear in these paths.
-
-Session-aware bridge between the planner (currently Claude Code) and opencode (executor). A planner instance designs plans and dispatches work; an opencode-backed executor does the actual reading, writing, and running. owrap provides background agents and task dispatch, parallel session isolation, and graceful server lifecycle management.
+Full reference docs — session lifecycle, every command, config keys,
+timeouts, troubleshooting — live under `templates/self/*.md` and are staged
+into each workspace's `CLAUDE.md`/`AGENTS.md`/`self.md` by `owrap sync`. This
+file covers only install.
 
 ## Requirements
 
-- Claude Code (VSCode or CLI)
+- Claude Code (VSCode or CLI) and/or Codex CLI, as planner and/or executor harness
 - opencode CLI
 - Python >= 3.10
 - PyYAML for the Python interpreter used to run `setup.py`
@@ -55,211 +36,83 @@ python3 -m pip install PyYAML
 python3 setup.py     # installs launchers for this checkout
 ```
 
-The live checkout installs launchers to `~/bin`; `dev/owrap` installs them to
-`dev/owrap/files/bin` with its own runtime home. After a code update, run
-`python3 update.py` from that checkout to refresh all six launchers. Restart
-running owrap processes to load changed Python code.
+This installs launchers to `~/bin`. After a code update, run `python3
+update.py` to refresh all six launchers, and restart any running owrap
+processes to load the changed code.
 
-## Getting Started
+For a new workspace, run `owrap setup <workspace_path> --planner claude
+--executor opencode` first — it writes the workspace config and stages
+`CLAUDE.md`/`AGENTS.md`/`self.md` (`claude` → `CLAUDE.md`; `codex`/`opencode`
+→ `AGENTS.md`). Workspace-owned additions live in `docs_root/instruction.md`;
+its `## Planner`/`## Executor`/`## Self` sections are merged into the
+corresponding staged document on every sync.
 
-For ordinary work, use the installed `~/bin/owrap`. Its session, memory, and
-logs use the live OWRAP_HOME. Edit owrap code in the `dev/owrap` checkout and
-run its tests there. Use `dev/owrap/files/bin/owrap` only for isolated
-development simulations; do not attach normal work sessions to dev state.
-Never promote dev code to the live checkout without an explicit user request.
-The `dev/owrap` checkout uses the repository's `dev` branch. The live `owrap`
-checkout uses `main`. Tests and pytest configuration stay on `dev`.
-`deploy.py` exports a filtered committed `dev` snapshot into the live checkout,
-excluding tests, development state, and deployment files. It previews by
-default; `--apply` creates the live `main` promotion commit and refreshes the
-installed launchers. Add `--push` to push `main` to the shared origin.
-
-### Promotion
-
-Promotion starts from a reviewed commit on `dev`. The development checkout
-must be clean. Preview the filtered release before applying it:
+Then start a session and sync workspace settings/hooks:
 
 ```bash
-cd /home/humble/marl/dev/owrap
-python3 deploy.py
-python3 deploy.py --apply
+~/bin/owrap start <project_name>
+owrap sync
 ```
 
-The first promotion creates `main` at the current live snapshot and leaves the
-existing `live` branch at that snapshot as a rollback reference. Later
-promotions add a commit to `main` with both the previous live commit and the
-reviewed `dev` commit as parents. Run `--push` only when the promoted commit
-should be published to `origin/main`.
+### Permissions (`owrap p`)
 
-```bash
-~/bin/owrap start --project owrap    # begin a project session
-```
+`owrap p` is owrap's own permission check — any harness can wire it up to
+gate tool calls. It reads the tool call from stdin, loads the workspace's
+staged allow rules, and approves or denies by pattern match.
+`permit_bypass_all` auto-approves everything; otherwise anything not
+matching an allow rule is denied. Claude and Codex are the two harnesses
+currently wired up:
 
-`setup` writes a workspace config under `OWRAP_HOME/configs/` and stages
-`CLAUDE.md`, `AGENTS.md`, and the `self.md` reference pages under
-`OWRAP_HOME/runtime/staged/<workspace>/`. After starting or attaching a session, run
-`owrap sync` to install workspace settings and hooks.
-In the development checkout, `setup` accepts only workspace and memory paths
-under `dev/owrap/files/`.
+- **Claude**: staged into `CLAUDE.md`'s `settings.json` as a single
+  `PreToolUse` hook running `owrap p`, with `defaultMode: dontAsk` so Claude
+  never falls back to its own interactive prompt — owrap's hook is the only
+  gate.
+- **Codex**: staged into `AGENTS.md`'s `hooks.json` as two hooks on `^Bash$`
+  — `PreToolUse` and `PermissionRequest` — both running `owrap p`, since
+  Codex's permission-request flow needs its own matching hook. One-time
+  setup:
+  1. Run `owrap sync`.
+  2. Add to `~/.codex/config.toml` (absolute workspace path):
+     ```toml
+     [projects."/absolute/path/to/workspace"]
+     trust_level = "trusted"
+     ```
+  3. Start a new Codex session, open `/hooks`, and trust the `owrap p` hooks.
 
-Harness templates live in `templates/claude/` and `templates/codex/`.
-Both `setup` and `sync` stage each harness's files; `sync` installs the
-Claude settings and Codex hooks into the workspace. The planner, executor,
-`self.md` pages, and base config remain shared templates at the top level.
-Planner and executor manuals go to `CLAUDE.md` and `AGENTS.md` by default.
-Workspace-owned additions live in `docs_root/instruction.md`. Its `## Planner`,
-`## Executor`, and `## Self` sections are added to the corresponding staged
-documents. Generic `self.md` pages are never copied into `docs_root`.
-Use `owrap setup <path> --planner claude --executor opencode` to select the
-harness for each role. `claude` uses `CLAUDE.md`; `codex` and `opencode` use
-`AGENTS.md`. Repeat `--planner` or `--executor` to use a role with multiple
-harnesses. For example, `--planner claude --executor claude` puts both manuals
-in `CLAUDE.md`. Each harness has its own `allow.json` for `owrap p`.
+## Reference
 
-### Use `owrap p` in Codex
+- Session lifecycle, `OWRAP_HOME`, spawn/branch/collapse: `templates/self/sessions.md`
+- Commands, server management, timeouts, troubleshooting: `templates/self/commands.md`
+- Context/record update behavior: `templates/self/context.md`
+- Recovery, decision pruning, fallback dispatch: `templates/self/recovery.md`
+- Config keys: `templates/self/commands.md` § Configuration
 
-1. Run `owrap sync`.
-2. Add this to `~/.codex/config.toml`, using your workspace's absolute path:
+## Dev / Live Split-Dev
 
-   ```toml
-   [projects."/absolute/path/to/workspace"]
-   trust_level = "trusted"
-   ```
+Stripped from the promoted README by `deploy.py` — never reaches the live
+checkout.
 
-3. Start a new Codex session, open `/hooks`, and trust the `owrap p` hooks.
+- Edit code and run tests only in `dev/owrap` (the `dev` branch). The live
+  checkout (`main` branch, installed at `~/bin/owrap`) is for ordinary work —
+  never attach normal work sessions to dev state, and never promote dev code
+  to live without an explicit user request.
+- Promotion is one-directional, dev → live, and always starts from a
+  reviewed, clean commit on `dev`:
+  ```bash
+  cd dev/owrap
+  python3 deploy.py          # preview the filtered release
+  python3 deploy.py --apply  # create the live `main` promotion commit
+  ```
+  `deploy.py` excludes tests, development state, and deployment files (see
+  `.gitattributes`), and strips every `-Dev`-suffixed section from
+  `README.md`. The first promotion creates `main` at the current live
+  snapshot, keeping the prior `live` branch as a rollback reference; later
+  ones add a commit with both the previous live commit and the promoted
+  `dev` commit as parents. Add `--push` only when the promoted commit should
+  reach `origin/main`.
 
-## OWRAP_HOME
+## Tests-Dev
 
-In the live checkout, `OWRAP_HOME` resolves in this order: `$OWRAP_HOME` env
-var, `~/.owrap_home` pointer file, then `~/.owrap`. In `dev/owrap`, it defaults
-to `dev/owrap/files/state`; an explicit value must remain under
-`dev/owrap/files`. The development launchers set this value themselves.
-
-For relocation, use `owrap update-home <path>` to move only the pointer or `--migrate` to perform a full atomic relocation of the owrap runtime directory. See [Sessions § OWRAP_HOME](templates/self/sessions.md#owrap_home).
-
-## Configuration
-
-Base config: `templates/config.json` → copy to `OWRAP_HOME/configs/base.json`.
-
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `owrap_runner_enabled` | bool | `true` | Runner on/off switch. When `false`, dispatch tooling (`orun`/`oexec`/`oagent`/`owrap f`) is disabled and planner works directly. |
-| `owrap_context_manager_enabled` | bool | `true` | Gates the context-manager pipeline (Update Context/Update Protocol dispatch, including PreCompact), independent of the runner switch above. |
-| `permit_bypass_all` | bool | `false` | When `true`, `owrap p` auto-approves every Bash/Write/Edit call with no rule matching. Explicit opt-in only — never implied by the runner switch. |
-| `runner_allow_all` | bool | `false` | Always pass `--dangerously-skip-permissions` to opencode dispatches. |
-| `runner_use_oread` | bool | `true` | Require file reads through `oread` (enables Read in permission matcher). |
-| `context_injection_enabled` | bool | `true` | Inject session context file into task/msg prompts. |
-| `default_research` | string | — | Default target for legacy positional `start`. |
-| `workspace` | string | — | Path to the project root. |
-| `docs_root` | string | — | Root for projects, repositories, and the user-owned `instruction.md`. |
-| `research_root` | string | — | Legacy alias read during migration. |
-| `use_multiple_servers` | bool | `false` | Enable server pool mode. |
-| `max_servers` | int | `1` | Maximum concurrent opencode servers. |
-| `min_servers` | int | `1` | Minimum live servers the daemon maintains. |
-| `max_requests_per_server` | int | `10` | Request quota per server before graceful eviction. |
-| `idle_shutdown_s` | float | `300` | Idle seconds before server shutdown. |
-| `daemon_interval_s` | float | `10` | Seconds between daemon pool-lifecycle checks. |
-| `ctx_check_interval_s` | float | `300` | Seconds between the daemon's background checks for an attached window's unprocessed transcript diff — dispatches an Update Context/Update Protocol pass automatically when one exists. |
-| `runner_model` | string | — | Model for regular runner dispatch (`orun`/`oexec`). |
-| `context_manager_model` | string | — | Model for context-manager tasks (Update Context/Update Protocol dispatch). |
-| `context_fallback_model` | string | — | Fallback model when `context_manager_model` isn't set. |
-| `daemon_default_model` | string | — | Reserved for the daemon; not currently consumed (the daemon is pure lifecycle management, no model calls). |
-| `msg_kill_s` / `task_kill_s` / `exec_kill_s` | int | `30`/`60`/`120` | No output kill timeouts for msg, task, exec jobs. |
-| `stall_notify_s` | int | `120` | Seconds before notification for a stalled job. |
-| `watchdog_poll_s` | int | `10` | Watchdog polling interval. |
-| `expected_duration_*` | int | varies | Expected duration thresholds for msg/read/task/exec. |
-
-## Core Commands
-
-### Task dispatch (`orun`)
-
-Dispatches inline messages, file tasks, and parallel jobs to the executor. Most common: `orun --msg "..."` (foreground) or `orun` (file task from `input.md`, auto-background). See [Commands § Dispatch commands](templates/self/commands.md#dispatch-commands).
-
-### Plan execution (`oexec`)
-
-Executes the active `[ACTIVE]` plan block. Most common: `oexec` (auto-background). See [Commands § Dispatch commands](templates/self/commands.md#dispatch-commands).
-
-### Sub-agent dispatch (`oagent`)
-
-Dispatches sub-agent payloads via heredoc with configurable timeout and model override. Most common: `oagent <<'OAGENT_PAYLOAD_END' ... OAGENT_PAYLOAD_END`. See [Commands § Dispatch commands](templates/self/commands.md#dispatch-commands).
-
-### Fallback dispatch (`owrap f`)
-
-Runs `--execf` or `--taskf` directly without the server pool; mode inferred from filename. See [Recovery § Fallback dispatch](templates/self/recovery.md#fallback-dispatch).
-
-### File reading (`oread`)
-
-Reads files, directories, grep patterns, summaries, and targeted queries through the executor. Most common: `oread -f <file>`. See [Commands § Dispatch commands](templates/self/commands.md#dispatch-commands).
-
-### Notebook reading (`nbread`)
-
-Lists and displays Jupyter notebook cells. Most common: `nbread <nb.ipynb>` (list cells) or `nbread <nb.ipynb> <N>` (show cell N). Use `nbread -h` for options.
-
-### Session lifecycle
-
-Manages sessions, servers, and templates. Key commands: `owrap start --project <id>` (begin a project session), `owrap refresh`, `owrap end`, `owrap sync`, `owrap stat`, and `owrap get <what>`. See [Sessions](templates/self/sessions.md) and [Commands](templates/self/commands.md).
-
-### Wait (`owait`)
-
-Blocks until dispatched jobs complete. Most common: `owait input` (between parallel dispatches) or `owait run` (next task completion). See [Commands § Dispatch commands](templates/self/commands.md#dispatch-commands).
-
-## Server Management
-
-- **Graceful draining**: Unresponsive servers or those hitting their request quota are marked *draining*. In this state, no new work is routed to them, but in-flight requests are allowed to finish. The servers are then reaped once idle, not killed outright.
-- **Daemon**: Manages the server pool — shuts down idle servers, maintains `min_servers`. Spawned automatically on first pooled dispatch and stays running from then on (does not self-exit on idle).
-- `owrap killservers [--session <id>]` — Kill all servers and running tasks.
-
-## Timeouts
-
-| Dispatch | Default hard ceiling | Override |
-|---|---|---|
-| `orun --msg` | 180s | `-t <secs>` |
-| `orun` (file task) | 600s | `-t <secs>` |
-| `oexec` | 600s | `-t <secs>` |
-| `oagent` | 120s | `-t <secs>` |
-
-The 600s hard wall-clock timeout on task/exec dispatches can be overridden per-invocation via `-t`/`--timeout`.
-
-## Duration defaults
-
-Expected-duration thresholds used by the watchdog to judge stalls (e.g. `expected_duration_msg`, `expected_duration_task`, kill timeouts). See [Commands § Duration defaults](templates/self/commands.md#duration-defaults).
-
-## Exit codes
-
-See [Commands § Exit codes](templates/self/commands.md#exit-codes) for redispatch guidance.
-
-## Parallel Task Dispatch
-
-Write a task to the session `input.md`, dispatch with `orun`, then `owait input` before writing the next — up to 5 tasks can run simultaneously. Collect results with `owait run` per completion. See [Commands § Dispatch commands](templates/self/commands.md#dispatch-commands).
-
-## Troubleshooting
-
-**No server available / NO_SERVER error**: Run `owrap stat` to check pool status. Servers hitting `max_requests_per_server` are gracefully drained and replaced. Use `owrap f <path>` as a fallback that bypasses the pool entirely.
-
-**Task/exec times out**: Default ceilings are 600s. Extend with `-t <secs>`. If the job is stuck, `owrap abort <target>` sends SIGTERM.
-
-**Stalled job notification**: After `stall_notify_s` (default 120s) with no output, a watchdog notification fires. If the server is unresponsive, it is marked draining and will be reaped when idle.
-
-**Template changes not picked up**: Run `owrap sync`, then dispatch the sync task it prints via `orun`.
-
-**owrap_runner_enabled = false**: Dispatch tooling is disabled; planner works directly. Note this does not by itself grant unrestricted command access — that requires the separate, explicit `permit_bypass_all` flag.
-
-## Tests
-
-```bash
-cd /home/humble/marl/dev/owrap
-/home/humble/e-swarm/bin/python3 -m pytest tests/ -v
-```
-
-The suite refuses to run outside the `dev/owrap` checkout. It creates a private
-`OWRAP_HOME` under `dev/owrap/files/test-runs`, redirects per-test files to
-pytest temporary directories, and uses ports starting at 15096. It does not
-run global server cleanup. See [tests/md/run_tests.md](tests/md/run_tests.md)
-for the coverage table and manual smoke tests.
-
-Tests covering dispatch/server-lifecycle machinery (`orun`, `oexec`, `owrap f`,
-`oagent`, daemon, server pool, watchdog) carry the `runner` marker. Run
-`pytest tests/ -m "not runner"` to skip them — useful when working outside that
-subsystem, and currently also the only reliable way to run the suite at all,
-since the `runner`-marked tests hang when run together (real daemon/server
-processes not torn down between tests).
+Stripped from the promoted README by `deploy.py` — never reaches the live
+checkout. See [tests/md/run_tests.md](tests/md/run_tests.md) for the full
+command, coverage table, and manual smoke tests.

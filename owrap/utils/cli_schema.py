@@ -401,6 +401,18 @@ SUBCOMMANDS = [
         ],
     },
     {
+        "name": "ctx-template",
+        "help": "Print the self-service update for when opencode is down",
+        "args": [
+            {"flags": ["subproject"], "nargs": "?", "default": None,
+             "help": "Subproject to target (default: this session's target)"},
+        ],
+    },
+    {
+        "name": "ctx-ack",
+        "help": "Mark a manual (planner-done) context update as complete",
+    },
+    {
         "name": "touched",
         "help": "Report touched file paths for the next context-manager dispatch",
         "args": [
@@ -429,6 +441,21 @@ SUBCOMMANDS = [
         ],
     },
     {
+        "name": "rename",
+        "help": "Rename a project, subproject, or repository",
+        "args": [
+            {"flags": ["kind"], "choices": [
+                "project", "proj", "subproject", "sub", "repository", "repo",
+            ]},
+            {"flags": ["arg1"],
+             "help": "Old id (project/repository), or project id (subproject)"},
+            {"flags": ["arg2"],
+             "help": "New id (project/repository), or old subproject id"},
+            {"flags": ["arg3"], "nargs": "?", "default": None,
+             "help": "New subproject id (subproject only)"},
+        ],
+    },
+    {
         "name": "delete", "help": "Delete something (backup only, for now)",
         "args": [
             {"flags": ["what"], "choices": ["backup"]},
@@ -443,14 +470,17 @@ SUBCOMMANDS = [
         "args": [
             {"flags": ["what"], "choices": [
                 "plan", "input", "context", "session", "memory",
-                "project", "proj", "todo", "area", "research", "project-id",
-                "subproject", "sub", "subs", "repository", "repo", "repos",
+                "project", "proj", "todo", "decisions", "area", "research",
+                "project-id", "subproject", "sub", "repository", "repo",
                 "self",
-                "config", "home", "agents",
-                "output", "runtime", "transcript",
+                "config", "home", "agents", "opencode",
+                "output", "runtime", "transcript", "history",
             ]},
             {"flags": ["kind"], "nargs": "?", "default": None,
-             "choices": ["msg", "task", "agent", "exec"]},
+             "help": "msg/task/agent/exec/reason/history, or with `history`"
+                     " as `what`, the count"},
+            {"flags": ["count"], "nargs": "?", "type": int, "default": 5,
+             "help": "With `runtime history`: how many dispatches to show"},
             _SESSION,
             {"flags": ["--id"], "default": None},
             {"flags": ["--head"], "type": int, "default": 5},

@@ -91,9 +91,9 @@ def tail(path: Path, limit: int = 320) -> str:
         return ""
 
 
-def recent(session_id: str | None = None, limit: int = 8) -> list[dict]:
+def _load_all(session_id: str | None) -> list[dict]:
     """
-    Read active and recent context jobs from session storage.
+    Read every stored context job's status record from session storage.
     """
     jobs = []
     root = paths.SESSIONS_DIR
@@ -110,6 +110,14 @@ def recent(session_id: str | None = None, limit: int = 8) -> list[dict]:
             jobs.append(data)
         except (OSError, ValueError):
             continue
+    return jobs
+
+
+def recent(session_id: str | None = None, limit: int = 8) -> list[dict]:
+    """
+    Read active and recent context jobs from session storage.
+    """
+    jobs = _load_all(session_id)
     active = []
     done = []
     now = time.time()

@@ -31,6 +31,9 @@ def _repository(path):
     )
     (path / ".gitignore").write_text("__pycache__/\n")
     (path / "app.py").write_text("print('live')\n")
+    (path / "README.md").write_text(
+        "# App\n\nLive-facing text.\n\n## Tests-Dev\n\nDev-only notes.\n"
+    )
     (path / "deploy.py").write_text("dev only\n")
     (path / "pytest.ini").write_text("[pytest]\n")
     (path / "tests").mkdir()
@@ -55,6 +58,31 @@ def test_build_release_omits_development_files(tmp_path):
     assert not (release / "pytest.ini").exists()
     assert not (release / "deploy.py").exists()
     assert not (release / "files").exists()
+    readme_text = (release / "README.md").read_text()
+    assert "Live-facing text." in readme_text
+    assert "Tests-Dev" not in readme_text
+    assert "Dev-only notes" not in readme_text
+
+
+def test_strip_dev_sections_removes_every_dev_suffixed_heading(tmp_path):
+    readme = tmp_path / "README.md"
+    readme.write_text(
+        "# owrap\n\nIntro text.\n\n"
+        "## Install\n\nInstall text.\n\n"
+        "## Tests-Dev\n\nDev-only test notes.\n\n"
+        "## Reference\n\nReference text.\n\n"
+        "## Promotion-dev\n\nLowercase-suffixed dev notes.\n"
+    )
+
+    deploy.strip_dev_sections(readme)
+
+    text = readme.read_text()
+    assert "## Install" in text
+    assert "## Reference" in text
+    assert "Tests-Dev" not in text
+    assert "Dev-only test notes" not in text
+    assert "Promotion-dev" not in text
+    assert "Lowercase-suffixed dev notes" not in text
 
 
 def test_changes_reports_release_delta(tmp_path):

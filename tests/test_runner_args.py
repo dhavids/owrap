@@ -148,6 +148,12 @@ REPRESENTATIVE_CASES = [
     (["updr", "sub1", "--ctx"], {
         "allow_all": False, "command": "updr", "ctx": True, "subproject": "sub1"
     }),
+    (["ctx-template", "sub1"], {
+        "allow_all": False, "command": "ctx-template", "subproject": "sub1"
+    }),
+    (["ctx-ack"], {
+        "allow_all": False, "command": "ctx-ack"
+    }),
     (["touched", "a.py", "b.py", "--note", "n"], {
         "allow_all": False, "command": "touched", "note": "n", "paths": ["a.py", "b.py"]
     }),
@@ -162,15 +168,24 @@ REPRESENTATIVE_CASES = [
         "allow_all": False, "command": "delete", "target": "target1", "what": "backup",
         "which": "all"
     }),
+    (["rename", "project", "old1", "new1"], {
+        "allow_all": False, "arg1": "old1", "arg2": "new1", "arg3": None,
+        "command": "rename", "kind": "project"
+    }),
     (["get", "project"], {
-        "allow_all": False, "ccsid": None, "command": "get", "ev": None, "head": 5,
-        "id": None, "kind": None, "session": None, "sid": None, "tail": 5,
+        "allow_all": False, "ccsid": None, "command": "get", "count": 5, "ev": None,
+        "head": 5, "id": None, "kind": None, "session": None, "sid": None, "tail": 5,
         "what": "project"
     }),
     (["get", "output", "msg", "--id", "x"], {
-        "allow_all": False, "ccsid": None, "command": "get", "ev": None, "head": 5,
-        "id": "x", "kind": "msg", "session": None, "sid": None, "tail": 5,
+        "allow_all": False, "ccsid": None, "command": "get", "count": 5, "ev": None,
+        "head": 5, "id": "x", "kind": "msg", "session": None, "sid": None, "tail": 5,
         "what": "output"
+    }),
+    (["get", "history", "7"], {
+        "allow_all": False, "ccsid": None, "command": "get", "count": 5, "ev": None,
+        "head": 5, "id": None, "kind": "7", "session": None, "sid": None, "tail": 5,
+        "what": "history"
     }),
     (["daemon"], {
         "allow_all": False, "command": "daemon"

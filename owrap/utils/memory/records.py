@@ -13,6 +13,32 @@ from ..paths import _read_config, get_workspace_config
 
 _SLUG = re.compile(r"[a-z0-9][a-z0-9-]*\Z")
 
+IDENTITY_ALIASES = {"proj": "project", "sub": "subproject", "repo": "repository"}
+
+
+def normalize_identity_kind(kind: str) -> str:
+    """
+    Map a short singular identity-kind alias (`proj`/`sub`/`repo`) to
+    its canonical `project`/`subproject`/`repository` name.
+    """
+    return IDENTITY_ALIASES.get(kind, kind)
+
+
+def count_bullets(path: Path, heading: str) -> int:
+    """
+    Count non-empty `- ` entries under `heading` in a Markdown file.
+    Zero if the file or heading doesn't exist.
+    """
+    if not path.is_file():
+        return 0
+    section = extract_section(path.read_text(), heading)
+    if not section:
+        return 0
+    return sum(
+        1 for line in section.splitlines()[1:]
+        if line.strip().startswith("- ")
+    )
+
 
 @dataclass(frozen=True)
 class MemoryTarget:
