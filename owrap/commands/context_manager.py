@@ -23,6 +23,7 @@ from ..utils.parser.sections import (
     extract_section, replace_section, split_top_sections, merge_log_entries,
 )
 from ..utils.parser.text import extract_useful_lines
+from ..utils.parser.output import OutputParser
 from ..utils.dispatch.terminal import Terminal
 from ..utils.dispatch.watchdog import strip_boilerplate
 from ..utils.filelock import file_lock
@@ -687,7 +688,7 @@ class CtxWorkerRunner:
         print(f"ctx-worker: opencode rc={rc}", flush=True)
         meta = {
             "idled_out": bool(result.get("idled_out")),
-            "stdout": result.get("stdout") or "",
+            "stdout": OutputParser().feed(result.get("stdout") or ""),
             "model": model or "(default)",
         }
 
