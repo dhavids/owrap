@@ -188,7 +188,10 @@ REPRESENTATIVE_CASES = [
         "what": "history"
     }),
     (["daemon"], {
-        "allow_all": False, "command": "daemon"
+        "allow_all": False, "command": "daemon", "action": None
+    }),
+    (["daemon", "restart"], {
+        "allow_all": False, "command": "daemon", "action": "restart"
     }),
     (["p", "--workspace", "ws1"], {
         "allow_all": False, "command": "p", "workspace": "ws1"

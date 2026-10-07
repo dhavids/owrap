@@ -57,6 +57,72 @@ def test_ensure_daemon_keeps_running_process(tmp_path):
     popen.assert_not_called()
 
 
+def test_stop_daemon_signals_and_clears_pid_file(tmp_path):
+    from owrap.utils.dispatch.pool import _stop_daemon
+
+    pid_file = tmp_path / "daemon.pid"
+    pid_file.write_text("4321")
+
+    def _fake_kill(pid, sig):
+        if sig == 0:
+            raise OSError("no such process")
+
+    with (
+        patch("owrap.utils.dispatch.pool.DAEMON_PID_FILE", pid_file),
+        patch(
+            "owrap.utils.dispatch.pool.DAEMON_LOCK_FILE",
+            tmp_path / "daemon.lock",
+        ),
+        patch("owrap.utils.dispatch.pool.os.kill", side_effect=_fake_kill) as kill,
+    ):
+        stopped = _stop_daemon()
+
+    assert stopped is True
+    assert kill.call_args_list[0].args == (4321, 15)
+    assert not pid_file.exists()
+
+
+def test_stop_daemon_noop_when_not_running(tmp_path):
+    from owrap.utils.dispatch.pool import _stop_daemon
+
+    with patch(
+        "owrap.utils.dispatch.pool.DAEMON_PID_FILE", tmp_path / "daemon.pid",
+    ):
+        assert _stop_daemon() is False
+
+
+def test_restart_daemon_stops_then_spawns(tmp_path):
+    from owrap.utils.dispatch.pool import _restart_daemon
+
+    pid_file = tmp_path / "daemon.pid"
+    pid_file.write_text("4321")
+    root = tmp_path / "checkout"
+    root.mkdir()
+    process = MagicMock(pid=9999)
+
+    def _fake_kill(pid, sig):
+        if sig == 0:
+            raise OSError("no such process")
+
+    with (
+        patch("owrap.utils.dispatch.pool.DAEMON_PID_FILE", pid_file),
+        patch(
+            "owrap.utils.dispatch.pool.DAEMON_LOCK_FILE",
+            tmp_path / "daemon.lock",
+        ),
+        patch("owrap.utils.dispatch.pool.OWRAP_ROOT", root),
+        patch("owrap.utils.dispatch.pool.os.kill", side_effect=_fake_kill),
+        patch(
+            "owrap.utils.dispatch.pool.subprocess.Popen",
+            return_value=process,
+        ) as popen,
+    ):
+        _restart_daemon()
+
+    popen.assert_called_once()
+    assert pid_file.read_text() == "9999"
+
+
 def test_dev_port_range_does_not_use_live_port():
     from owrap.utils.dispatch.pool import _next_port
 

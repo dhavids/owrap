@@ -269,10 +269,8 @@ def promote(
         )
         owrap_bin = str(Path.home() / "bin" / "owrap")
         subprocess.run([owrap_bin, "sync"], check=True)
-        # Kill the daemon so it reloads promoted code; self-heals on
-        # the next daemon-dependent command (owrap stat here).
-        subprocess.run(["pkill", "-f", "owrap.runner daemon"], check=False)
-        subprocess.run([owrap_bin, "stat"], check=True, stdout=subprocess.DEVNULL)
+        # Daemon reloads promoted code only on restart, not on its own.
+        subprocess.run([owrap_bin, "daemon", "restart"], check=True)
     if push:
         git(target, "push", "origin", LIVE_BRANCH)
     print(f"Promoted {short_commit} to {target} on {LIVE_BRANCH}.")
