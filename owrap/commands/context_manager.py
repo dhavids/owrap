@@ -1300,7 +1300,9 @@ class ManualCtxRunner:
                 print(
                     "## Status — replace only if this is a genuinely newer "
                     "state than what's already there\n"
-                    "## Decisions — prepend NEW `- decision — why` lines\n"
+                    "## Decisions — don't edit this section directly; run "
+                    f"`owrap decide {record_id} \"<text>\"` for each new "
+                    "decision\n"
                 )
             for repo_id, repo_path in zip(
                 target.repository_ids, target.repository_paths,
