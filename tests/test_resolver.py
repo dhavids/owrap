@@ -350,9 +350,10 @@ def _parse_session(path: Path) -> dict:
 
 class TestResolveAttachTarget:
     def _write_sessions(self, tmp_path, sessions):
-        for sid, research, area in sessions:
+        for sid, project_id, subproject_id in sessions:
             (tmp_path / f"{sid}.session").write_text(
-                f"session_id={sid}\nresearch={research}\narea={area}\n",
+                f"session_id={sid}\ntarget_kind=project\n"
+                f"project_id={project_id}\nsubproject_id={subproject_id}\n",
             )
 
     def test_exact_session_id(self, tmp_path, monkeypatch):
@@ -363,7 +364,7 @@ class TestResolveAttachTarget:
         assert status == "session_id"
         assert payload == "9f5f96"
 
-    def test_unique_research_match(self, tmp_path, monkeypatch):
+    def test_unique_project_match(self, tmp_path, monkeypatch):
         monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", tmp_path)
         self._write_sessions(tmp_path, [("9f5f96", "owrap", "main")])
 
@@ -371,7 +372,7 @@ class TestResolveAttachTarget:
         assert status == "unique"
         assert payload["session_id"] == "9f5f96"
 
-    def test_unique_area_match(self, tmp_path, monkeypatch):
+    def test_unique_subproject_match(self, tmp_path, monkeypatch):
         monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", tmp_path)
         self._write_sessions(tmp_path, [
             ("b0d5b3", "translator", "data-gen"),
@@ -382,7 +383,7 @@ class TestResolveAttachTarget:
         assert status == "unique"
         assert payload["session_id"] == "66e748"
 
-    def test_ambiguous_research_differs_by_area(self, tmp_path, monkeypatch):
+    def test_ambiguous_project_differs_by_subproject(self, tmp_path, monkeypatch):
         monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", tmp_path)
         self._write_sessions(tmp_path, [
             ("b0d5b3", "translator", "data-gen"),
@@ -393,24 +394,26 @@ class TestResolveAttachTarget:
         status, payload = resolve_attach_target("translator")
         assert status == "ambiguous"
         differential, matches = payload
-        assert differential == "area"
+        assert differential == "subproject_id"
         assert {s["session_id"] for s in matches} == {"b0d5b3", "79f7f6", "66e748"}
 
-    def test_ambiguous_area_differs_by_research(self, tmp_path, monkeypatch):
+    def test_ambiguous_subproject_differs_by_project(self, tmp_path, monkeypatch):
         monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", tmp_path)
         self._write_sessions(tmp_path, [
             ("9f5f96", "owrap", "main"),
-            ("cc6885", "mpe_learner", "main"),
+            ("cc6885", "mpe-learner", "main"),
             ("dfe743", "docs", "main"),
         ])
 
         status, payload = resolve_attach_target("main")
         assert status == "ambiguous"
         differential, matches = payload
-        assert differential == "research"
+        assert differential == "project_id"
         assert {s["session_id"] for s in matches} == {"9f5f96", "cc6885", "dfe743"}
 
-    def test_area_exact_match_excludes_similar_area(self, tmp_path, monkeypatch):
+    def test_subproject_exact_match_excludes_similar_subproject(
+        self, tmp_path, monkeypatch,
+    ):
         monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", tmp_path)
         self._write_sessions(tmp_path, [
             ("b0d5b3", "translator", "data-gen"),

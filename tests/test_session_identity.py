@@ -78,7 +78,6 @@ def test_repository_only_start_clears_research_and_area(
     assert data["repository_id"] == "owrap-dev"
     assert data.get("research") == ""
     assert data.get("area") == ""
-    assert mock_manager.research == ""
 
 
 def test_start_with_bare_name_resolves_to_project(
@@ -325,5 +324,5 @@ def test_start_with_zero_args_creates_anonymous_session_without_legacy_file(
     assert exc.value.code == 0
     data = resolver._parse(session_path)
     assert not data.get("target_kind")
-    assert data.get("area") == "main"
+    assert not data.get("area")
     assert not docs_root.exists()

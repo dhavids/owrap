@@ -149,16 +149,18 @@ def test_rename_project_refuses_an_ambiguous_token(rename_scope, tmp_path):
         "repositories: []\nsubprojects: {}\n"
     )
     (other_project / "main.md").write_text("# Other\n\n## Goals\n")
+    # Token "abc123" hits session_path by session_id (project_id=demo)
+    # and second_session by project_id (literally "abc123") -- two
+    # different resolved values, hence ambiguous.
     second_session = session_path.parent.parent / "def456" / ".session"
     second_session.parent.mkdir()
     second_session.write_text(
-        "session_id=def456\ntarget_kind=project\nproject_id=other\n"
-        "research=shared\nworkspace=test\n"
+        "session_id=def456\ntarget_kind=project\nproject_id=abc123\n"
+        "workspace=test\n"
     )
-    session_path.write_text(session_path.read_text() + "research=shared\n")
 
     with pytest.raises(ValueError, match="matches more than one"):
-        RenameRunner().project("shared", "renamed")
+        RenameRunner().project("abc123", "renamed")
 
     assert (root / "projects" / "demo").exists()
     assert (root / "projects" / "other").exists()

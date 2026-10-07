@@ -33,8 +33,9 @@ def fake_owrap(tmp_path):
     session_file = sessions / "abc123.session"
     session_file.write_text(
         "session_id=abc123\n"
-        "research=mytest\n"
-        "area=foo\n"
+        "target_kind=project\n"
+        "project_id=mytest\n"
+        "subproject_id=foo\n"
         "workspace=fakews\n"
         "last_refresh=2026-06-12T10:00:00\n"
         "started=2026-06-12T09:00:00\n"
@@ -363,34 +364,6 @@ def test_unknown_what(get_runner, fake_owrap, capsys):
             get_runner.run("bogus", session_id="abc123")
     captured = capsys.readouterr()
     assert "Usage:" in captured.out
-
-
-def test_get_area(tmp_path, monkeypatch, capsys):
-    sessions_dir = tmp_path / "sessions"
-    sessions_dir.mkdir(parents=True, exist_ok=True)
-    sid = "testsid"
-    sf = sessions_dir / f"{sid}.session"
-    sf.write_text("session_id=testsid\nresearch=myresearch\narea=main\nworkspace=marl\n")
-    monkeypatch.setenv("SESSION_ID", sid)
-    monkeypatch.setattr("owrap.commands.get.RUNTIME_HOME", tmp_path)
-    from owrap.commands.get import GetRunner
-    GetRunner().run("area")
-    out = capsys.readouterr().out.strip()
-    assert out == "main"
-
-
-def test_get_research(tmp_path, monkeypatch, capsys):
-    sessions_dir = tmp_path / "sessions"
-    sessions_dir.mkdir(parents=True, exist_ok=True)
-    sid = "testsid"
-    sf = sessions_dir / f"{sid}.session"
-    sf.write_text("session_id=testsid\nresearch=myresearch\narea=main\nworkspace=marl\n")
-    monkeypatch.setenv("SESSION_ID", sid)
-    monkeypatch.setattr("owrap.commands.get.RUNTIME_HOME", tmp_path)
-    from owrap.commands.get import GetRunner
-    GetRunner().run("research")
-    out = capsys.readouterr().out.strip()
-    assert out == "myresearch"
 
 
 def test_get_config(tmp_path, monkeypatch, capsys):

@@ -345,15 +345,13 @@ def all_attached_codex_session_id_pairs() -> list:
 
 def _suggest_attach_targets(token: str, sessions: list) -> list:
     """
-    Return session/research/area strings close to token, for a
+    Return session/project/repository strings close to token, for a
     "did you mean" hint when no exact match was found.
     """
 
     candidates = set()
     for s in sessions:
         candidates.add(s.get("session_id", ""))
-        candidates.add(s.get("research", ""))
-        candidates.add(s.get("area", ""))
         candidates.add(s.get("project_id", ""))
         candidates.add(s.get("subproject_id", ""))
         candidates.add(s.get("repository_id", ""))
@@ -375,9 +373,9 @@ def resolve_attach_target(token: str) -> tuple:
     """
     Resolve a user-typed `owrap attach` argument to a session.
 
-    Tries an exact session id first, then an exact match on the
-    'research' field, then an exact match on the 'area' field;
-    research and area hits are unioned and deduped by session_id.
+    Tries an exact session id first, then an exact match on
+    project_id/subproject_id/repository_id; hits are unioned and
+    deduped by session_id.
 
     Returns (status, payload):
       ("session_id", token) — token is a valid session id
@@ -389,9 +387,7 @@ def resolve_attach_target(token: str) -> tuple:
         return "session_id", token
 
     sessions = list_sessions()
-    fields = (
-        "research", "area", "project_id", "subproject_id", "repository_id",
-    )
+    fields = ("project_id", "subproject_id", "repository_id")
     field_matches = [
         s for s in sessions if any(s.get(field) == token for field in fields)
     ]
@@ -413,7 +409,7 @@ def resolve_attach_target(token: str) -> tuple:
 
     varying = [
         field for field in (
-            "project_id", "subproject_id", "repository_id", "research", "area",
+            "project_id", "subproject_id", "repository_id",
         )
         if len({s.get(field, "") for s in matches}) > 1
     ]
@@ -421,7 +417,6 @@ def resolve_attach_target(token: str) -> tuple:
 
     matches.sort(key=lambda s: (
         s.get("project_id", ""), s.get("subproject_id", ""),
-        s.get("research", ""), s.get("area", ""),
     ))
     return "ambiguous", (differential, matches)
 
@@ -443,8 +438,7 @@ def format_ambiguous_attach_error(target: str, differential: str, matches: list)
             label = (
                 f"project={s.get('project_id', '-')} "
                 f"subproject={s.get('subproject_id', '-')} "
-                f"repository={s.get('repository_id', '-')} "
-                f"research={s.get('research', '-')} area={s.get('area', '-')}"
+                f"repository={s.get('repository_id', '-')}"
             )
         lines.append(f"  {label:<24} session={s['session_id']}")
     return "\n".join(lines)
@@ -452,7 +446,7 @@ def format_ambiguous_attach_error(target: str, differential: str, matches: list)
 
 def print_known_sessions():
     """
-    Print the session id/research/area table for all known sessions.
+    Print the session id/identity table for all known sessions.
     """
     print("Known sessions:")
     for s in list_sessions():
@@ -467,15 +461,14 @@ def print_known_sessions():
         elif s.get("target_kind") == "repository":
             identity = f" repository={s.get('repository_id', '-')}"
         print(
-            f"  {s['session_id']}  research={s.get('research', '-')}  "
-            f"area={s.get('area', '-')}  started={s.get('started', '-')}  "
+            f"  {s['session_id']}  started={s.get('started', '-')}  "
             f"ccsid={_cc}{identity}",
         )
 
 
 def resolve_session_or_exit(token: str, print_known_on_none: bool = False) -> str:
     """
-    Resolve a user-typed session id/research/area target to a session id,
+    Resolve a user-typed session id/project/repository target to a session id,
     printing the standard error and exiting(2) on an unknown or ambiguous
     match. The single point every caller should go through instead of
     branching on resolve_attach_target()'s status itself.

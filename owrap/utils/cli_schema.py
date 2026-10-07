@@ -89,9 +89,9 @@ SUBCOMMANDS = [
         "name": "stop", "help": "Stop an owrap session",
         "args": [
             {"flags": ["target"], "nargs": "?", "default": None,
-             "help": "Session ID prefix or research name to stop "
+             "help": "Session ID prefix or project id to stop "
                      "(alias for -i/--session-id)"},
-            flag(_SESSION_ID, help="Session ID or research name to stop "
+            flag(_SESSION_ID, help="Session ID or project id to stop "
                  "(alias for positional target)"),
             _SESSION_FILE,
             {"flags": ["--force"], "action": "store_true", "default": False,
@@ -102,9 +102,9 @@ SUBCOMMANDS = [
         "name": "end", "help": "End this session only (server keeps running)",
         "args": [
             {"flags": ["target"], "nargs": "?", "default": None,
-             "help": "Session ID prefix or research name to end "
+             "help": "Session ID prefix or project id to end "
                      "(alias for -i/--session-id)"},
-            flag(_SESSION_ID, help="Session ID or research name to end "
+            flag(_SESSION_ID, help="Session ID or project id to end "
                  "(alias for positional target)"),
             flag(_SESSION_FILE, help=None),
         ],
@@ -255,7 +255,7 @@ SUBCOMMANDS = [
         "name": "stat", "help": "Show all active owrap sessions and server status",
         "args": [
             {"flags": ["filter"], "nargs": "?", "default": None,
-             "help": "Filter by session_id or research name"},
+             "help": "Filter by session_id or project id"},
         ],
     },
     {
@@ -470,7 +470,7 @@ SUBCOMMANDS = [
         "args": [
             {"flags": ["what"], "choices": [
                 "plan", "input", "context", "session", "memory",
-                "project", "proj", "todo", "decisions", "area", "research",
+                "project", "proj", "todo", "decisions",
                 "project-id", "subproject", "sub", "repository", "repo",
                 "self",
                 "config", "home", "agents", "opencode",

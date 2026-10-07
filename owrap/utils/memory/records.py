@@ -81,7 +81,10 @@ def research_root(workspace: str = "") -> Path:
 
 def _slug(value: str, label: str) -> str:
     if not isinstance(value, str) or not _SLUG.fullmatch(value):
-        raise ValueError(f"invalid {label}: {value!r}")
+        raise ValueError(
+            f"invalid {label}: {value!r} — lowercase letters, digits, and "
+            f"'-' only, starting with a letter or digit (no '_')"
+        )
     return value
 
 

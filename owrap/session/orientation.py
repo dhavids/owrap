@@ -7,7 +7,7 @@ from pathlib import Path as _Path
 
 
 def print_orientation(
-    session_id, research, url=None, plan_path=None,
+    session_id, url=None, plan_path=None,
     input_path=None, context_path=None,
     memory_path=None, project_path=None,
     attach=False, runner_enabled=True, target=None,
@@ -21,7 +21,6 @@ def print_orientation(
     _orig_out = _sys.stdout
     _sys.stdout = _buf
     sep = "─" * 65
-    r = research or "none"
     focus = ""
     plan_steps = []
     env_line = ""
@@ -60,10 +59,7 @@ def print_orientation(
                         break
     print("=== OWRAP SESSION ===")
     server_str = f"   server: {url}" if url else ""
-    if target:
-        print(f"  session: {session_id}{server_str}")
-    else:
-        print(f"  session: {session_id}   research: {r}{server_str}")
+    print(f"  session: {session_id}{server_str}")
     if target:
         if target.kind == "project":
             scope = target.subproject_id or "main"
@@ -129,7 +125,7 @@ def print_orientation(
             )
     print()
     _fallback_note = ""
-    if research == "owrap" or _targets_owrap:
+    if _targets_owrap:
         from ..utils.paths import FALLBACK_PLAN, FALLBACK_TASK
         plan_path = FALLBACK_PLAN
         input_path = FALLBACK_TASK
@@ -159,7 +155,7 @@ def print_orientation(
                 print(f"  {_chunk}")
         if context_path:
             print(f"  context: {context_path}")
-        if plan_steps:
+        if plan_steps and runner_enabled:
             print()
             print("PLAN")
             for _i, _step in enumerate(plan_steps, 1):
