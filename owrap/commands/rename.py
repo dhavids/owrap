@@ -20,18 +20,15 @@ def _current_workspace() -> str:
 def _resolve_identity(root: Path, kind: str, field: str, token: str) -> str:
     """
     Resolve a rename target to an exact id: a literal directory match
-    wins outright (always unambiguous), otherwise a session id or a
-    legacy research/area value is matched against every session's
-    `field`, refusing if those sessions disagree on the id.
+    wins outright (always unambiguous), otherwise a session id is
+    matched against every session's `field`, refusing if those
+    sessions disagree on the id.
     """
     if (root / kind / token).is_dir():
         return token
     matches = set()
     for session in list_sessions():
-        hit = token in (
-            session.get("session_id"), session.get("research"),
-            session.get("area"), session.get(field),
-        )
+        hit = token in (session.get("session_id"), session.get(field))
         value = session.get(field)
         if hit and value:
             matches.add(value)

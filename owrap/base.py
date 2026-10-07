@@ -63,13 +63,11 @@ class BaseRunner(ABC):
         from .utils.paths import RUNNING_DIR
         RUNNING_DIR.mkdir(parents=True, exist_ok=True)
         session_id = self.manager.session_id or "none"
-        research = self.manager.research or "none"
         name = f"{kind}{task_id}_{session_id}.json"
         data = {
             "pid": os.getpid(),
             "task_id": str(task_id),
             "session_id": session_id,
-            "research": research,
             "kind": kind,
             "call_type": call_type,
             "title": title,

@@ -1,4 +1,3 @@
-import argparse
 import os
 import shutil
 import sys
@@ -214,10 +213,6 @@ class StartRunner(BaseRunner):
         else:
             Manager().ensure_running()
 
-        if is_new_session and not has_identity:
-            # Default to "main" so Update Protocol/donow area checks have a target.
-            update_session_field(session_id, "area", "main")
-
         if workspace_name:
             update_session_field(session_id, "workspace", workspace_name)
 
@@ -242,7 +237,6 @@ class StartRunner(BaseRunner):
         input_path = session_input(session_id)
 
         self.manager.session_id = session_id
-        self.manager.research = _parse(_sf(session_id)).get("research", "")
         self.manager.create_context()
         self.manager._housekeeping()
         self.manager.refresh_context_plan(plan_path)
@@ -253,17 +247,13 @@ class StartRunner(BaseRunner):
                 "start session=%s project_id=%s", session_id, project_id or "none",
             )
         cp = context_path(session_id)
-        from ..utils.session.resolver import _parse as _sp
-        area_val = _sp(_sf(session_id)).get("area")
         print_orientation(
-            session_id, None, plan_path=plan_path,
+            session_id, plan_path=plan_path,
             input_path=input_path, context_path=cp,
             runner_enabled=_read_config().get("owrap_runner_enabled", True),
             target=_orientation_target(session_id),
         )
         print(f"\n__OWRAP_EXPORT__ SESSION_ID={session_id}")
-        if area_val:
-            print(f"__OWRAP_EXPORT__ OWRAP_AREA={area_val}")
         sys.exit(0)
 
 
@@ -294,7 +284,7 @@ class RefreshRunner(BaseRunner):
                     ccsid_val = s.get("claude_session_id", "-")
                     _cc = ccsid_val[:8] if ccsid_val != "-" else "-"
                     print(
-                        f"  {s['session_id']}  research={s.get('research','-')}  "
+                        f"  {s['session_id']}  project={s.get('project_id','-')}  "
                         f"started={s.get('started','-')}  ccsid={_cc}",
                     )
                 print()
@@ -303,8 +293,8 @@ class RefreshRunner(BaseRunner):
                 sys.exit(2)
 
         data = _parse(session_path)
-        existing_project_name = data.get("research")
-        existing_subproject_name = data.get("area")
+        existing_project_name = data.get("project_id") or None
+        existing_subproject_name = data.get("subproject_id") or None
         if project_name is None:
             project_name = existing_project_name
 
@@ -328,7 +318,7 @@ class RefreshRunner(BaseRunner):
             if data.get("target_kind") == "repository":
                 print(
                     "Error: a repository-only session cannot also name a "
-                    "research project", file=sys.stderr,
+                    "project", file=sys.stderr,
                 )
                 sys.exit(2)
             subproject_id = (
@@ -356,11 +346,7 @@ class RefreshRunner(BaseRunner):
                 update_session_field(session_id, field, "")
             subproject_name = subproject_id
         elif subproject_name is not None:
-            update_session_field(session_id, "area", subproject_name)
-        area_val = (
-            subproject_name if subproject_name is not None
-            else existing_subproject_name
-        )
+            update_session_field(session_id, "subproject_id", subproject_name)
 
         self.manager._housekeeping()
 
@@ -374,7 +360,7 @@ class RefreshRunner(BaseRunner):
             )
         cp = context_path(session_id)
         print_orientation(
-            session_id, project_name, plan_path=plan_path,
+            session_id, plan_path=plan_path,
             input_path=input_path, context_path=cp,
             runner_enabled=_read_config().get("owrap_runner_enabled", True),
             target=_orientation_target(session_id),
@@ -383,8 +369,6 @@ class RefreshRunner(BaseRunner):
             session_id, "last_refresh", time.strftime("%Y-%m-%dT%H:%M:%S"),
         )
         print(f"\n__OWRAP_EXPORT__ SESSION_ID={session_id}")
-        if area_val:
-            print(f"__OWRAP_EXPORT__ OWRAP_AREA={area_val}")
         sys.exit(0)
 
 
@@ -395,11 +379,11 @@ class AttachRunner(BaseRunner):
 
     def run(self, target_session_id=None):
         """
-        Attach to the given session id, research name, or area name, and
+        Attach to the given session id, project id, or repository id, and
         re-export its environment variables.
         """
         if not target_session_id:
-            print("ERROR: owrap attach <session_id|research|area> — missing target.")
+            print("ERROR: owrap attach <session_id|project|repository> — missing target.")
             print()
             print_known_sessions()
             sys.exit(2)
@@ -415,9 +399,10 @@ class AttachRunner(BaseRunner):
             sys.exit(2)
 
         data = _parse(sf)
-        research = data.get("research", "")
-        area = data.get("area", "")
         url = data.get("server_url", "")
+        if data.get("target_kind"):
+            for field in ("research", "area", "child"):
+                update_session_field(sid, field, "")
 
         plan_path = get_plan_path(sid)
         input_path = session_input(sid)
@@ -425,18 +410,16 @@ class AttachRunner(BaseRunner):
 
         self.manager.session_id = sid
         print(
-            f"ATTACHED session={sid}  research={research or '-'}  "
-            f"area={area or '-'}  prev_session_for_this_window={prev or '-'}",
+            f"ATTACHED session={sid}  "
+            f"prev_session_for_this_window={prev or '-'}",
         )
         print_orientation(
-            sid, research, url, plan_path, input_path,
+            sid, url, plan_path, input_path,
             context_path=cp, attach=True,
             runner_enabled=_read_config().get("owrap_runner_enabled", True),
             target=_orientation_target(sid),
         )
         print(f"\n__OWRAP_EXPORT__ SESSION_ID={sid}")
-        if area:
-            print(f"__OWRAP_EXPORT__ OWRAP_AREA={area}")
         sys.exit(0)
 
 
@@ -486,23 +469,3 @@ class RestartRunner(BaseRunner):
         )
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Start an owrap session")
-    parser.add_argument("research", nargs="?", default=None, help="Research project name")
-    parser.add_argument("--shell-pid", type=int, default=None, help="Shell PID")
-    parser.add_argument(
-        "--session-file", type=str, default=None,
-        help="Session file path",
-    )
-    args = parser.parse_args()
-
-    from ..manager import Manager
-    manager = Manager()
-    StartRunner(manager).run(
-        shell_pid=args.shell_pid, session_file=args.session_file,
-        research=args.research,
-    )
-
-
-if __name__ == "__main__":
-    main()

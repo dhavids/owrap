@@ -127,13 +127,6 @@ def _print_identity(data: dict) -> None:
         return
     if kind == "repository":
         print(f"    repo:     {data.get('repository_id', '?')}")
-        return
-    research = data.get("research", "")
-    if research:
-        print(f"    research: {research}")
-    area = data.get("area", "")
-    if area:
-        print(f"    area:     {area}")
 
 
 class StatRunner(BaseRunner):

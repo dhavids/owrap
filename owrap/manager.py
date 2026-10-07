@@ -58,7 +58,6 @@ class Manager:
         self._log_file = None
         self._logger = None
         self.session_id = os.environ.get("OWRAP_SESSION", "")
-        self.research = os.environ.get("OWRAP_RESEARCH", "")
         SESSION_DIR.mkdir(parents=True, exist_ok=True)
         if not self.session_id:
             self.TASKS_DIR.mkdir(parents=True, exist_ok=True)
@@ -858,7 +857,8 @@ class Manager:
 
     def _sweep_bare_sessions(self, sessions_dir):
         """
-        Move bare sessions (no research field, older than threshold) to trash.
+        Move bare sessions (no project/repository identity, older than
+        threshold) to trash.
         """
         if not sessions_dir.exists():
             return
@@ -869,8 +869,7 @@ class Manager:
                 data = _parse_session(sf)
             except Exception:
                 continue
-            research = data.get("research", "").strip()
-            if research:
+            if data.get("target_kind"):
                 continue
             started_str = data.get("started", "")
             if not started_str:

@@ -79,20 +79,6 @@ class GetRunner:
             self._print_session(sid, sdata, sf)
             return
 
-        if what in ("area", "research"):
-            if sdata.get("target_kind") == "project":
-                val = (
-                    sdata.get("project_id", "") if what == "research"
-                    else sdata.get("subproject_id", "") or "main"
-                )
-            else:
-                val = sdata.get(what, "")
-            if not val:
-                print(f"No {what} configured for session {sid}")
-                sys.exit(1)
-            print(val)
-            return
-
         if what in ("project-id", "subproject", "repository"):
             field = {
                 "project-id": "project_id",
@@ -212,7 +198,6 @@ class GetRunner:
             print("  todo     — goals for the project or subproject target")
             print("  decisions — Decisions count for the project target, with a")
             print("           prune notice past threshold")
-            print("  area, research — legacy aliases for subproject and project")
             print("  project-id, subproject, repository — explicit identity")
             print("  config   — full workspace config JSON")
             print("  home     — resolved OWRAP_HOME (no session required)")
@@ -221,12 +206,11 @@ class GetRunner:
             print("           (no session required); add `reason` for why")
             sys.exit(1)
 
-        research = sdata.get("research", "")
-        if what in ("plan", "input") and research == "owrap":
+        if what in ("plan", "input") and sdata.get("project_id") == "owrap":
             fpath = FALLBACK_PLAN if what == "plan" else FALLBACK_TASK
             print(
                 f"# {what}: {fpath}  "
-                f"(research=owrap: dispatch via `owrap f {fpath}`)"
+                f"(project=owrap: dispatch via `owrap f {fpath}`)"
             )
             if not fpath.exists():
                 label = "plan" if what == "plan" else "input"
@@ -478,7 +462,7 @@ class GetRunner:
             return
         header = f"# session: {sf}"
         base_keys = [
-            "session_id", "research", "area", "child",
+            "session_id",
             "target_kind", "project_id", "subproject_id",
             "repository_id", "repositories",
             "workspace", "started", "last_refresh",

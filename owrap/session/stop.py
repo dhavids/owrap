@@ -111,7 +111,7 @@ class StopRunner:
 
         if target:
             for s in list_sessions():
-                if s["session_id"].startswith(target) or s.get("research", "") == target:
+                if s["session_id"].startswith(target) or s.get("project_id", "") == target:
                     sid = s["session_id"]
                     sf = metadata_file(sid)
                     break
@@ -173,7 +173,7 @@ class EndRunner:
 
         if target:
             for s in list_sessions():
-                if s["session_id"].startswith(target) or s.get("research", "") == target:
+                if s["session_id"].startswith(target) or s.get("project_id", "") == target:
                     matched_sid = s["session_id"]
                     session_file = str(metadata_file(matched_sid))
                     break
@@ -201,7 +201,7 @@ class EndRunner:
                     )
                     sys.exit(1)
                 if target and not session_id.startswith(target) and target not in (
-                    session_id, data.get("research", ""),
+                    session_id, data.get("project_id", ""),
                 ):
                     print(
                         f"OWRAP END: resolved session '{session_id}' does not "

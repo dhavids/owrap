@@ -124,7 +124,7 @@ class SessionWorkflow:
             data["parent_session_id"] = parent_sid
             for field in (
                 "workspace", "target_kind", "project_id", "subproject_id",
-                "repository_id", "repositories", "research", "area",
+                "repository_id", "repositories",
             ):
                 if parent.get(field):
                     data[field] = parent[field]
