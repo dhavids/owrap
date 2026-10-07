@@ -71,8 +71,9 @@ def read_opencode_status() -> str:
 def _write_opencode_status(status: str, reason: str = None) -> None:
     """
     Record the shared opencode health flag: "up" after any dispatch gets
-    real output from a model, "down" when every model in the chain timed
-    out. A single flag, not per-session — the opencode account/binary
+    valid output from a model, "down" when every attempted model failed
+    for any reason (timeout, transport error, subscription required,
+    etc). A single flag, not per-session — the opencode account/binary
     being unreachable isn't scoped to one project. `reason` describes
     any failed write and is always cleared on an "up" write.
     """
@@ -578,13 +579,15 @@ class CtxWorkerRunner:
             flush=True,
         )
 
-        # Primary model retries once, then each fallback rung tries once.
+        # Primary model retries once unless opencode is already known down.
         chain = get_model_chain(config)
-        # Empty chain (no config at all): one attempt, opencode's own default.
-        attempts = [chain[0], chain[0]] + chain[1:] if chain else [None]
+        if read_opencode_status() == "down":
+            attempts = [chain[0]] if chain else [None]
+        else:
+            # Empty chain (no config at all): one attempt, opencode's own default.
+            attempts = [chain[0], chain[0]] + chain[1:] if chain else [None]
         rc = 1
         output_text = None
-        attempt_rcs = []
         attempt_metas = []
         for model in attempts:
             if job_dir:
@@ -594,7 +597,6 @@ class CtxWorkerRunner:
             rc, candidate, meta = self._run_dispatch_attempt(
                 ctx_dir, output_path, model,
             )
-            attempt_rcs.append(rc)
             attempt_metas.append(meta)
             if rc == 0 and candidate and self._validate_output(
                 candidate, do_context, do_protocol,
@@ -619,10 +621,9 @@ class CtxWorkerRunner:
                 break
 
         if output_text is None:
-            # "down" only if nothing ever responded; else status stays "up".
+            # No attempt produced usable output — down, whatever the rc.
             reason = self._classify_opencode_failure(attempt_metas)
-            down = bool(attempt_rcs) and all(r == -1 for r in attempt_rcs)
-            _write_opencode_status("down" if down else "up", reason)
+            _write_opencode_status("down", reason)
             print(
                 "ctx-worker: all model attempts failed validation — "
                 "leaving excerpt queued for the next dispatch",
