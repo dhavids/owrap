@@ -326,6 +326,23 @@ def all_attached_ccsid_pairs() -> list:
     return pairs
 
 
+def all_attached_codex_session_id_pairs() -> list:
+    """
+    Return (codex_session_id, owrap_sid) for every currently-attached
+    Codex window, across every owrap session.
+    """
+    if not BY_CODEX_SESSION_ID_DIR.exists():
+        return []
+    pairs = []
+    for p in BY_CODEX_SESSION_ID_DIR.iterdir():
+        if not p.is_file():
+            continue
+        sid = p.read_text().strip()
+        if sid:
+            pairs.append((p.name, sid))
+    return pairs
+
+
 def _suggest_attach_targets(token: str, sessions: list) -> list:
     """
     Return session/research/area strings close to token, for a

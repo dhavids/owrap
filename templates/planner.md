@@ -59,7 +59,11 @@ Plan file required while the runner is enabled — design/maintain it via `--pla
 
 `#DO NOW` can appear in any output —{{IF:RUNNER_ENABLED}} session hooks, task output, exec logs, context-manager dispatch{{ENDIF}}{{IF:RUNNER_DISABLED}} context-manager dispatch only, while disabled{{ENDIF}}. When you see it, read the instruction that follows the `#DO NOW` marker and do what it says to the letter.
 
-{{IF:RUNNER_ENABLED}}After each executor run and compaction, scan the completion summary or last ~20 lines of output for `#DO NOW`. If present, follow the instruction.{{ENDIF}}{{IF:RUNNER_DISABLED}}After compaction, scan the last ~20 lines of output for `#DO NOW`. If present, follow the instruction.{{ENDIF}}
+{{IF:RUNNER_ENABLED}}After each executor run, scan the completion summary or last ~20 lines of output for `#DO NOW`. If present, follow the instruction.{{ENDIF}}
+
+After any compaction, run `{{BIN_DIR}}/owrap refresh` immediately. Also
+scan the last ~20 lines of output for `#DO NOW` in case one fired, and
+follow whatever instruction it carries.
 
 {{IF:RUNNER_ENABLED}}
 ## Allowed

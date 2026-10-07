@@ -7,7 +7,6 @@ import pytest
 from owrap.commands.get import GetRunner
 from owrap.commands.context_manager import CtxWorkerRunner
 from owrap.commands.todo import TodoRunner
-from owrap.session.start import UpdateAreaRunner
 from owrap.utils.memory.records import (
     resolve_memory_target, touched_repository_paths,
 )
@@ -42,9 +41,9 @@ def _records(tmp_path, monkeypatch):
     )
     (repo / "owrap-dev.yaml").write_text(
         "schema_version: 1\nkind: repository\nid: owrap-dev\n"
-        "main: main.md\ncheckout: /tmp/owrap-dev\n"
+        "main: memory.md\ncheckout: /tmp/owrap-dev\n"
     )
-    (repo / "main.md").write_text("# Architecture\n\nRepository facts.\n")
+    (repo / "memory.md").write_text("# Architecture\n\nRepository facts.\n")
     monkeypatch.setattr(
         "owrap.utils.memory.records.get_workspace_config",
         lambda workspace: {"research_root": str(root)},
@@ -63,7 +62,7 @@ def test_subproject_resolves_inherited_repository(tmp_path, monkeypatch):
 
     assert target.project_path == project / "migration.md"
     assert target.repository_ids == ("owrap-dev",)
-    assert target.repository_paths == (repo / "main.md",)
+    assert target.repository_paths == (repo / "memory.md",)
 
     session["subproject_id"] = "migration-trial"
     branch = resolve_memory_target(session)
@@ -75,7 +74,7 @@ def test_subproject_resolves_inherited_repository(tmp_path, monkeypatch):
 def test_todo_edits_subproject_goals_and_get_reads_records(
     tmp_path, monkeypatch, capsys,
 ):
-    root, project, _ = _records(tmp_path, monkeypatch)
+    _, project, _ = _records(tmp_path, monkeypatch)
     home = tmp_path / "state"
     sessions = home / "sessions"
     sessions.mkdir(parents=True, exist_ok=True)
@@ -107,7 +106,6 @@ def test_todo_edits_subproject_goals_and_get_reads_records(
     assert "2. [x] New migration goal" in output
     assert "Do not change this." in (project / "migration.md").read_text()
     assert "Project goal" in (project / "main.md").read_text()
-    assert not (root / "todo" / "owrap.md").exists()
 
     GetRunner().run("memory", session_id="abc123")
     assert "Repository facts." in capsys.readouterr().out
@@ -143,7 +141,13 @@ def test_attach_resolves_explicit_identity(monkeypatch):
     ] == "repo"
 
 
-def test_update_area_selects_subproject_record(tmp_path, monkeypatch):
+def test_sub_selects_existing_subproject_record(tmp_path, monkeypatch):
+    """
+    'owrap sub <id>' selecting an existing subproject sets its repositories
+    and, for a branch-kind subproject, its branch fields.
+    """
+    from owrap.commands.project import ProjectRunner
+
     _records(tmp_path, monkeypatch)
     session_file = tmp_path / "abc123.session"
     session_file.write_text(
@@ -151,28 +155,18 @@ def test_update_area_selects_subproject_record(tmp_path, monkeypatch):
         "subproject_id=\nworkspace=test\n"
     )
     monkeypatch.setattr(
-        "owrap.session.start.resolve", lambda mode: ("abc123", session_file, ""),
+        "owrap.commands.project.resolve", lambda mode: ("abc123", session_file, ""),
     )
-    monkeypatch.setattr("owrap.session.start._sf", lambda sid: session_file)
-    monkeypatch.setattr(
-        resolver, "session_file", lambda sid: session_file,
-    )
-    monkeypatch.setattr(
-        "owrap.session.start.print_orientation", lambda *args, **kwargs: None,
-    )
+    monkeypatch.setattr(resolver, "session_file", lambda sid: session_file)
 
-    with pytest.raises(SystemExit) as exc:
-        UpdateAreaRunner(MagicMock()).run(area="migration")
+    ProjectRunner().sub("migration")
 
     data = resolver._parse(session_file)
-    assert exc.value.code == 0
     assert data["subproject_id"] == "migration"
     assert json.loads(data["repositories"]) == ["owrap-dev"]
 
-    with pytest.raises(SystemExit) as branch_exit:
-        UpdateAreaRunner(MagicMock()).run(area="migration-trial")
+    ProjectRunner().sub("migration-trial")
     branch_data = resolver._parse(session_file)
-    assert branch_exit.value.code == 0
     assert branch_data["branch_parent"] == "migration"
     assert branch_data["branch_repository"] == "owrap-dev"
 
@@ -193,7 +187,7 @@ def test_touched_repository_record_and_explicit_merge(tmp_path, monkeypatch):
     }
     target = resolve_memory_target(session)
     touched = touched_repository_paths(target, [str(source)], "test")
-    assert touched == {"owrap-dev": repo / "main.md"}
+    assert touched == {"owrap-dev": repo / "memory.md"}
     assert touched_repository_paths(target, ["/tmp/other.py"], "test") == {}
 
     project_path = project / "migration.md"
@@ -216,7 +210,7 @@ def test_touched_repository_record_and_explicit_merge(tmp_path, monkeypatch):
         project_section="Subproject: migration",
     )
     project_text = project_path.read_text()
-    repo_text = (repo / "main.md").read_text()
+    repo_text = (repo / "memory.md").read_text()
     assert "Migration running." in project_text
     assert "Do not change this." in project_text
     assert project_text.count("Keep dev isolated") == 1
@@ -240,9 +234,9 @@ def test_touched_paths_select_only_the_matching_repository(tmp_path, monkeypatch
     )
     (other / "other.yaml").write_text(
         "schema_version: 1\nkind: repository\nid: other\n"
-        f"main: main.md\ncheckout: {second_checkout}\n"
+        f"main: memory.md\ncheckout: {second_checkout}\n"
     )
-    (other / "main.md").write_text("# Other\n")
+    (other / "memory.md").write_text("# Other\n")
     project_yaml = project / "owrap.yaml"
     project_yaml.write_text(
         project_yaml.read_text().replace(
@@ -256,7 +250,7 @@ def test_touched_paths_select_only_the_matching_repository(tmp_path, monkeypatch
 
     selected = touched_repository_paths(target, [str(source)], "test")
 
-    assert selected == {"other": other / "main.md"}
+    assert selected == {"other": other / "memory.md"}
 
 
 def test_explicit_status_skips_concurrent_project_change(tmp_path, monkeypatch):
@@ -278,7 +272,7 @@ def test_explicit_status_skips_concurrent_project_change(tmp_path, monkeypatch):
 def test_older_transcript_does_not_update_newer_records(tmp_path, monkeypatch):
     _, project, repo = _records(tmp_path, monkeypatch)
     project_path = project / "migration.md"
-    repo_path = repo / "main.md"
+    repo_path = repo / "memory.md"
     runner = CtxWorkerRunner()
 
     runner._merge_record_project(
@@ -295,7 +289,7 @@ def test_older_transcript_does_not_update_newer_records(tmp_path, monkeypatch):
 
 def test_concurrent_repository_change_blocks_stale_merge(tmp_path, monkeypatch):
     _, _, repo = _records(tmp_path, monkeypatch)
-    path = repo / "main.md"
+    path = repo / "memory.md"
     snapshot = path.read_bytes()
     path.write_text(path.read_text() + "\n## Components\n- newer.py — owner\n")
 
@@ -310,7 +304,7 @@ def test_concurrent_repository_change_blocks_stale_merge(tmp_path, monkeypatch):
 
 def test_new_repository_fact_replaces_superseded_subject(tmp_path, monkeypatch):
     _, _, repo = _records(tmp_path, monkeypatch)
-    path = repo / "main.md"
+    path = repo / "memory.md"
     path.write_text(path.read_text() + "\n## Components\n- module.py — old role\n")
 
     CtxWorkerRunner()._merge_record_repository(
@@ -399,4 +393,4 @@ def test_ctx_dispatch_routes_subproject_override_and_touched_repo(
     prompt = (ctx_dir / "input.md").read_text()
     assert "# Repository: owrap-dev" in prompt
     assert "Migration running." in (project / "migration.md").read_text()
-    assert "module.py — parser" in (repo / "main.md").read_text()
+    assert "module.py — parser" in (repo / "memory.md").read_text()

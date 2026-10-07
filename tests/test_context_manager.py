@@ -1,6 +1,7 @@
 import json
 import os
 import shlex
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -10,6 +11,38 @@ import pytest
 from owrap.commands.context_manager import CtxHookRunner
 from owrap.commands.context_manager import CtxWorkerRunner, MAX_EXCERPT_CHARS
 from owrap.utils.parser.sections import split_top_sections
+
+
+_BASE_TS = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+
+def _entry_ts(index: int) -> str:
+    """
+    Deterministic, strictly increasing timestamp for transcript entry
+    `index`, matching the `Z`-suffixed ISO-8601 format real transcripts use.
+    """
+    return (_BASE_TS + timedelta(seconds=index)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def _entry_ts_ns(index: int) -> int:
+    """
+    The `_entry_ts(index)` timestamp as nanoseconds since epoch — a cursor
+    value meaning "entries up to and including index are already consumed".
+    """
+    return int((_BASE_TS + timedelta(seconds=index)).timestamp() * 1_000_000_000)
+
+
+def _lines_with_ts(entries: list) -> list:
+    """
+    Serialize transcript entries to JSONL strings, stamping each with
+    `_entry_ts(index)` unless it already sets its own `timestamp`.
+    """
+    out = []
+    for i, entry in enumerate(entries):
+        entry = dict(entry)
+        entry.setdefault("timestamp", _entry_ts(i))
+        out.append(json.dumps(entry))
+    return out
 
 
 VALID_OUTPUT_MD = (
@@ -89,8 +122,7 @@ def _make_project_session(sessions_dir, sid, ccsid):
 
 def _make_transcript_jsonl(path, entries):
     path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [json.dumps(e) for e in entries]
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(_lines_with_ts(entries)) + "\n")
 
 
 def _patch_dirs(monkeypatch, tmp_path):
@@ -196,27 +228,27 @@ def test_extract_excerpt_lines():
             {"type": "text", "text": "Second block"},
         ]}},
     ]
-    lines = [json.dumps(e) for e in entries]
+    lines = _lines_with_ts(entries)
 
-    # From offset 0
+    # From the start
     result = worker._extract_excerpt_lines(lines, 0)
     assert len(result) == 3
     assert result[0] == "I will help"
     assert result[1] == "First block"
     assert result[2] == "Second block"
 
-    # From offset 1 (skip user)
-    result = worker._extract_excerpt_lines(lines, 1)
+    # Cursor past entry 0 (skip user)
+    result = worker._extract_excerpt_lines(lines, _entry_ts_ns(0))
     assert len(result) == 3
 
-    # From offset 3 (skip first assistant + tool_result)
-    result = worker._extract_excerpt_lines(lines, 3)
+    # Cursor past entry 2 (skip first assistant + tool_result)
+    result = worker._extract_excerpt_lines(lines, _entry_ts_ns(2))
     assert len(result) == 2
     assert result[0] == "First block"
     assert result[1] == "Second block"
 
-    # From offset 4 (past all)
-    result = worker._extract_excerpt_lines(lines, 5)
+    # Cursor past the last entry
+    result = worker._extract_excerpt_lines(lines, _entry_ts_ns(3))
     assert len(result) == 0
 
 
@@ -232,7 +264,7 @@ def test_extract_excerpt_lines_includes_bash_command_and_short_result():
              "content": "ATTACHED session=9f5f96"},
         ]}},
     ]
-    lines = [json.dumps(e) for e in entries]
+    lines = _lines_with_ts(entries)
     result = worker._extract_excerpt_lines(lines, 0)
     assert result == ["$ owrap attach 9f5f96", "-> ATTACHED session=9f5f96"]
 
@@ -249,7 +281,7 @@ def test_extract_excerpt_lines_squeezes_long_result():
              "content": "collecting...\n" + ("." * 300) + "\n312 passed in 29.56s"},
         ]}},
     ]
-    lines = [json.dumps(e) for e in entries]
+    lines = _lines_with_ts(entries)
     result = worker._extract_excerpt_lines(lines, 0)
     assert result == ["$ pytest -q", "-> 312 passed in 29.56s"]
 
@@ -266,7 +298,7 @@ def test_extract_excerpt_lines_includes_edit_write_read_paths():
              "input": {"file_path": "owrap/baz.py"}},
         ]}},
     ]
-    lines = [json.dumps(e) for e in entries]
+    lines = _lines_with_ts(entries)
     result = worker._extract_excerpt_lines(lines, 0)
     assert result == [
         "[Edit] owrap/foo.py", "[Write] owrap/bar.py", "[Read] owrap/baz.py",
@@ -283,7 +315,7 @@ def test_extract_excerpt_lines_ignores_untracked_tool_result():
             {"type": "tool_result", "tool_use_id": "t1", "content": "match"},
         ]}},
     ]
-    lines = [json.dumps(e) for e in entries]
+    lines = _lines_with_ts(entries)
     result = worker._extract_excerpt_lines(lines, 0)
     assert result == []
 
@@ -305,8 +337,8 @@ def test_dispatch_fires_for_touched_entries_with_no_new_transcript(tmp_path, mon
         {"type": "assistant", "message": {"role": "assistant",
          "content": [{"type": "text", "text": "hello"}]}},
     ])
-    # transcript_offset already covers everything — nothing new to mine.
-    counters = {"transcript_offset": 1}
+    # Cursor already covers everything — nothing new to mine.
+    counters = {"transcript_cursor_ns": _entry_ts_ns(0)}
     cp = sessions_dir / f"{owrap_sid}.{ccsid}.counters.json"
     cp.parent.mkdir(parents=True, exist_ok=True)
     cp.write_text(json.dumps(counters))
@@ -346,7 +378,7 @@ def test_touched_entries_not_cleared_on_dispatch_failure(tmp_path, monkeypatch):
         {"type": "assistant", "message": {"role": "assistant",
          "content": [{"type": "text", "text": "hello"}]}},
     ])
-    counters = {"transcript_offset": 1}
+    counters = {"transcript_cursor_ns": _entry_ts_ns(0)}
     cp = sessions_dir / f"{owrap_sid}.{ccsid}.counters.json"
     cp.parent.mkdir(parents=True, exist_ok=True)
     cp.write_text(json.dumps(counters))
@@ -375,14 +407,14 @@ def test_ctx_worker_nothing_new(tmp_path, monkeypatch):
     owrap_sid = "abc456"
     _make_session_file(sessions_dir, owrap_sid, ccsid)
 
-    # Write counters with transcript_offset at line 2 (all lines)
+    # Write counters with the cursor past both entries (all consumed)
     transcript = tmp_path / "transcript.jsonl"
     _make_transcript_jsonl(transcript, [
         {"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "hi"}]}},
         {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "hello"}]}},
     ])
 
-    counters = {"transcript_offset": 2}
+    counters = {"transcript_cursor_ns": _entry_ts_ns(1)}
     cp = sessions_dir / f"{owrap_sid}.{ccsid}.counters.json"
     cp.parent.mkdir(parents=True, exist_ok=True)
     cp.write_text(json.dumps(counters))
@@ -411,9 +443,9 @@ def test_ctx_worker_nothing_new(tmp_path, monkeypatch):
         / "transcript.txt"
     )
     assert not transcript_tmp.exists()
-    # Offset unchanged
+    # Cursor unchanged
     updated = json.loads(cp.read_text())
-    assert updated["transcript_offset"] == 2
+    assert updated["transcript_cursor_ns"] == _entry_ts_ns(1)
 
 
 # CtxWorker with new assistant text
@@ -425,7 +457,7 @@ def test_ctx_worker_with_new_text(tmp_path, monkeypatch):
     owrap_sid = "def789"
     _make_session_file(sessions_dir, owrap_sid, ccsid)
 
-    # 5 lines, offset at 2
+    # 5 entries, cursor past the first 2
     transcript = tmp_path / "transcript.jsonl"
     _make_transcript_jsonl(transcript, [
         {"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "q"}]}},
@@ -435,7 +467,7 @@ def test_ctx_worker_with_new_text(tmp_path, monkeypatch):
         {"type": "tool_result", "tool_use_id": "t1", "content": "ok"},
     ])
 
-    counters = {"transcript_offset": 2}
+    counters = {"transcript_cursor_ns": _entry_ts_ns(1)}
     cp = sessions_dir / f"{owrap_sid}.{ccsid}.counters.json"
     cp.parent.mkdir(parents=True, exist_ok=True)
     cp.write_text(json.dumps(counters))
@@ -479,9 +511,9 @@ def test_ctx_worker_with_new_text(tmp_path, monkeypatch):
     assert "--dangerously-skip-permissions" not in cmd
     assert not (ctx_dir / "opencode.json").exists()
 
-    # Offset updated to total lines (5)
+    # Cursor advanced to the last entry's timestamp
     updated = json.loads(cp.read_text())
-    assert updated["transcript_offset"] == 5
+    assert updated["transcript_cursor_ns"] == _entry_ts_ns(4)
 
 
 # Context status tracking
@@ -710,8 +742,8 @@ def test_ctx_worker_isolated_per_ccsid_under_multi_attach(tmp_path, monkeypatch)
         sessions_dir / owrap_sid / "ctx" / "windows" / ccsid_b
         / "counters.json"
     ).read_text())
-    assert counters_a["transcript_offset"] == 1
-    assert counters_b["transcript_offset"] == 1
+    assert counters_a["transcript_cursor_ns"] == _entry_ts_ns(0)
+    assert counters_b["transcript_cursor_ns"] == _entry_ts_ns(0)
 
 
 # Same window across sessions
@@ -777,6 +809,71 @@ def test_ctx_worker_excludes_text_before_session_switch(tmp_path, monkeypatch):
     excerpt = transcript_tmp.read_text()
     assert "work done on project B" in excerpt
     assert "project A" not in excerpt
+
+
+def test_ctx_worker_survives_replayed_attach_marker(tmp_path, monkeypatch):
+    """
+    Claude Code's crash/resume flow can re-append an old transcript entry
+    verbatim later in the file. If that replayed entry happens to be an
+    `__OWRAP_EXPORT__ SESSION_ID=` attach marker, it still carries its
+    original (old) timestamp — so it must not push the attach floor past
+    real work that happened chronologically after the real attach but
+    appears, in file position, before the replay.
+    """
+    _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
+
+    ccsid = "claude-replayed"
+    owrap_sid = "replay01"
+    _make_session_file(sessions_dir, owrap_sid, ccsid)
+
+    def _assistant(text):
+        return {
+            "type": "assistant",
+            "message": {"role": "assistant", "content": [
+                {"type": "text", "text": text},
+            ]},
+        }
+
+    def _attach_marker():
+        return {
+            "type": "user",
+            "message": {"role": "user", "content": [
+                {
+                    "type": "tool_result",
+                    "content": f"__OWRAP_EXPORT__ SESSION_ID={owrap_sid}",
+                },
+            ]},
+        }
+
+    attach_ts = _entry_ts(0)
+    entries = [
+        dict(_attach_marker(), timestamp=attach_ts),
+        dict(_assistant("real new work happened"), timestamp=_entry_ts(1)),
+        # Replayed by a crash/resume: same attach marker, same original
+        # timestamp, but appended at a later file position.
+        dict(_attach_marker(), timestamp=attach_ts),
+        dict(_assistant("more real work"), timestamp=_entry_ts(2)),
+    ]
+    transcript = tmp_path / "transcript.jsonl"
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
+
+    input_path = tmp_path / "hook_input.json"
+    input_path.write_text(json.dumps({
+        "session_id": ccsid, "transcript_path": str(transcript),
+    }))
+
+    mock_terminal_cls, mock_run = _patch_terminal()
+    with patch("owrap.commands.context_manager.Terminal", mock_terminal_cls):
+        CtxWorkerRunner().run(input_path=input_path)
+
+    transcript_tmp = (
+        sessions_dir / owrap_sid / "ctx" / "windows" / ccsid / "transcript.txt"
+    )
+    assert transcript_tmp.exists()
+    excerpt = transcript_tmp.read_text()
+    assert "real new work happened" in excerpt
+    assert "more real work" in excerpt
 
 
 # Shared template
@@ -1023,11 +1120,9 @@ def test_context_job_failure_appears_in_stat(tmp_path, monkeypatch, capsys):
     capsys.readouterr()
     StatRunner(None).run(SimpleNamespace(filter=sid))
     output = capsys.readouterr().out
-    assert f"ctx  {job_dir.name[:8]}  done(rc=1)" in output
-    relative_job = job_dir.relative_to(sessions_dir / sid)
-    assert f"output: {relative_job / 'output.log'}" in output
-    assert f"transcript: {relative_job / 'transcript.txt'}" in output
-    assert str(sessions_dir / sid) not in output
+    assert f"ctx  {job_dir.name}  done(rc=1)" in output
+    assert f"output: {job_dir / 'output.log'}" in output
+    assert f"transcript: {job_dir / 'transcript.txt'}" in output
     assert "model attempt failed" not in output
 
 
@@ -1102,7 +1197,7 @@ def test_context_stat_shows_live_stage_without_window_path(
 
     assert "running (running model)" in output
     assert "window-secret" not in output
-    assert "output: ctx/jobs/" in output
+    assert f"output: {job_dir / 'output.log'}" in output
 
 
 def test_ctx_worker_command_exits_with_dispatch_result(tmp_path):
@@ -1409,7 +1504,7 @@ def test_codex_manual_modes_dispatch_from_rollout(
 
 
 def test_codex_rollout_extracts_assistant_messages_and_patch_paths():
-    lines = [json.dumps(entry) for entry in [
+    lines = _lines_with_ts([
         {"type": "response_item", "payload": {
             "type": "message", "role": "user",
             "content": [{"type": "input_text", "text": "Do the work"}],
@@ -1422,7 +1517,7 @@ def test_codex_rollout_extracts_assistant_messages_and_patch_paths():
             "type": "patch_apply_end", "success": True,
             "changes": {"/tmp/project/permit.py": {}},
         }},
-    ]]
+    ])
 
     excerpt = CtxWorkerRunner()._extract_codex_excerpt_lines(lines, 0)
 
@@ -1433,7 +1528,7 @@ def test_codex_rollout_extracts_assistant_messages_and_patch_paths():
 
 
 def test_codex_rollout_ignores_context_update_turn():
-    lines = [json.dumps(entry) for entry in [
+    lines = _lines_with_ts([
         {"type": "event_msg", "payload": {
             "type": "user_message", "message": "do another --uall to confirm",
         }},
@@ -1452,9 +1547,9 @@ def test_codex_rollout_ignores_context_update_turn():
             "type": "message", "role": "assistant",
             "content": [{"type": "output_text", "text": "Fixed permit response"}],
         }},
-    ]]
+    ])
 
-    excerpt = CtxWorkerRunner()._extract_codex_excerpt_lines(lines, 1)
+    excerpt = CtxWorkerRunner()._extract_codex_excerpt_lines(lines, _entry_ts_ns(0))
 
     assert excerpt == [
         "[FileChange] /tmp/project/context_manager.py",
@@ -1463,7 +1558,7 @@ def test_codex_rollout_ignores_context_update_turn():
 
 
 def test_claude_excerpt_ignores_context_update_turn_and_command():
-    lines = [json.dumps(entry) for entry in [
+    lines = _lines_with_ts([
         {"type": "user", "message": {"content": [
             {"type": "text", "text": "run --ctx to update context"},
         ]}},
@@ -1484,9 +1579,9 @@ def test_claude_excerpt_ignores_context_update_turn_and_command():
         {"type": "assistant", "message": {"content": [
             {"type": "text", "text": "Fixed permit response"},
         ]}},
-    ]]
+    ])
 
-    excerpt = CtxWorkerRunner()._extract_excerpt_lines(lines, 1)
+    excerpt = CtxWorkerRunner()._extract_excerpt_lines(lines, _entry_ts_ns(0))
 
     assert excerpt == [
         "[Edit] /tmp/project/context_manager.py",
@@ -1495,7 +1590,7 @@ def test_claude_excerpt_ignores_context_update_turn_and_command():
 
 
 def test_context_update_command_is_ignored_inside_other_work():
-    lines = [json.dumps(entry) for entry in [
+    lines = _lines_with_ts([
         {"type": "assistant", "message": {"content": [
             {"type": "tool_use", "id": "ctx1", "name": "Bash",
              "input": {"command": "~/bin/owrap updr --ctx"}},
@@ -1508,7 +1603,7 @@ def test_context_update_command_is_ignored_inside_other_work():
             {"type": "tool_result", "tool_use_id": "test1",
              "content": "15 passed"},
         ]}},
-    ]]
+    ])
 
     excerpt = CtxWorkerRunner()._extract_excerpt_lines(lines, 0)
 
@@ -1553,7 +1648,7 @@ def test_codex_update_only_transcript_advances_offset(tmp_path, monkeypatch):
     counters = json.loads((
         sessions_dir / sid / "ctx" / "windows" / cid / "counters.json"
     ).read_text())
-    assert counters["transcript_offset"] == 2
+    assert counters["transcript_cursor_ns"] == _entry_ts_ns(1)
 
 
 def test_ctx_worker_run_honors_mode_ctx_only(tmp_path, monkeypatch):
@@ -1597,6 +1692,114 @@ def test_ctx_dispatch_omits_model_flag_when_nothing_configured(
 ):
     cmd = _dispatch_ctx_with_config(tmp_path, monkeypatch, {})
     assert "-m" not in cmd
+
+
+# Periodic attached-window trigger
+
+def test_check_all_attached_dispatches_claude_and_codex_windows(monkeypatch):
+    monkeypatch.setattr(
+        "owrap.commands.context_manager._read_config", lambda: {},
+    )
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.get_workspace_path", lambda: "ws",
+    )
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.all_attached_ccsid_pairs",
+        lambda: [("claude-1", "sid-claude")],
+    )
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.all_attached_codex_session_id_pairs",
+        lambda: [("codex-1", "sid-codex")],
+    )
+    claude_path = MagicMock(exists=lambda: True)
+    codex_path = MagicMock(exists=lambda: True)
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.claude_transcript_path",
+        lambda ccsid, workspace: claude_path,
+    )
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.codex_transcript_path",
+        lambda cid: codex_path,
+    )
+    dispatched = []
+    monkeypatch.setattr(
+        CtxWorkerRunner, "_dispatch_tracked",
+        lambda self, owrap_sid, ccsid, path, config, **kw: dispatched.append(
+            (owrap_sid, ccsid, kw.get("source", "claude")),
+        ),
+    )
+
+    CtxWorkerRunner().check_all_attached()
+
+    assert ("sid-claude", "claude-1", "claude") in dispatched
+    assert ("sid-codex", "codex-1", "codex") in dispatched
+
+
+def test_check_all_attached_skips_codex_window_without_transcript(monkeypatch):
+    monkeypatch.setattr(
+        "owrap.commands.context_manager._read_config", lambda: {},
+    )
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.get_workspace_path", lambda: "ws",
+    )
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.all_attached_ccsid_pairs", lambda: [],
+    )
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.all_attached_codex_session_id_pairs",
+        lambda: [("codex-1", "sid-codex")],
+    )
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.codex_transcript_path",
+        lambda cid: None,
+    )
+    dispatched = []
+    monkeypatch.setattr(
+        CtxWorkerRunner, "_dispatch_tracked",
+        lambda self, *args, **kw: dispatched.append(args),
+    )
+
+    CtxWorkerRunner().check_all_attached()
+
+    assert dispatched == []
+
+
+def test_check_all_attached_one_failure_does_not_block_the_other_harness(
+    monkeypatch, capsys,
+):
+    monkeypatch.setattr(
+        "owrap.commands.context_manager._read_config", lambda: {},
+    )
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.get_workspace_path", lambda: "ws",
+    )
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.all_attached_ccsid_pairs",
+        lambda: [("claude-1", "sid-claude")],
+    )
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.all_attached_codex_session_id_pairs",
+        lambda: [("codex-1", "sid-codex")],
+    )
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.claude_transcript_path",
+        lambda ccsid, workspace: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    codex_path = MagicMock(exists=lambda: True)
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.codex_transcript_path",
+        lambda cid: codex_path,
+    )
+    dispatched = []
+    monkeypatch.setattr(
+        CtxWorkerRunner, "_dispatch_tracked",
+        lambda self, owrap_sid, ccsid, path, config, **kw: dispatched.append(ccsid),
+    )
+
+    CtxWorkerRunner().check_all_attached()
+
+    assert dispatched == ["codex-1"]
+    assert "background check failed for ccsid=claude-1" in capsys.readouterr().err
 
 
 # Output validation and retry

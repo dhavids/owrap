@@ -22,9 +22,9 @@ def _project(tmp_path, monkeypatch):
     )
     (repository / "code.yaml").write_text(
         "schema_version: 1\nkind: repository\nid: code\n"
-        f"main: main.md\ncheckout: {tmp_path / 'checkout'}\n"
+        f"main: memory.md\ncheckout: {tmp_path / 'checkout'}\n"
     )
-    (repository / "main.md").write_text("# Code\n")
+    (repository / "memory.md").write_text("# Code\n")
     (tmp_path / "checkout").mkdir()
     monkeypatch.setattr(
         "owrap.utils.memory.records.get_workspace_config",

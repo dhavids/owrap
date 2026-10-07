@@ -5,7 +5,6 @@ Session status and task monitoring.
 import json
 import os
 import time
-from pathlib import Path
 
 from ..base import BaseRunner
 from ..utils.log import context_jobs
@@ -17,7 +16,7 @@ from ..utils.session.resolver import (
 from ..utils.paths import (
     RUNNING_DIR, RECENTLY_DONE_DIR, session_input,
     _read_config, SERVER_LOGS_DIR, SESSION_DIR, SESSIONS_DIR, STATS_FILE,
-    DAEMON_PID_FILE, DAEMON_STATE_FILE, RUNTIME_LOG, session_dir,
+    DAEMON_PID_FILE, DAEMON_STATE_FILE, RUNTIME_LOG,
 )
 
 
@@ -102,7 +101,7 @@ def _print_context_jobs(jobs, show_session=True):
         elapsed = max(0, ended - started)
         kind = job.get("kind", "ctx")
         sid = job.get("session_id", "?")
-        job_id = job.get("job_id", "?")[:8]
+        job_id = job.get("job_id", "?")
         session = f"[{sid}]  " if show_session else ""
         age = ""
         if job.get("finished"):
@@ -110,18 +109,12 @@ def _print_context_jobs(jobs, show_session=True):
         print(
             f"  {kind}  {session}{job_id}  {status}{age}  {elapsed:.0f}s"
         )
-        log_path = _context_job_path(job.get("log_path", ""), sid)
-        print(f"    output: {log_path}")
-        transcript = _context_job_path(job.get("transcript_path", ""), sid)
-        print(f"    transcript: {transcript}")
-
-
-def _context_job_path(value: str, session_id: str) -> Path:
-    path = Path(value)
-    try:
-        return path.relative_to(session_dir(session_id))
-    except ValueError:
-        return path
+        log_path = job.get("log_path", "")
+        if log_path:
+            print(f"    output: {log_path}")
+        transcript = job.get("transcript_path", "")
+        if transcript:
+            print(f"    transcript: {transcript}")
 
 
 def _print_identity(data: dict) -> None:

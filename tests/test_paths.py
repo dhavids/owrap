@@ -71,18 +71,6 @@ def test_context_counters_stay_in_session_window():
     )
 
 
-def test_memory_lock_path_under_locks_dir():
-    from owrap.utils.paths import memory_lock_path, LOCKS_DIR
-    p = memory_lock_path("myresearch")
-    assert p == LOCKS_DIR / "memory" / "myresearch.lock"
-
-
-def test_projects_lock_path_under_locks_dir():
-    from owrap.utils.paths import projects_lock_path, LOCKS_DIR
-    p = projects_lock_path("myresearch")
-    assert p == LOCKS_DIR / "projects" / "myresearch.lock"
-
-
 def test_get_plan_path_under_exec_plans():
     from owrap.utils.paths import get_plan_path, SESSIONS_DIR
     p = get_plan_path("abc123")

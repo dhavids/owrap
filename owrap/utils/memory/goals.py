@@ -70,7 +70,9 @@ def edit_goals(
             changed = 1
         elif action == "done":
             if text == "next":
-                matches = [i for i, (done, _) in enumerate(items) if not done]
+                matches = [
+                    i for i, (done, _) in enumerate(items) if not done
+                ][:1]
             elif text.isdigit():
                 matches = [int(text) - 1]
             else:
@@ -83,6 +85,19 @@ def edit_goals(
             index = matches[0]
             selected = items[index][1]
             items[index] = (True, selected)
+            changed = 1
+        elif action == "update":
+            if not items:
+                raise ValueError("no goal at that position")
+            if position == 0:
+                index = 0
+            elif position == -1:
+                index = len(items) - 1
+            else:
+                index = position - 1
+            if not 0 <= index < len(items):
+                raise ValueError("position out of range")
+            items[index] = (items[index][0], text)
             changed = 1
         elif action == "clear":
             remaining = [item for item in items if not item[0]]

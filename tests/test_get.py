@@ -123,7 +123,7 @@ def test_get_session(get_runner, fake_owrap, capsys):
     assert "foo" in captured.out
 
 
-def test_get_memory_no_research(get_runner, fake_owrap, capsys):
+def test_get_memory_no_target(get_runner, fake_owrap, capsys):
     sf = fake_owrap / "sessions" / "abc123.session"
     sf.write_text("session_id=abc123\nworkspace=fakews\n")
     with patch("owrap.commands.get.RUNTIME_HOME", fake_owrap), \
@@ -131,10 +131,45 @@ def test_get_memory_no_research(get_runner, fake_owrap, capsys):
         with pytest.raises(SystemExit):
             get_runner.run("memory", session_id="abc123")
     captured = capsys.readouterr()
-    assert "No research configured" in captured.out
+    assert "No project/repository target configured" in captured.out
 
 
-def test_get_memory_with_area(get_runner, fake_owrap, capsys):
+def _project_session(tmp_path, monkeypatch):
+    """
+    A target_kind=project session with a linked repository, for exercising
+    the canonical memory/project read path.
+    """
+    root = tmp_path / "research"
+    project = root / "projects" / "mytest"
+    repo = root / "repositories" / "myrepo"
+    project.mkdir(parents=True)
+    repo.mkdir(parents=True)
+    (project / "mytest.yaml").write_text(
+        "schema_version: 1\nkind: project\nid: mytest\n"
+        "main: main.md\nrepositories: [myrepo]\nsubprojects: {}\n"
+    )
+    (project / "main.md").write_text("# mytest\n\n## Overview\n\nOverview text\n")
+    (repo / "myrepo.yaml").write_text(
+        "schema_version: 1\nkind: repository\nid: myrepo\n"
+        "main: memory.md\ncheckout: /tmp/myrepo\n"
+    )
+    (repo / "memory.md").write_text("# Architecture\n\nline1\nline2\n")
+    sf = tmp_path / "sessions" / "abc123.session"
+    sf.write_text(
+        "session_id=abc123\ntarget_kind=project\nproject_id=mytest\n"
+        'workspace=fakews\nrepositories=["myrepo"]\n'
+    )
+    monkeypatch.setattr(
+        "owrap.utils.memory.records.get_workspace_config",
+        lambda workspace: {"research_root": str(root)},
+    )
+    return project, repo
+
+
+def test_get_memory_reads_linked_repository(
+    get_runner, fake_owrap, monkeypatch, capsys,
+):
+    _project_session(fake_owrap, monkeypatch)
     with patch("owrap.commands.get.RUNTIME_HOME", fake_owrap), \
          patch.dict("os.environ", {}, clear=True):
         get_runner.run("memory", session_id="abc123")
@@ -142,18 +177,17 @@ def test_get_memory_with_area(get_runner, fake_owrap, capsys):
     assert "# memory:" in captured.out
     assert "line1" in captured.out
     assert "line2" in captured.out
-    assert "## bar" not in captured.out
 
 
-def test_get_project_missing(get_runner, fake_owrap, capsys):
-    proj_file = fake_owrap / "research" / "projects" / "mytest.md"
-    proj_file.unlink()
+def test_get_project_missing(get_runner, fake_owrap, monkeypatch, capsys):
+    project, _ = _project_session(fake_owrap, monkeypatch)
+    (project / "main.md").unlink()
     with patch("owrap.commands.get.RUNTIME_HOME", fake_owrap), \
          patch.dict("os.environ", {}, clear=True):
         with pytest.raises(SystemExit):
             get_runner.run("project", session_id="abc123")
     captured = capsys.readouterr()
-    assert "does not exist" in captured.out
+    assert "Record Markdown not found" in captured.out
 
 
 def test_session_resolution_env(get_runner, fake_owrap, capsys):

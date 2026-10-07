@@ -150,9 +150,9 @@ def test_branch_worktree_merge_then_collapse(workflow_home, tmp_path, monkeypatc
     record_dir.mkdir(parents=True)
     (record_dir / "code.yaml").write_text(
         "schema_version: 1\nkind: repository\nid: code\n"
-        f"checkout: {checkout}\nmain: main.md\n"
+        f"checkout: {checkout}\nmain: memory.md\n"
     )
-    (record_dir / "main.md").write_text("# Code\n")
+    (record_dir / "memory.md").write_text("# Code\n")
     monkeypatch.setattr("owrap.session.workflow.docs_root", lambda _: root)
     _parent(sessions, ["code"])
     monkeypatch.setenv("SESSION_ID", "parent")
@@ -204,7 +204,7 @@ def test_branch_rejects_dirty_parent_before_creating_folders(
     record_dir.mkdir(parents=True)
     (record_dir / "code.yaml").write_text(
         "schema_version: 1\nkind: repository\nid: code\n"
-        f"checkout: {checkout}\nmain: main.md\n"
+        f"checkout: {checkout}\nmain: memory.md\n"
     )
     monkeypatch.setattr("owrap.session.workflow.docs_root", lambda _: root)
     _parent(sessions, ["code"])

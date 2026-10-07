@@ -8,12 +8,12 @@ from pathlib import Path as _Path
 
 def print_orientation(
     session_id, research, url=None, plan_path=None,
-    todo_path=None, input_path=None, context_path=None,
+    input_path=None, context_path=None,
     area=None, memory_path=None, project_path=None,
     attach=False, runner_enabled=True, target=None,
 ):
     """
-    Print the session orientation banner: server URL, plan/todo/context
+    Print the session orientation banner: server URL, plan/context
     paths, and area/memory/project links.
     """
     _in_path = bool(_shutil.which("oread"))
@@ -96,7 +96,14 @@ def print_orientation(
             _gi_path = _rgip(session_id)
         except Exception:
             pass
-    if _gi_path or (context_path and attach):
+    _targets_owrap = bool(
+        target and target.kind == "project" and target.project_id == "owrap",
+    )
+    _self_path = None
+    if _targets_owrap:
+        from ..utils.paths import get_self_path as _gsp
+        _self_path = _gsp()
+    if _gi_path or (context_path and attach) or _self_path:
         print("RELOAD")
         if _gi_path:
             print(f"  {_gi_path} — read this file now before continuing.")
@@ -105,22 +112,25 @@ def print_orientation(
                 f"  {context_path} — also re-read this file "
                 f"for current session context.",
             )
+        if _self_path:
+            print(
+                f"  {_self_path} — self-referential session (project: "
+                f"owrap); re-read this file too.",
+            )
     print()
     _fallback_note = ""
-    if research == "owrap":
+    if research == "owrap" or _targets_owrap:
         from ..utils.paths import FALLBACK_PLAN, FALLBACK_TASK
         plan_path = FALLBACK_PLAN
         input_path = FALLBACK_TASK
         if runner_enabled:
-            _fallback_note = "  (research=owrap: dispatch via `owrap f <path>`)"
+            _fallback_note = "  (project=owrap: dispatch via `owrap f <path>`)"
     print("KEY FILES")
     if runner_enabled:
         print(f"  plan    {plan_path}{_fallback_note}")
         print(f"  input   {input_path}{_fallback_note}")
     if area and not target:
         print(f"  area    {area}")
-    if todo_path:
-        print(f"  todo    {todo_path}")
     if target:
         if target.project_path:
             print(f"  goals   {target.project_path}#Goals")

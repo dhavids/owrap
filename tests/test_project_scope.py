@@ -28,9 +28,9 @@ def project_scope(tmp_path, monkeypatch):
     (project / "old.md").write_text("# Old\n\n## Goals\n")
     (repository / "code.yaml").write_text(
         "schema_version: 1\nkind: repository\nid: code\n"
-        "main: main.md\ncheckout: /tmp/code\n"
+        "main: memory.md\ncheckout: /tmp/code\n"
     )
-    (repository / "main.md").write_text("# Code\n")
+    (repository / "memory.md").write_text("# Code\n")
     session_path = sessions / "abc123" / ".session"
     session_path.parent.mkdir()
     session_path.write_text(
