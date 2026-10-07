@@ -86,9 +86,11 @@ def test_daemon_runs_when_only_context_manager_enabled(tmp_path):
     (tmp_path / ".owrap").mkdir(parents=True, exist_ok=True)
     sleep_fn, calls = _stop_after(2)
     mock_get_pool = MagicMock(return_value=[])
+    mock_ensure_min = MagicMock()
     mock_worker_cls = MagicMock()
 
     with patch("owrap.commands.daemon.get_pool", mock_get_pool), \
+         patch("owrap.commands.daemon.ensure_min_servers", mock_ensure_min), \
          patch("owrap.commands.context_manager.CtxWorkerRunner", mock_worker_cls), \
          patch("owrap.commands.daemon._read_config", return_value={
              "owrap_runner_enabled": False,
@@ -100,8 +102,39 @@ def test_daemon_runs_when_only_context_manager_enabled(tmp_path):
             DaemonRunner(MagicMock()).run()
 
     assert calls["n"] >= 2
-    # Pool management is skipped entirely while the runner is disabled.
-    mock_get_pool.assert_not_called()
+    # Idle cleanup still runs on any leftover servers, disabled or not.
+    mock_get_pool.assert_called()
+    # Only starting new capacity is skipped while the runner is disabled.
+    mock_ensure_min.assert_not_called()
+
+
+def test_daemon_cleans_up_leftover_server_while_runner_disabled(tmp_path):
+    """
+    A server left running from before the runner was disabled must still
+    get torn down once idle, even though nothing is maintaining capacity
+    for it anymore.
+    """
+    from owrap.commands.daemon import DaemonRunner
+
+    (tmp_path / ".owrap").mkdir(parents=True, exist_ok=True)
+    sleep_fn, calls = _stop_after(2)
+    leftover_pool = [{"url": "http://127.0.0.1:4096", "pid": 123}]
+    mock_shutdown_idle = MagicMock()
+
+    with patch("owrap.commands.daemon.get_pool", return_value=leftover_pool), \
+         patch("owrap.commands.daemon._active_load", return_value=0), \
+         patch("owrap.commands.daemon.shutdown_idle", mock_shutdown_idle), \
+         patch("owrap.commands.daemon._read_config", return_value={
+             "owrap_runner_enabled": False,
+             "owrap_context_manager_enabled": True,
+             "daemon_interval_s": 0.01,
+         }), \
+         patch("owrap.commands.context_manager.CtxWorkerRunner", MagicMock()), \
+         patch("owrap.commands.daemon.time.sleep", side_effect=sleep_fn):
+        with pytest.raises(_StopLoop):
+            DaemonRunner(MagicMock()).run()
+
+    mock_shutdown_idle.assert_called()
 
 
 def test_daemon_cleans_pid_file_on_exit(tmp_path):
