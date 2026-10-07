@@ -134,9 +134,16 @@ class Terminal:
         tee_file=None,
         cwd=None,
         use_pty=False,
+        idle_timeout=None,
     ):
         """
         Execute a command in the managed subprocess.
+
+        idle_timeout: kill early if no new output arrives for this many
+        seconds, even though the overall `timeout` hasn't elapsed yet —
+        fail fast on a stuck process instead of waiting out the full
+        hard timeout. Only applies in the streamed (print_output and
+        capture_output) path of the non-interactive, non-detached run.
         """
         if silent:
             print_output = False
@@ -153,7 +160,7 @@ class Terminal:
             else:
                 return self._run_standard(
                     command, stdin, capture_output, print_output, silent, timeout,
-                    tee_file, cwd=cwd, use_pty=use_pty,
+                    tee_file, cwd=cwd, use_pty=use_pty, idle_timeout=idle_timeout,
                 )
         finally:
             if register_signals and not detached:
@@ -310,7 +317,7 @@ class Terminal:
 
     def _run_standard(
         self, command, stdin, capture_output, print_output, silent, timeout,
-        tee_file=None, cwd=None, use_pty=False,
+        tee_file=None, cwd=None, use_pty=False, idle_timeout=None,
     ):
         import time
         if self.verbose and not silent:
@@ -366,17 +373,24 @@ class Terminal:
                     flags = fcntl.fcntl(proc.stderr, fcntl.F_GETFL)
                     fcntl.fcntl(proc.stderr, fcntl.F_SETFL, flags | os.O_NONBLOCK)
             deadline = (time.time() + timeout) if timeout else None
+            last_data_time = time.time()
             timed_out = False
+            idled_out = False
             pty_closed = False
             while proc.poll() is None:
+                now = time.time()
+                if deadline and now >= deadline:
+                    timed_out = True
+                    break
+                if idle_timeout and now - last_data_time >= idle_timeout:
+                    idled_out = True
+                    break
+                wait = 0.1
                 if deadline:
-                    remaining = deadline - time.time()
-                    if remaining <= 0:
-                        timed_out = True
-                        break
-                    wait = min(0.1, remaining)
-                else:
-                    wait = 0.1
+                    wait = min(wait, deadline - now)
+                if idle_timeout:
+                    wait = min(wait, last_data_time + idle_timeout - now)
+                wait = max(wait, 0)
                 if use_pty:
                     if pty_closed:
                         time.sleep(wait)
@@ -389,6 +403,7 @@ class Terminal:
                             data = b""
                             pty_closed = True
                         if data:
+                            last_data_time = time.time()
                             line = data.decode(errors="ignore")
                             stdout_lines.append(line)
                             self._partial_stdout += line
@@ -408,6 +423,7 @@ class Terminal:
                         if stream == proc.stdout:
                             line = stream.readline()
                             if line:
+                                last_data_time = time.time()
                                 stdout_lines.append(line)
                                 self._partial_stdout += line
                                 clean = parser.feed(line)
@@ -421,6 +437,7 @@ class Terminal:
                         elif stream == proc.stderr:
                             line = stream.readline()
                             if line:
+                                last_data_time = time.time()
                                 stderr_lines.append(line)
                                 clean = parser.feed(line)
                                 if not any(
@@ -430,7 +447,7 @@ class Terminal:
                                 if tee_file:
                                     tee_file.write(clean)
                                     tee_file.flush()
-            if timed_out:
+            if timed_out or idled_out:
                 tail = parser.flush()
                 if tail:
                     print(tail, end="", flush=True)
@@ -452,7 +469,8 @@ class Terminal:
                     "stdout": stdout if capture_output else None,
                     "stderr": stderr if capture_output else None,
                     "success": False,
-                    "timed_out": True,
+                    "timed_out": timed_out,
+                    "idled_out": idled_out,
                     "command": command,
                 }
             if use_pty:

@@ -12,9 +12,16 @@ from ..utils.paths import (
     session_ctx_transcript_path,
 )
 from ..utils.memory.goals import read_goals
-from ..utils.memory.records import resolve_memory_target, session_repositories
+from ..utils.memory.records import (
+    count_bullets, normalize_identity_kind, resolve_memory_target,
+    session_repositories,
+)
 from ..utils.session.resolver import (
     ccsid_pointer, codex_session_id_pointer, session_file,
+)
+from ..constants import (
+    DECISION_NOTICE_THRESHOLD, DECISION_ESCALATE_THRESHOLD,
+    DECISION_PRUNE_TARGET_MIN, DECISION_PRUNE_TARGET_MAX,
 )
 
 _EXEC_OUTPUT_MAX_LINES = 15
@@ -25,14 +32,11 @@ class GetRunner:
     Retrieve owrap session data, files, and configuration.
     """
 
-    def run(self, what, session_id=None, dispatch_id=None):
+    def run(self, what, session_id=None, dispatch_id=None, kind=None):
         """
         Print the requested resource to stdout.
         """
-        what = {
-            "proj": "project", "sub": "subproject", "subs": "subproject",
-            "repo": "repository", "repos": "repository",
-        }.get(what, what)
+        what = normalize_identity_kind(what)
         if what == "home":
             print(RUNTIME_HOME)
             return
@@ -44,6 +48,14 @@ class GetRunner:
                 sys.exit(1)
             print(path.read_text().strip())
             return
+        if what == "opencode":
+            from .context_manager import read_opencode_status_detail
+            detail = read_opencode_status_detail()
+            if kind == "reason":
+                print(detail["reason"] or "(none)")
+            else:
+                print(detail["status"])
+            return
 
         sid = self._resolve_session_id(session_id)
         if not sid:
@@ -53,7 +65,7 @@ class GetRunner:
         sf = session_file(sid)
         sdata = self._parse_session_file(sf)
         target = None
-        if what in ("memory", "project", "todo"):
+        if what in ("memory", "project", "todo", "decisions"):
             try:
                 target = resolve_memory_target(sdata)
             except (OSError, ValueError) as exc:
@@ -142,6 +154,13 @@ class GetRunner:
                 print(content)
             return
 
+        if what == "decisions":
+            if not target.project_path:
+                print("Repository-only session has no project decisions")
+                sys.exit(2)
+            self._print_decision_count(target.project_path)
+            return
+
         if what in ("memory", "project", "todo"):
             if what == "project":
                 if not target.project_path:
@@ -191,11 +210,15 @@ class GetRunner:
             print("  memory   — linked repository record (memory.md)")
             print("  project  — project or subproject record")
             print("  todo     — goals for the project or subproject target")
+            print("  decisions — Decisions count for the project target, with a")
+            print("           prune notice past threshold")
             print("  area, research — legacy aliases for subproject and project")
             print("  project-id, subproject, repository — explicit identity")
             print("  config   — full workspace config JSON")
             print("  home     — resolved OWRAP_HOME (no session required)")
             print("  self     — staged workspace reference (no session required)")
+            print("  opencode — shared opencode health flag, up/down")
+            print("           (no session required); add `reason` for why")
             sys.exit(1)
 
         research = sdata.get("research", "")
@@ -322,9 +345,12 @@ class GetRunner:
 
     def run_runtime(self, tail=50, ev_prefix=None, sid=None):
         """
-        Read and display the runtime log.
+        Read and display the runtime log, defaulting to the attached
+        session's own events when `sid` isn't given explicitly.
         """
         import json
+        if sid is None:
+            sid = self._resolve_session_id(None)
         if not RUNTIME_LOG.exists():
             print(f"log: {RUNTIME_LOG} (not found)")
             print("no events")
@@ -359,6 +385,48 @@ class GetRunner:
                 parts.append(f"{k}={v}")
             print("  ".join(parts))
 
+    def run_runtime_history(self, count=5, sid=None):
+        """
+        Print the last `count` completed dispatches for a session, in
+        the same `done(rc=...)  <elapsed>s` style `owrap stat` uses for
+        tasks, each paired with the full command line that started it.
+        """
+        import json
+        if sid is None:
+            sid = self._resolve_session_id(None)
+        if not RUNTIME_LOG.exists():
+            print("No runtime log yet")
+            return
+        starts = {}
+        ends = []
+        for line in RUNTIME_LOG.read_text().splitlines():
+            try:
+                obj = json.loads(line)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if sid and obj.get("sid") != sid:
+                continue
+            if obj.get("ev") == "cmd.start":
+                starts[obj.get("pid")] = obj
+            elif obj.get("ev") == "cmd.end":
+                ends.append(obj)
+        if not ends:
+            print(f"No dispatch history for session {sid or '(none)'}")
+            return
+        shown = ends[-count:]
+        print(f"history (last {len(shown)} of {len(ends)}):")
+        for ev in shown:
+            ts = ev.get("ts", "")[11:19]
+            cmd = ev.get("cmd", "?")
+            rc = ev.get("rc", "?")
+            status = "done(ok)" if rc == 0 else f"done(rc={rc})"
+            dur = ev.get("dur_s", 0)
+            ev_sid = ev.get("sid") or "?"
+            print(f"  {cmd:<12}  [{ev_sid}]  {status}  {dur:.2f}s  @ {ts}")
+            start = starts.get(ev.get("pid"))
+            if start and start.get("argv"):
+                print(f"    argv: {start['argv']}")
+
     def _resolve_session_id(self, session_id):
         if session_id:
             return session_id
@@ -385,6 +453,24 @@ class GetRunner:
                     k, v = line.split("=", 1)
                     data[k.strip()] = v.strip()
         return data
+
+    def _print_decision_count(self, project_path):
+        """
+        Print a project's Decisions count, escalating from a notice to
+        a prune demand as it grows past the configured thresholds.
+        """
+        count = count_bullets(project_path, "## Decisions")
+        print(f"decisions: {count} ({project_path})")
+        if count >= DECISION_ESCALATE_THRESHOLD:
+            print(
+                f"PRUNE NOW ({DECISION_ESCALATE_THRESHOLD}+) — prune down to "
+                f"{DECISION_PRUNE_TARGET_MIN}-{DECISION_PRUNE_TARGET_MAX}"
+            )
+        elif count >= DECISION_NOTICE_THRESHOLD:
+            print(
+                f"consider pruning ({DECISION_NOTICE_THRESHOLD}+) — prune down "
+                f"to {DECISION_PRUNE_TARGET_MIN}-{DECISION_PRUNE_TARGET_MAX}"
+            )
 
     def _print_session(self, sid, sdata, sf):
         if not sf.exists():

@@ -9,12 +9,12 @@ from pathlib import Path as _Path
 def print_orientation(
     session_id, research, url=None, plan_path=None,
     input_path=None, context_path=None,
-    area=None, memory_path=None, project_path=None,
+    memory_path=None, project_path=None,
     attach=False, runner_enabled=True, target=None,
 ):
     """
     Print the session orientation banner: server URL, plan/context
-    paths, and area/memory/project links.
+    paths, and memory/project links.
     """
     _in_path = bool(_shutil.which("oread"))
     _buf = _io.StringIO()
@@ -129,8 +129,6 @@ def print_orientation(
     if runner_enabled:
         print(f"  plan    {plan_path}{_fallback_note}")
         print(f"  input   {input_path}{_fallback_note}")
-    if area and not target:
-        print(f"  area    {area}")
     if target:
         if target.project_path:
             print(f"  goals   {target.project_path}#Goals")
@@ -140,11 +138,9 @@ def print_orientation(
         ):
             print(f"  repo    {repo_id}: {repo_path}")
     if memory_path and not target:
-        _area_tag = f"#{area}" if area else ""
-        print(f"  memory  {memory_path}{_area_tag}")
+        print(f"  memory  {memory_path}")
     if project_path and not target:
-        _area_tag = f"#{area}" if area else ""
-        print(f"  project {project_path}{_area_tag}")
+        print(f"  project {project_path}")
     if focus or context_path or plan_steps or env_line:
         print()
         print("FOCUS")

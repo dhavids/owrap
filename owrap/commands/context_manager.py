@@ -13,7 +13,7 @@ from ..utils.paths import (
     get_model_chain, get_workspace_path, claude_transcript_path,
     codex_transcript_path,
     context_lock_path, session_ctx_touched_path,
-    session_ctx_counters_path,
+    session_ctx_counters_path, OPENCODE_STATUS_FILE,
 )
 from ..utils.session.resolver import (
     _parse, session_file, owrap_sid_for_ccsid, all_attached_ccsid_pairs,
@@ -33,11 +33,52 @@ from ..utils.memory.records import (
 from ..constants import (
     CTX_SCOPED_TASK_TEMPLATE, CTX_CONTEXT_BLOCK,
     CTX_PROJECT_BLOCK, CTX_REPOSITORY_BLOCK, ANTI_SUMMARY_SUFFIX,
+    CTX_IDLE_TIMEOUT_S,
 )
 
-MAX_EXCERPT_CHARS = 12000
-MAX_CODEX_EXCERPT_CHARS = 12000
+MAX_EXCERPT_CHARS = 24000
+MAX_CODEX_EXCERPT_CHARS = 24000
 MAX_RESULT_CHARS = 100
+
+
+def read_opencode_status_detail() -> dict:
+    """
+    Return the shared opencode health flag as {"status", "reason",
+    "since"} — "up"/no reason if the flag has never been written.
+    """
+    try:
+        data = json.loads(OPENCODE_STATUS_FILE.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {"status": "up", "reason": None, "since": None}
+    return {
+        "status": data.get("status", "up"),
+        "reason": data.get("reason"),
+        "since": data.get("since"),
+    }
+
+
+def read_opencode_status() -> str:
+    """
+    Return "down" if the shared opencode health flag says every model in
+    the chain is currently timing out, "up" otherwise (including when the
+    flag has never been written).
+    """
+    return read_opencode_status_detail()["status"]
+
+
+def _write_opencode_status(status: str, reason: str = None) -> None:
+    """
+    Record the shared opencode health flag: "up" after any dispatch gets
+    real output from a model, "down" when every model in the chain timed
+    out. A single flag, not per-session — the opencode account/binary
+    being unreachable isn't scoped to one project. `reason` describes
+    any failed write and is always cleared on an "up" write.
+    """
+    OPENCODE_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    OPENCODE_STATUS_FILE.write_text(json.dumps({
+        "status": status, "reason": reason,
+        "since": datetime.now(timezone.utc).isoformat(),
+    }))
 
 
 def _ts_ns(stamp) -> int | None:
@@ -437,7 +478,7 @@ class CtxWorkerRunner:
         if target:
             changed_paths = [entry["path"] for entry in touched_entries]
             for line in new_assistant_texts:
-                match = re.match(r"\[(?:Edit|Write)\]\s+(\S+)", line)
+                match = re.match(r"\[(?:Edit|Write|NotebookEdit)\]\s+(\S+)", line)
                 if match:
                     changed_paths.append(match.group(1))
             repository_paths = touched_repository_paths(
@@ -541,14 +582,18 @@ class CtxWorkerRunner:
         attempts = [chain[0], chain[0]] + chain[1:] if chain else [None]
         rc = 1
         output_text = None
+        attempt_rcs = []
+        attempt_metas = []
         for model in attempts:
             if job_dir:
                 context_jobs.update(
                     job_dir, stage="running model", model=model or "default",
                 )
-            rc, candidate = self._run_dispatch_attempt(
+            rc, candidate, meta = self._run_dispatch_attempt(
                 ctx_dir, output_path, model,
             )
+            attempt_rcs.append(rc)
+            attempt_metas.append(meta)
             if rc == 0 and candidate and self._validate_output(
                 candidate, do_context, do_protocol,
             ):
@@ -559,8 +604,22 @@ class CtxWorkerRunner:
                 "output, trying next",
                 file=sys.stderr,
             )
+            if len(attempt_metas) == 2 and all(
+                m["idled_out"] and not m["stdout"].strip() for m in attempt_metas
+            ):
+                print(
+                    "ctx-worker: primary model gave no output twice in a "
+                    "row — treating as an infra failure, not retrying "
+                    "the rest of the chain",
+                    file=sys.stderr,
+                )
+                break
 
         if output_text is None:
+            # "down" only if nothing ever responded; else status stays "up".
+            reason = self._classify_opencode_failure(attempt_metas)
+            down = bool(attempt_rcs) and all(r == -1 for r in attempt_rcs)
+            _write_opencode_status("down" if down else "up", reason)
             print(
                 "ctx-worker: all model attempts failed validation — "
                 "leaving excerpt queued for the next dispatch",
@@ -568,6 +627,7 @@ class CtxWorkerRunner:
             )
             return 1
 
+        _write_opencode_status("up")
         if job_dir:
             (job_dir / "output.md").write_text(output_text)
             context_jobs.update(job_dir, stage="applying result")
@@ -589,7 +649,9 @@ class CtxWorkerRunner:
         """
         Run one opencode dispatch attempt in `ctx_dir` with `model`.
 
-        Returns (returncode, output_text_or_None).
+        Returns (returncode, output_text_or_None, meta) — meta is
+        {"idled_out": bool, "stdout": str, "model": str}, the detail a
+        failed attempt needs for the opencode health flag's reason.
         """
         output_path.unlink(missing_ok=True)
 
@@ -613,17 +675,49 @@ class CtxWorkerRunner:
         cmd_str = " ".join(shlex.quote(c) for c in cmd)
         terminal = Terminal(verbose=False)
         # use_pty=True: without a real pty, OpenCode's permission prompt hangs.
+        # idle_timeout: fail fast on a stuck model, not the full hard timeout.
         result = terminal.run(
             cmd_str, capture_output=True, print_output=True,
             use_pty=True, cwd=str(ctx_dir), timeout=180,
+            idle_timeout=CTX_IDLE_TIMEOUT_S,
         )
         rc = result.get("returncode", 1)
         print(f"ctx-worker: opencode rc={rc}", flush=True)
+        meta = {
+            "idled_out": bool(result.get("idled_out")),
+            "stdout": result.get("stdout") or "",
+            "model": model or "(default)",
+        }
 
         if not output_path.exists():
             print("ctx-worker: no output.md produced", file=sys.stderr)
-            return rc, None
-        return rc, output_path.read_text()
+            return rc, None, meta
+        return rc, output_path.read_text(), meta
+
+    def _classify_opencode_failure(self, attempt_metas) -> str:
+        """
+        Describe why every dispatch attempt failed, for the shared
+        opencode health flag's `reason` field (`owrap get opencode
+        reason`): a model-specific plan restriction with its own error
+        text, silence from every attempt, or an unclassified model
+        error with a snippet of its last real output.
+        """
+        for meta in attempt_metas:
+            if "subscription is required" in meta["stdout"]:
+                line = meta["stdout"].strip().splitlines()[-1][:160]
+                return f"subscription_required: {meta['model']} — {line}"
+        if attempt_metas and all(m["idled_out"] for m in attempt_metas):
+            models = ", ".join(dict.fromkeys(m["model"] for m in attempt_metas))
+            return (
+                f"no_output: {len(attempt_metas)} attempt(s) against "
+                f"{models} gave no response"
+            )
+        for meta in reversed(attempt_metas):
+            stripped = meta["stdout"].strip()
+            if stripped:
+                line = stripped.splitlines()[-1][:160]
+                return f"model_error: {meta['model']} — {line}"
+        return "model_error: no output from any attempt"
 
     def _validate_output(
         self, output_text: str, do_context: bool, do_protocol: bool,
@@ -937,6 +1031,11 @@ class CtxWorkerRunner:
                             if path and (not skip_update_turn or name != "Read"):
                                 texts.append(f"[{name}] {path}")
                                 pending[block.get("id")] = name
+                        elif name == "NotebookEdit":
+                            path = tool_input.get("notebook_path", "")
+                            if path and not skip_update_turn:
+                                texts.append(f"[{name}] {path}")
+                                pending[block.get("id")] = name
             elif entry_type == "user":
                 for block in content:
                     if not isinstance(block, dict):
@@ -1121,6 +1220,166 @@ class CtxWorkerRunner:
             elif entry.get("type") in ("assistant", "user"):
                 return True
         return False
+
+
+class ManualCtxRunner:
+    """
+    The planner's self-service fallback for `owrap ctx`/`updr`/`uall`
+    when opencode is down: print which real files to update and how
+    (same target resolution a real dispatch would use), then let the
+    planner edit them directly with its own tools instead of through a
+    model. `ack()` closes out the bookkeeping a successful dispatch
+    would otherwise have left behind.
+    """
+
+    def template(self, subproject: str = None):
+        """
+        Print the Context/Project/Repository update instructions and the
+        real file paths for the current session's target.
+        """
+        ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
+        source = "claude"
+        if not ccsid:
+            ccsid = os.environ.get("CODEX_SESSION_ID", "").strip()
+            source = "codex"
+        if not ccsid:
+            print("No Claude or Codex session ID — run this from an attached window")
+            sys.exit(1)
+
+        owrap_sid = (
+            owrap_sid_for_codex_session_id(ccsid) if source == "codex"
+            else owrap_sid_for_ccsid(ccsid)
+        )
+        if not owrap_sid:
+            print("No owrap session attached to this window — run `owrap attach` first")
+            sys.exit(1)
+
+        sf_path = session_file(owrap_sid)
+        session_data = _parse(sf_path) if sf_path.exists() else {}
+        if subproject is not None and session_data.get("target_kind") == "project":
+            session_data = dict(session_data)
+            session_data["subproject_id"] = "" if subproject == "main" else subproject
+
+        target = (
+            resolve_memory_target(session_data)
+            if session_data.get("target_kind") else None
+        )
+
+        detail = read_opencode_status_detail()
+        status_line = f"opencode status: {detail['status']}"
+        if detail["reason"]:
+            status_line += f" ({detail['reason']})"
+        print(status_line)
+        print(
+            "Update these files yourself, following the rules below — then "
+            "run `owrap ctx-ack` so the next dispatch doesn't redo this.\n"
+        )
+
+        print(f"# Context — {context_path(owrap_sid)}")
+        print(
+            "## Focus — replace entirely with 1-3 lines on what just "
+            "happened (not additive; the old text goes away)\n"
+            "## Key Locations — prepend NEW `- path — reason` lines for "
+            "source paths relevant to ongoing work; keep at most 5\n"
+            "## Decisions — prepend NEW `- decision — why` lines; keep at "
+            "most 7\n"
+            "## How To — prepend NEW `- command — when to use it` lines, "
+            "only for commands actually run; keep at most 3\n"
+            "## Environment — replace only if venv/flags/constraints changed\n"
+        )
+
+        if target is not None:
+            if target.project_path:
+                record_kind = "Subproject" if target.subproject_id else "Project"
+                record_id = target.subproject_id or target.project_id
+                print(f"# {record_kind}: {record_id} — {target.project_path}")
+                print(
+                    "## Status — replace only if this is a genuinely newer "
+                    "state than what's already there\n"
+                    "## Decisions — prepend NEW `- decision — why` lines\n"
+                )
+            for repo_id, repo_path in zip(
+                target.repository_ids, target.repository_paths,
+            ):
+                print(f"# Repository: {repo_id} — {repo_path}")
+                print(
+                    "## Architecture / Components / Interfaces / Environment — "
+                    "append NEW facts only, one `- subject — fact` per line; "
+                    "never restate what's already there\n"
+                )
+        else:
+            print("No project/repository target configured for this session.")
+
+        self._print_excerpt(ccsid, owrap_sid, source)
+
+    def _print_excerpt(self, ccsid: str, owrap_sid: str, source: str) -> None:
+        """
+        Print every transcript line since this window's cursor, with no
+        length cap.
+        """
+        transcript = (
+            codex_transcript_path(ccsid) if source == "codex"
+            else claude_transcript_path(ccsid, get_workspace_path())
+        )
+        if transcript is None or not transcript.exists():
+            print(f"\n(no transcript found for {source} session {ccsid})")
+            return
+        lines = transcript.read_text().splitlines()
+        worker = CtxWorkerRunner()
+        counters = worker._read_counters(owrap_sid, ccsid)
+        cursor_ns = counters.get("transcript_cursor_ns", 0)
+        attach_ts_ns = worker._last_attach_ts_ns(lines, owrap_sid)
+        effective_cursor_ns = max(cursor_ns, attach_ts_ns)
+        texts = (
+            worker._extract_codex_excerpt_lines(lines, effective_cursor_ns)
+            if source == "codex"
+            else worker._extract_excerpt_lines(lines, effective_cursor_ns)
+        )
+        print("\n# Transcript excerpt since the last update (not truncated)\n")
+        print("\n\n".join(texts) if texts else "(nothing new since the last update)")
+
+    def ack(self):
+        """
+        Record that the planner updated context/records by hand: set
+        `ctx_status` to `ok` and advance this window's transcript cursor
+        to now, the same bookkeeping a successful dispatch leaves.
+        """
+        ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
+        source = "claude"
+        if not ccsid:
+            ccsid = os.environ.get("CODEX_SESSION_ID", "").strip()
+            source = "codex"
+        if not ccsid:
+            print("No Claude or Codex session ID — run this from an attached window")
+            sys.exit(1)
+
+        owrap_sid = (
+            owrap_sid_for_codex_session_id(ccsid) if source == "codex"
+            else owrap_sid_for_ccsid(ccsid)
+        )
+        if not owrap_sid:
+            print("No owrap session attached to this window — run `owrap attach` first")
+            sys.exit(1)
+
+        transcript = (
+            codex_transcript_path(ccsid) if source == "codex"
+            else claude_transcript_path(ccsid, get_workspace_path())
+        )
+
+        worker = CtxWorkerRunner()
+        counters = worker._read_counters(owrap_sid, ccsid)
+        if transcript is not None and transcript.exists():
+            lines = transcript.read_text().splitlines()
+            latest_ts_ns = worker._latest_event_ns(lines)
+            if latest_ts_ns is not None:
+                counters["transcript_cursor_ns"] = max(
+                    latest_ts_ns, counters.get("transcript_cursor_ns", 0),
+                )
+                worker._write_counters(owrap_sid, counters, ccsid)
+
+        worker._set_ctx_status(owrap_sid, context_path(owrap_sid), "ok")
+        worker._clear_touched_entries(owrap_sid, ccsid)
+        print(f"Marked session {owrap_sid}'s context update as done manually.")
 
 
 class CtxHookRunner:

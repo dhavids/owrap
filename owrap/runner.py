@@ -422,6 +422,16 @@ def _cmd_updr(args, manager, logger, allow_all):
     CtxWorkerRunner().run_manual(mode=mode, subproject=args.subproject)
 
 
+def _cmd_ctx_template(args, manager, logger, allow_all):
+    from .commands.context_manager import ManualCtxRunner
+    ManualCtxRunner().template(subproject=args.subproject)
+
+
+def _cmd_ctx_ack(args, manager, logger, allow_all):
+    from .commands.context_manager import ManualCtxRunner
+    ManualCtxRunner().ack()
+
+
 def _cmd_touched(args, manager, logger, allow_all):
     from .commands.touched import TouchedRunner
     TouchedRunner().run(args.paths, note=args.note)
@@ -443,6 +453,29 @@ def _cmd_delete(args, manager, logger, allow_all):
         DeleteBackupRunner().run(args.target, which=args.which)
 
 
+def _cmd_rename(args, manager, logger, allow_all):
+    from .commands.rename import RenameRunner
+    from .utils.memory.records import normalize_identity_kind
+    runner = RenameRunner()
+    kind = normalize_identity_kind(args.kind)
+    try:
+        if kind == "project":
+            runner.project(args.arg1, args.arg2)
+            print(f"Renamed project {args.arg1} -> {args.arg2}")
+        elif kind == "repository":
+            runner.repository(args.arg1, args.arg2)
+            print(f"Renamed repository {args.arg1} -> {args.arg2}")
+        else:
+            if args.arg3 is None:
+                print("Usage: owrap rename subproject <project_id> <old> <new>")
+                sys.exit(2)
+            runner.subproject(args.arg1, args.arg2, args.arg3)
+            print(f"Renamed subproject {args.arg1}/{args.arg2} -> {args.arg3}")
+    except (OSError, ValueError, FileExistsError, FileNotFoundError) as exc:
+        print(f"ERROR: {exc}")
+        sys.exit(2)
+
+
 def _cmd_get(args, manager, logger, allow_all):
     from .commands.get import GetRunner
     runner = GetRunner()
@@ -457,7 +490,15 @@ def _cmd_get(args, manager, logger, allow_all):
             )
             or 0
         )
+    if args.what == "history":
+        # Alias: `owrap get history [N]` == `owrap get runtime history [N]`.
+        count = int(args.kind) if args.kind is not None else args.count
+        sys.exit(runner.run_runtime_history(count=count, sid=args.sid) or 0)
     if args.what == "runtime":
+        if args.kind == "history":
+            sys.exit(runner.run_runtime_history(
+                count=args.count, sid=args.sid,
+            ) or 0)
         sys.exit(runner.run_runtime(
             tail=args.tail, ev_prefix=args.ev, sid=args.sid,
         ) or 0)
@@ -466,7 +507,7 @@ def _cmd_get(args, manager, logger, allow_all):
             session_id=args.session, ccsid=args.ccsid,
         ) or 0)
     sys.exit(runner.run(args.what, session_id=args.session,
-                        dispatch_id=args.id) or 0)
+                        dispatch_id=args.id, kind=args.kind) or 0)
 
 
 _COMMAND_HANDLERS = {
@@ -507,10 +548,13 @@ _COMMAND_HANDLERS = {
     "ctx-worker": _cmd_ctx_worker,
     "ctx": _cmd_ctx,
     "updr": _cmd_updr,
+    "ctx-template": _cmd_ctx_template,
+    "ctx-ack": _cmd_ctx_ack,
     "touched": _cmd_touched,
     "backup": _cmd_backup,
     "retrieve": _cmd_retrieve,
     "delete": _cmd_delete,
+    "rename": _cmd_rename,
     "get": _cmd_get,
 }
 
