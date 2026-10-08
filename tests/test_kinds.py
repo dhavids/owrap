@@ -182,3 +182,30 @@ def test_dispatch_remove_repository_succeeds(kinds_scope):
     message = dispatch(KIND_REGISTRY, "repository", "remove", "extra")
     assert message == "Removed repository extra"
     assert not (root / "repositories" / "extra").exists()
+
+
+def test_dispatch_done_todo(kinds_scope, capsys):
+    dispatch(KIND_REGISTRY, "todo", "add", "abc123", "Finish the thing")
+    capsys.readouterr()
+    dispatch(KIND_REGISTRY, "todo", "done", "abc123", "next")
+    assert "GOAL marked done" in capsys.readouterr().out
+
+
+def test_dispatch_done_branch_preview(kinds_scope, capsys):
+    root = kinds_scope
+    (root / "projects" / "demo" / "feature.md").write_text(
+        "# feature\n\n## Overview\n\nBranch of [demo](main.md) for `feat/x`.\n\n"
+        "## Goals\n\n## Status\n\nBranch open.\n\n## Decisions\n\n"
+        "## Findings\n\n## Notes\n"
+    )
+    yaml_path = root / "projects" / "demo" / "demo.yaml"
+    content = yaml_path.read_text()
+    content = content.replace(
+        "subprojects:\n",
+        "subprojects:\n  feature:\n    kind: branch\n    file: feature.md\n"
+        "    parent: main\n    branch_repository: code\n    branch_ref: feat/x\n",
+    )
+    yaml_path.write_text(content)
+
+    dispatch(KIND_REGISTRY, "branch", "done", "demo", "feature")
+    assert "Preview only" in capsys.readouterr().out

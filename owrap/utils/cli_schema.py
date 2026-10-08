@@ -508,6 +508,16 @@ SUBCOMMANDS = [
         ],
     },
     {
+        "name": "done",
+        "help": "Mark one todo item done",
+        "args": [
+            {"flags": ["kind"], "choices": ["todo"]},
+            {"flags": ["arg1"], "help": "Target"},
+            {"flags": ["arg2"], "nargs": "?", "default": None,
+             "help": "Position, 'next', or a text snippet to match"},
+        ],
+    },
+    {
         "name": "clear",
         "help": "Clear done todo items, or every decision, for a target",
         "args": [

@@ -99,8 +99,16 @@ class Branch(Subproject):
     ) -> str:
         path = self._branch.create(
             project_id, branch_id, parent_id, repository_id, branch_ref,
+            workspace=_current_workspace(),
         )
         return f"Created branch record: {path}\nGit branch unchanged."
+
+    def done(self, project_id: str, branch_id: str, apply: bool = False) -> None:
+        # run("merge", ...) prints the preview/applied result itself.
+        self._branch.run(
+            "merge", project_id=project_id, branch_id=branch_id, apply=apply,
+            workspace=_current_workspace(),
+        )
 
 
 class Todo(SectionEntry):
@@ -128,6 +136,10 @@ class Todo(SectionEntry):
     def clear(self, target: str = None) -> None:
         # run_clear prints its own result.
         self._todo.run_clear(target)
+
+    def done(self, target: str, selector: str = None) -> None:
+        # run_done prints its own result/usage and exits on error.
+        self._todo.run_done(target, selector)
 
 
 class Decision(SectionEntry):

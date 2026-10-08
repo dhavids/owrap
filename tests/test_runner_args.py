@@ -192,6 +192,10 @@ REPRESENTATIVE_CASES = [
         "allow_all": False, "arg1": "old1", "arg2": None,
         "command": "remove", "kind": "repository"
     }),
+    (["done", "todo", "proj1", "next"], {
+        "allow_all": False, "arg1": "proj1", "arg2": "next",
+        "command": "done", "kind": "todo"
+    }),
     (["get", "project"], {
         "allow_all": False, "ccsid": None, "command": "get", "count": 5, "ev": None,
         "head": 5, "id": None, "kind": None, "session": None, "sid": None, "tail": 5,
