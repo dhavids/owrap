@@ -226,3 +226,68 @@ def test_resolve_log_file_always_none(tmp_path):
     manager._write_state({"pid": os.getpid(), "url": "http://x", "port": 1})
     manager._resolve_log_file()
     assert manager._log_file is None
+
+
+def test_create_context_fresh_file_has_no_phase_or_research_root(monkeypatch):
+    manager = _make_manager()
+    manager.session_id = "sid01"
+    monkeypatch.setattr(
+        "owrap.manager._read_config",
+        lambda: {"docs_root": "/docs/root", "venv": "~/e-swarm"},
+    )
+
+    manager.create_context()
+
+    text = manager.context_path.read_text()
+    assert "docs_root: /docs/root" in text
+    assert "venv: ~/e-swarm" in text
+    assert "phase:" not in text
+    assert "research_root:" not in text
+
+
+def test_create_context_refreshes_docs_root_and_venv_on_existing_file(
+    monkeypatch,
+):
+    manager = _make_manager()
+    manager.session_id = "sid02"
+    manager.context_path.parent.mkdir(parents=True, exist_ok=True)
+    manager.context_path.write_text(
+        "## Session\n\nsession: sid02\nresearch_root: /old/root\n"
+        "phase: 1\nvenv: /old/venv\nlast_updated: 2026-01-01 00:00\n"
+        "\n## Focus\n\nkeep this\n"
+    )
+    monkeypatch.setattr(
+        "owrap.manager._read_config",
+        lambda: {"docs_root": "/new/root", "venv": "/new/venv"},
+    )
+
+    manager.create_context()
+
+    text = manager.context_path.read_text()
+    assert "docs_root: /new/root" in text
+    assert "venv: /new/venv" in text
+    assert "phase:" not in text
+    assert "research_root:" not in text
+    assert "keep this" in text
+
+
+def test_create_context_mirrors_ctx_status_from_ctx_state(monkeypatch):
+    from owrap.utils.paths import session_ctx_state_path
+    import json as _json
+    manager = _make_manager()
+    manager.session_id = "sid03"
+    monkeypatch.setattr(
+        "owrap.manager._read_config", lambda: {"docs_root": "/docs/root"},
+    )
+    state_path = session_ctx_state_path("sid03")
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(_json.dumps({"ctx": {"status": "failed"}}))
+
+    manager.create_context()
+    assert "ctx_status: failed" in manager.context_path.read_text()
+
+    state_path.write_text(_json.dumps({"ctx": {"status": "ok"}}))
+    manager.create_context()
+    text = manager.context_path.read_text()
+    assert "ctx_status: ok" in text
+    assert text.count("ctx_status:") == 1

@@ -423,7 +423,11 @@ class Manager:
 
     def create_context(self):
         """
-        Create or update the session context file.
+        Create or update the session context file. docs_root/venv/
+        ctx_status are refreshed from their canonical sources (workspace
+        config, ctx_state.json) on every call, not just at creation --
+        context.md is a rendered view of them, never an independent
+        copy that can drift.
         """
         cp = self.context_path
         config = _read_config()
@@ -432,31 +436,46 @@ class Manager:
         plan = str(get_plan_path(self.session_id)) if self.session_id else "none"
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
         url = self.get_url() or ""
+        ctx_status = self._read_ctx_status()
         if cp.exists():
             text = cp.read_text()
-            for field, value in (
+            text = re.sub(r"^research:.*\n", "", text, flags=re.MULTILINE)
+            text = re.sub(r"^research_root:.*\n", "", text, flags=re.MULTILINE)
+            text = re.sub(r"^phase:.*\n", "", text, flags=re.MULTILINE)
+            fields = [
                 ("session", self.session_id or "none"),
                 ("server", url),
                 ("plan", plan),
+                ("docs_root", docs_root),
+                ("venv", venv),
                 ("last_updated", now),
-            ):
-                text = re.sub(
-                    rf"^{field}:.*$", f"{field}: {value}",
-                    text, flags=re.MULTILINE,
-                )
-            text = re.sub(r"^research:.*\n", "", text, flags=re.MULTILINE)
+            ]
+            if ctx_status is not None:
+                fields.append(("ctx_status", ctx_status))
+            for field, value in fields:
+                if re.search(rf"^{field}:.*$", text, re.MULTILINE):
+                    text = re.sub(
+                        rf"^{field}:.*$", f"{field}: {value}",
+                        text, flags=re.MULTILINE,
+                    )
+                else:
+                    text = re.sub(
+                        r"^(## Session\s*\n)", rf"\1{field}: {value}\n",
+                        text, count=1, flags=re.MULTILINE,
+                    )
             cp.write_text(text)
             self._cap_context_sections(cp)
             return
+        status_line = f"ctx_status: {ctx_status}\n" if ctx_status is not None else ""
         content = (
             "## Session\n\n"
             f"session: {self.session_id or 'none'}\n"
             f"server: {url}\n"
             f"plan: {plan}\n"
-            "phase: 1\n"
             f"docs_root: {docs_root}\n"
             f"venv: {venv}\n"
             f"last_updated: {now}\n"
+            f"{status_line}"
             "\n## Focus\n\n"
             "## Active Plan\n\n"
             "## Key Locations\n\n"
@@ -468,6 +487,22 @@ class Manager:
         cp.parent.mkdir(parents=True, exist_ok=True)
         cp.write_text(content)
         self._cap_context_sections(cp)
+
+    def _read_ctx_status(self) -> str | None:
+        """
+        Read the canonical ctx_status from ctx_state.json, for display
+        only -- context.md never writes this back, ctx_state.json does.
+        """
+        if not self.session_id:
+            return None
+        from .utils.paths import session_ctx_state_path
+        p = session_ctx_state_path(self.session_id)
+        if not p.exists():
+            return None
+        try:
+            return json.loads(p.read_text()).get("ctx", {}).get("status")
+        except (json.JSONDecodeError, OSError):
+            return None
 
     def update_server_last_used(self, url: str):
         from .utils.dispatch.pool import update_last_used
