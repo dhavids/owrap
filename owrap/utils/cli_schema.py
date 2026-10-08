@@ -124,11 +124,27 @@ SUBCOMMANDS = [
     {
         "name": "attach", "help": "Bind an existing session to this Claude window",
         "args": [
-            {"flags": ["target_session_id"], "help": "Session ID to attach to"},
+            {"flags": ["target_session_id"],
+             "help": "Session ID to attach to, or 'repo' to link a "
+                     "repository to a project"},
+            {"flags": ["arg2"], "nargs": "?", "default": None,
+             "help": "(after 'repo') repository id"},
+            {"flags": ["arg3"], "nargs": "?", "default": None,
+             "help": "(after 'repo') project id"},
             flag(_SHELL_PID, help="Shell PID (ignored)"),
         ],
     },
-    {"name": "detach", "help": "Release this window's attachment to its session"},
+    {
+        "name": "detach", "help": "Release this window's attachment to its session",
+        "args": [
+            {"flags": ["target"], "nargs": "?", "default": None,
+             "help": "'repo' to unlink a repository from a project"},
+            {"flags": ["arg2"], "nargs": "?", "default": None,
+             "help": "(after 'repo') repository id"},
+            {"flags": ["arg3"], "nargs": "?", "default": None,
+             "help": "(after 'repo') project id"},
+        ],
+    },
     {
         "name": "todo",
         "help": "Add, insert, update, remove, mark done, or clear todo "
