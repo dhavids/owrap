@@ -1,8 +1,6 @@
-import json
 import os
 import sys
 
-from ..utils.paths import session_ctx_touched_path
 from ..utils.session.resolver import owrap_sid_for_ccsid
 
 
@@ -16,7 +14,7 @@ class TouchedRunner:
     def run(self, paths: list, note: str = None):
         """
         Append `paths` (each with the same optional one-line `note`) to
-        this window's pending-touched-paths file.
+        this window's pending-touched entries in ctx_state.json.
         """
         ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
         if not ccsid:
@@ -28,18 +26,8 @@ class TouchedRunner:
             print("No owrap session attached to this window — run `owrap attach` first")
             sys.exit(1)
 
-        touched_path = session_ctx_touched_path(owrap_sid, ccsid)
-        touched_path.parent.mkdir(parents=True, exist_ok=True)
-        entries = []
-        if touched_path.exists():
-            try:
-                entries = json.loads(touched_path.read_text())
-            except (json.JSONDecodeError, OSError):
-                entries = []
-
-        for path in paths:
-            entries.append({"path": path, "note": note or ""})
-
-        touched_path.write_text(json.dumps(entries))
+        from .context_manager import append_touched_entries
+        entries = [{"path": path, "note": note or ""} for path in paths]
+        append_touched_entries(owrap_sid, ccsid, entries)
         plural = "s" if len(paths) != 1 else ""
         print(f"TOUCHED {len(paths)} path{plural} queued for the next context update")

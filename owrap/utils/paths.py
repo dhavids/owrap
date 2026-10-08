@@ -433,7 +433,7 @@ def get_workspace_path() -> Path:
         v = ws_config.get("workspace")
         if v:
             return Path(v)
-    v = config.get("docs_root") or config.get("research_root")
+    v = config.get("docs_root")
     if v:
         return Path(v).parent
     return DOCS_DIR.parent
@@ -464,17 +464,10 @@ def _resolve_docs_root() -> str | None:
     root = None
     if ws_name:
         workspace = get_workspace_config(ws_name)
-        root = workspace.get("docs_root") or workspace.get("research_root")
+        root = workspace.get("docs_root")
     if not root:
-        root = config.get("docs_root") or config.get("research_root")
+        root = config.get("docs_root")
     return root
-
-
-def _resolve_research_root() -> str | None:
-    """
-    Return the documentation root for legacy callers.
-    """
-    return _resolve_docs_root()
 
 
 def server_state_file(port: int) -> Path:
@@ -508,3 +501,23 @@ def context_lock_path(session_id: str) -> Path:
     Return session-scoped context lock file path.
     """
     return session_dir(session_id) / "context.lock"
+
+
+def session_ctx_state_path(session_id: str) -> Path:
+    """
+    Return the session-scoped context-manager state file: ctx_status,
+    last dispatch result, per-target sync timestamps, and the per-window
+    transcript cursor/touched-entries map — one canonical JSON per
+    session, guarded by its own lock (ctx_state_lock_path), separate
+    from context.md's, since writers of one rarely need to block on
+    the other.
+    """
+    return session_dir(session_id) / "ctx_state.json"
+
+
+def ctx_state_lock_path(session_id: str) -> Path:
+    """
+    Return the session-scoped ctx_state.json lock file path, separate
+    from context.md's own lock (context_lock_path).
+    """
+    return session_dir(session_id) / "ctx_state.lock"

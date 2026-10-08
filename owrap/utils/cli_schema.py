@@ -388,16 +388,33 @@ SUBCOMMANDS = [
              "help": "Input JSON path"},
         ],
     },
-    {"name": "ctx", "help": "Dispatch an Update Context task for this window now"},
+    {
+        "name": "ctx",
+        "help": "Dispatch an Update Context task for this window now",
+        "args": [
+            {"flags": ["action"], "nargs": "?", "default": None,
+             "choices": ["done"],
+             "help": "done: mark a manual ctx-template update complete "
+                     "(or failed, with --error) instead of dispatching"},
+            {"flags": ["--error"], "default": None,
+             "help": "With `done`: report the manual update failed, "
+                     "with this reason"},
+        ],
+    },
     {
         "name": "updr",
         "help": "Dispatch an Update Protocol task for this window now",
         "args": [
             {"flags": ["subproject"], "nargs": "?", "default": None,
-             "help": "Subproject to update (default: this session's target)"},
+             "help": "Subproject to update (default: this session's "
+                     "target); 'done' marks a manual update complete "
+                     "instead of dispatching"},
             {"flags": ["--ctx"], "action": "store_true",
              "help": "Also run Update Context, in the same single "
                      "background dispatch"},
+            {"flags": ["--error"], "default": None,
+             "help": "With `updr done`: report the manual update failed, "
+                     "with this reason"},
         ],
     },
     {
@@ -407,10 +424,6 @@ SUBCOMMANDS = [
             {"flags": ["subproject"], "nargs": "?", "default": None,
              "help": "Subproject to target (default: this session's target)"},
         ],
-    },
-    {
-        "name": "ctx-ack",
-        "help": "Mark a manual (planner-done) context update as complete",
     },
     {
         "name": "touched",

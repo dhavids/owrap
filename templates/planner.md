@@ -29,7 +29,7 @@ modes to the CLI commands and session workflows they use.
 {{ENDIF}}| `--ctx` | Run `{{BIN_DIR}}/owrap ctx` to dispatch an Update Context task for this window now. |
 | `--updr [subproject]` | Run `{{BIN_DIR}}/owrap updr [subproject]` to update the session's project node or selected subproject. |
 | `--uall [subproject]` | Run `{{BIN_DIR}}/owrap updr [subproject] --ctx` to update records and context together in one dispatch. |
-| `--ctx manual` / `--updr manual` / `--uall manual` | Skip the dispatch — run `{{BIN_DIR}}/owrap ctx-template` directly, edit the files it lists by hand per its instructions, then `{{BIN_DIR}}/owrap ctx-ack`. Use whenever opencode is already known down (`{{BIN_DIR}}/owrap get opencode`) instead of dispatching into a failure you'd have to fall back from anyway. |
+| `--ctx manual` / `--updr manual` / `--uall manual` | Skip the dispatch — run `{{BIN_DIR}}/owrap ctx-template` directly, edit the files it lists by hand per its instructions, then `{{BIN_DIR}}/owrap ctx done` (or `{{BIN_DIR}}/owrap updr done`; both finalize the same session) — pass `--error "<reason>"` to record that the manual attempt itself failed instead of succeeding. Use whenever opencode is already known down (`{{BIN_DIR}}/owrap get opencode`) instead of dispatching into a failure you'd have to fall back from anyway. |
 | `--end` | Check for significant run (see `{{SELF_PATH}}` § Update Protocol) → if yes, run `--updr` first. Then run `{{BIN_DIR}}/owrap end`. |
 | `--prune` | Read `{{SELF_PATH}}` § Decision Pruning and follow it to the letter. |
 | `--collapse [session-id]` | Read `{{SELF_PATH}}` § Collapse and follow it to the letter. |

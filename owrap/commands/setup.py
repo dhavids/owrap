@@ -83,6 +83,7 @@ class SetupRunner:
         if cfg_path.exists():
             with open(cfg_path) as f:
                 cfg = json.load(f)
+        # research_root is the pre-migration key — carries old configs forward.
         configured_root = cfg.get("docs_root") or cfg.get("research_root")
         if not docs_root and configured_root:
             record_root = Path(configured_root).expanduser().resolve()

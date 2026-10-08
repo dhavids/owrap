@@ -155,8 +155,7 @@ class StartRunner(BaseRunner):
             try:
                 if (
                     get_workspace_config(workspace_name).get("docs_root")
-                    or get_workspace_config(workspace_name).get("research_root")
-                    or base.get("docs_root") or base.get("research_root")
+                    or base.get("docs_root")
                 ):
                     if project_id:
                         ensure_project_exists(
@@ -235,11 +234,13 @@ class StartRunner(BaseRunner):
 
         plan_path = get_plan_path(session_id)
         input_path = session_input(session_id)
+        runner_enabled = _read_config().get("owrap_runner_enabled", True)
 
         self.manager.session_id = session_id
         self.manager.create_context()
         self.manager._housekeeping()
-        self.manager.refresh_context_plan(plan_path)
+        if runner_enabled:
+            self.manager.refresh_context_plan(plan_path)
         self.manager.start_watchdog()
 
         if self.logger:
@@ -250,7 +251,7 @@ class StartRunner(BaseRunner):
         print_orientation(
             session_id, plan_path=plan_path,
             input_path=input_path, context_path=cp,
-            runner_enabled=_read_config().get("owrap_runner_enabled", True),
+            runner_enabled=runner_enabled,
             target=_orientation_target(session_id),
         )
         print(f"\n__OWRAP_EXPORT__ SESSION_ID={session_id}")
@@ -383,7 +384,10 @@ class AttachRunner(BaseRunner):
         re-export its environment variables.
         """
         if not target_session_id:
-            print("ERROR: owrap attach <session_id|project|repository> — missing target.")
+            print(
+                "ERROR: owrap attach <session_id|project|repository> — "
+                "missing target.",
+            )
             print()
             print_known_sessions()
             sys.exit(2)
@@ -403,6 +407,14 @@ class AttachRunner(BaseRunner):
         if data.get("target_kind"):
             for field in ("research", "area", "child"):
                 update_session_field(sid, field, "")
+
+        ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
+        cid = os.environ.get("CODEX_SESSION_ID", "").strip()
+        if ccsid or cid:
+            from ..commands.context_manager import register_ctx_state_window
+            register_ctx_state_window(
+                sid, ccsid or cid, harness="claude" if ccsid else "codex",
+            )
 
         plan_path = get_plan_path(sid)
         input_path = session_input(sid)
@@ -433,10 +445,17 @@ class DetachRunner(BaseRunner):
         Detach the current ccsid/oid from its session without affecting
         any other window still attached to it.
         """
+        window_id = (
+            os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
+            or os.environ.get("CODEX_SESSION_ID", "").strip()
+        )
         sid = detach()
         if not sid:
             print("Not attached to any session")
             sys.exit(1)
+
+        from ..commands.context_manager import prune_ctx_state_window
+        prune_ctx_state_window(sid, window_id)
 
         remaining = len(attached_ccsids(sid))
         print(f"DETACHED session={sid}  still_attached={remaining}")

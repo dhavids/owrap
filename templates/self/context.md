@@ -34,7 +34,9 @@ reason` gives `<code>: <detail>` — `no_output: ...` (nothing responded),
 `subscription_required: <model> — <error>` (plan restriction on that model),
 or `model_error: <model> — <output>` (an unclassified failure). If status
 reports `down`, run `owrap ctx-template [subproject]`, update the listed
-files yourself following its instructions, then run `owrap ctx-ack`.
+files yourself following its instructions, then run `owrap ctx done`
+(`owrap updr done` is equivalent — both finalize the same session; pass
+`--error "<reason>"` instead if the manual attempt itself failed).
 
 
 ## Update records
