@@ -454,8 +454,8 @@ SUBCOMMANDS = [
         ],
     },
     {
-        "name": "rename",
-        "help": "Rename a project, subproject, or repository",
+        "name": "update", "aliases": ["rename"],
+        "help": "Change a project/subproject/repository's id (rename)",
         "args": [
             {"flags": ["kind"], "choices": [
                 "project", "proj", "subproject", "sub", "repository", "repo",

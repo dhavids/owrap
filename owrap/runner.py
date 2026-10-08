@@ -15,6 +15,7 @@ from .commands import (
 )
 from .commands.sync import SyncRunner
 from .commands.daemon import DaemonRunner
+from .commands.update import UpdateRunner
 from .manager import Manager
 from .utils.paths import _read_config, get_workspace_config
 from .utils.arg_parser import OwrapArgumentParser
@@ -469,27 +470,33 @@ def _cmd_delete(args, manager, logger, allow_all):
         DeleteBackupRunner().run(args.target, which=args.which)
 
 
-def _cmd_rename(args, manager, logger, allow_all):
-    from .commands.rename import RenameRunner
-    from .utils.memory.records import normalize_identity_kind
-    runner = RenameRunner()
-    kind = normalize_identity_kind(args.kind)
-    try:
-        if kind == "project":
-            runner.project(args.arg1, args.arg2)
-            print(f"Renamed project {args.arg1} -> {args.arg2}")
-        elif kind == "repository":
-            runner.repository(args.arg1, args.arg2)
-            print(f"Renamed repository {args.arg1} -> {args.arg2}")
-        else:
-            if args.arg3 is None:
-                print("Usage: owrap rename subproject <project_id> <old> <new>")
-                sys.exit(2)
-            runner.subproject(args.arg1, args.arg2, args.arg3)
-            print(f"Renamed subproject {args.arg1}/{args.arg2} -> {args.arg3}")
-    except (OSError, ValueError, FileExistsError, FileNotFoundError) as exc:
-        print(f"ERROR: {exc}")
-        sys.exit(2)
+def _cmd_verb(runner_cls, label):
+    """
+    Build a CLI handler for a kind-dispatched verb: collect the given
+    arg1/arg2/arg3 (skipping ones argparse left as None), call
+    runner_cls().run(args.kind, *collected), print what it returns, and
+    turn one of its expected errors into `ERROR: ...` plus exit 2.
+    """
+    def _cmd(args, manager, logger, allow_all):
+        runner = runner_cls()
+        call_args = [
+            value for value in (
+                getattr(args, "arg1", None), getattr(args, "arg2", None),
+                getattr(args, "arg3", None),
+            ) if value is not None
+        ]
+        try:
+            message = runner.run(args.kind, *call_args)
+        except (OSError, ValueError, FileExistsError, FileNotFoundError) as exc:
+            print(f"ERROR: {exc}")
+            sys.exit(2)
+        if message:
+            print(message)
+    _cmd.__name__ = f"_cmd_{label}"
+    return _cmd
+
+
+_cmd_update = _cmd_verb(UpdateRunner, "update")
 
 
 def _cmd_get(args, manager, logger, allow_all):
@@ -569,7 +576,8 @@ _COMMAND_HANDLERS = {
     "backup": _cmd_backup,
     "retrieve": _cmd_retrieve,
     "delete": _cmd_delete,
-    "rename": _cmd_rename,
+    "update": _cmd_update,
+    "rename": _cmd_update,
     "get": _cmd_get,
 }
 
