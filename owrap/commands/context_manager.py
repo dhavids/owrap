@@ -13,7 +13,7 @@ from ..utils.paths import (
     get_model_chain, get_workspace_path, claude_transcript_path,
     codex_transcript_path,
     context_lock_path, session_ctx_touched_path,
-    session_ctx_counters_path, OPENCODE_STATUS_FILE,
+    session_ctx_counters_path, session_ctx_state_path, OPENCODE_STATUS_FILE,
 )
 from ..utils.session.resolver import (
     _parse, session_file, owrap_sid_for_ccsid, all_attached_ccsid_pairs,
@@ -82,6 +82,31 @@ def _write_opencode_status(status: str, reason: str = None) -> None:
         "status": status, "reason": reason,
         "since": datetime.now(timezone.utc).isoformat(),
     }))
+
+
+def prune_ctx_state_window(session_id: str, window_id: str) -> None:
+    """
+    Remove one window's entry from the session's ctx_state.json, on
+    `owrap detach` — a detached window no longer needs its transcript
+    cursor tracked, and "all attached windows" (the windows map's keys)
+    should only list windows actually still attached.
+    """
+    if not window_id:
+        return
+    p = session_ctx_state_path(session_id)
+    with file_lock(context_lock_path(session_id)):
+        if not p.exists():
+            return
+        try:
+            with open(p) as f:
+                state = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return
+        if not isinstance(state, dict) or window_id not in state.get("windows", {}):
+            return
+        state["windows"].pop(window_id, None)
+        with open(p, "w") as f:
+            json.dump(state, f)
 
 
 def _ts_ns(stamp) -> int | None:
@@ -354,13 +379,12 @@ class CtxWorkerRunner:
         subproject_override=None, source="claude",
     ) -> int:
         """
-        Run `_dispatch` with ctx_status tracking in context.md: pending
+        Run `_dispatch` with ctx_status tracking in ctx_state.json: pending
         before, ok on clean success, failed on any error, including an
         uncaught exception — so a crash in our own code shows up too, not
         just a failed model dispatch.
         """
-        real_context_path = context_path(owrap_sid)
-        self._set_ctx_status(owrap_sid, real_context_path, "pending")
+        self._set_ctx_dispatch_result(owrap_sid, "pending")
         try:
             rc = self._dispatch(
                 owrap_sid, ccsid, transcript_path, config,
@@ -369,48 +393,10 @@ class CtxWorkerRunner:
                 source=source,
             )
         except Exception:
-            self._set_ctx_status(owrap_sid, real_context_path, "failed")
+            self._set_ctx_dispatch_result(owrap_sid, "failed")
             raise
-        self._set_ctx_status(owrap_sid, real_context_path, "ok" if rc == 0 else "failed")
+        self._set_ctx_dispatch_result(owrap_sid, "ok" if rc == 0 else "failed")
         return rc
-
-    def _set_ctx_status(self, owrap_sid: str, real_context_path: Path, status: str):
-        """
-        Set `ctx_status` and bump `last_updated` in context.md's Session
-        block, inserting either field if it isn't there yet. No-op if
-        context.md doesn't exist.
-        """
-        if not real_context_path.exists():
-            return
-        now_full = datetime.now().strftime("%Y-%m-%d %H:%M")
-        with file_lock(context_lock_path(owrap_sid)):
-            lines = real_context_path.read_text().splitlines()
-            start = None
-            for i, line in enumerate(lines):
-                if line.rstrip() == "## Session":
-                    start = i
-                    break
-            if start is None:
-                return
-            end = len(lines)
-            for i in range(start + 1, len(lines)):
-                if lines[i].startswith("## "):
-                    end = i
-                    break
-            saw_status = saw_updated = False
-            for i in range(start, end):
-                if lines[i].startswith("ctx_status:"):
-                    lines[i] = f"ctx_status: {status}"
-                    saw_status = True
-                elif lines[i].startswith("last_updated:"):
-                    lines[i] = f"last_updated: {now_full}"
-                    saw_updated = True
-            if not saw_status:
-                lines.insert(start + 1, f"ctx_status: {status}")
-                end += 1
-            if not saw_updated:
-                lines.insert(start + 1, f"last_updated: {now_full}")
-            real_context_path.write_text("\n".join(lines) + "\n")
 
     def _dispatch(
         self, owrap_sid, ccsid, transcript_path, config,
@@ -441,7 +427,7 @@ class CtxWorkerRunner:
         )
         do_protocol = bool(do_protocol and target)
 
-        counters = self._read_counters(owrap_sid, ccsid)
+        counters = self._read_window_state(owrap_sid, ccsid)
         cursor_ns = counters.get("transcript_cursor_ns", 0)
 
         if not transcript_path or not Path(transcript_path).exists():
@@ -498,7 +484,7 @@ class CtxWorkerRunner:
                 transcript_lines, effective_cursor_ns, source,
             ):
                 counters["transcript_cursor_ns"] = new_cursor_ns
-                self._write_counters(owrap_sid, counters, ccsid)
+                self._write_window_state(owrap_sid, counters, ccsid)
             return 0
 
         excerpt = "\n\n".join(combined_texts)
@@ -550,7 +536,7 @@ class CtxWorkerRunner:
                 blocks += CTX_REPOSITORY_BLOCK.format(repo_id=repo_id)
         if not blocks:
             counters["transcript_cursor_ns"] = new_cursor_ns
-            self._write_counters(owrap_sid, counters, ccsid)
+            self._write_window_state(owrap_sid, counters, ccsid)
             if touched_entries:
                 self._clear_touched_entries(owrap_sid, ccsid)
             return 0
@@ -642,7 +628,7 @@ class CtxWorkerRunner:
             repository_snapshots, project_section,
         )
         counters["transcript_cursor_ns"] = new_cursor_ns
-        self._write_counters(owrap_sid, counters, ccsid)
+        self._write_window_state(owrap_sid, counters, ccsid)
         if touched_entries:
             self._clear_touched_entries(owrap_sid, ccsid)
         return rc
@@ -1147,21 +1133,76 @@ class CtxWorkerRunner:
                     texts.append(f"[FileChange] {path}")
         return texts
 
-    def _read_counters(self, session_id: str, ccsid: str) -> dict:
-        p = session_ctx_counters_path(session_id, ccsid)
+    def _read_ctx_state(self, session_id: str) -> dict:
+        """
+        Read this session's whole ctx_state.json: ctx_status,
+        last_dispatch, per-target sync state, and the windows map (one
+        entry per attached window's transcript cursor). An empty skeleton
+        if the file doesn't exist yet or is unreadable.
+        """
+        p = session_ctx_state_path(session_id)
         if p.exists():
             try:
                 with open(p) as f:
-                    return json.load(f)
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    data.setdefault("windows", {})
+                    return data
             except (json.JSONDecodeError, OSError):
                 pass
-        return {}
+        return {"windows": {}}
 
-    def _write_counters(self, session_id: str, data: dict, ccsid: str):
-        p = session_ctx_counters_path(session_id, ccsid)
+    def _write_ctx_state(self, session_id: str, data: dict):
+        p = session_ctx_state_path(session_id)
         p.parent.mkdir(parents=True, exist_ok=True)
         with open(p, "w") as f:
             json.dump(data, f)
+
+    def _read_window_state(self, session_id: str, ccsid: str) -> dict:
+        """
+        Read one window's slice (transcript cursor) of the session's
+        ctx_state.json, migrating its old standalone counters.json in on
+        first read if this window hasn't been folded in yet.
+        """
+        with file_lock(context_lock_path(session_id)):
+            state = self._read_ctx_state(session_id)
+            if ccsid not in state["windows"]:
+                old = session_ctx_counters_path(session_id, ccsid)
+                if old.exists():
+                    try:
+                        with open(old) as f:
+                            old_data = json.load(f)
+                        if isinstance(old_data, dict):
+                            state["windows"][ccsid] = old_data
+                            self._write_ctx_state(session_id, state)
+                    except (json.JSONDecodeError, OSError):
+                        pass
+            return dict(state["windows"].get(ccsid, {}))
+
+    def _write_window_state(self, session_id: str, data: dict, ccsid: str):
+        with file_lock(context_lock_path(session_id)):
+            state = self._read_ctx_state(session_id)
+            state["windows"][ccsid] = data
+            self._write_ctx_state(session_id, state)
+
+    def _set_ctx_dispatch_result(
+        self, session_id: str, status: str, kind: str = None,
+        model: str = None, reason: str = None,
+    ):
+        """
+        Record ctx_status and the last dispatch's outcome in the
+        session-level ctx_state.json -- the single source of truth
+        orientation.py reads, instead of a line regexed out of
+        context.md's prose.
+        """
+        with file_lock(context_lock_path(session_id)):
+            state = self._read_ctx_state(session_id)
+            state["ctx_status"] = status
+            state["last_dispatch"] = {
+                "ts": time.time(), "kind": kind, "status": status,
+                "model": model, "reason": reason,
+            }
+            self._write_ctx_state(session_id, state)
 
     def _load_touched_entries(self, session_id: str, ccsid: str) -> list:
         """
@@ -1278,7 +1319,7 @@ class ManualCtxRunner:
         print(status_line)
         print(
             "Update these files yourself, following the rules below — then "
-            "run `owrap ctx-ack` so the next dispatch doesn't redo this.\n"
+            "run `owrap ctx done` so the next dispatch doesn't redo this.\n"
         )
 
         print(f"# Context — {context_path(owrap_sid)}")
@@ -1334,7 +1375,7 @@ class ManualCtxRunner:
             return
         lines = transcript.read_text().splitlines()
         worker = CtxWorkerRunner()
-        counters = worker._read_counters(owrap_sid, ccsid)
+        counters = worker._read_window_state(owrap_sid, ccsid)
         cursor_ns = counters.get("transcript_cursor_ns", 0)
         attach_ts_ns = worker._last_attach_ts_ns(lines, owrap_sid)
         effective_cursor_ns = max(cursor_ns, attach_ts_ns)
@@ -1346,11 +1387,13 @@ class ManualCtxRunner:
         print("\n# Transcript excerpt since the last update (not truncated)\n")
         print("\n\n".join(texts) if texts else "(nothing new since the last update)")
 
-    def ack(self):
+    def done(self, error: str = None):
         """
-        Record that the planner updated context/records by hand: set
-        `ctx_status` to `ok` and advance this window's transcript cursor
-        to now, the same bookkeeping a successful dispatch leaves.
+        Record that the planner finished a manual context/records update
+        by hand: set `ctx_status` to `ok` (or `failed`, if `error` is
+        given to report the manual attempt itself failed) and advance
+        this window's transcript cursor to now, the same bookkeeping a
+        successful automatic dispatch leaves.
         """
         ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
         source = "claude"
@@ -1375,19 +1418,25 @@ class ManualCtxRunner:
         )
 
         worker = CtxWorkerRunner()
-        counters = worker._read_counters(owrap_sid, ccsid)
+        window_state = worker._read_window_state(owrap_sid, ccsid)
         if transcript is not None and transcript.exists():
             lines = transcript.read_text().splitlines()
             latest_ts_ns = worker._latest_event_ns(lines)
             if latest_ts_ns is not None:
-                counters["transcript_cursor_ns"] = max(
-                    latest_ts_ns, counters.get("transcript_cursor_ns", 0),
+                window_state["transcript_cursor_ns"] = max(
+                    latest_ts_ns, window_state.get("transcript_cursor_ns", 0),
                 )
-                worker._write_counters(owrap_sid, counters, ccsid)
+                worker._write_window_state(owrap_sid, window_state, ccsid)
 
-        worker._set_ctx_status(owrap_sid, context_path(owrap_sid), "ok")
+        status = "failed" if error else "ok"
+        worker._set_ctx_dispatch_result(
+            owrap_sid, status, kind="manual", reason=error,
+        )
         worker._clear_touched_entries(owrap_sid, ccsid)
-        print(f"Marked session {owrap_sid}'s context update as done manually.")
+        if error:
+            print(f"Marked session {owrap_sid}'s manual update as failed: {error}")
+        else:
+            print(f"Marked session {owrap_sid}'s context update as done manually.")
 
 
 class CtxHookRunner:

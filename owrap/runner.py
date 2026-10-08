@@ -427,12 +427,18 @@ def _cmd_ctx_worker(args, manager, logger, allow_all):
 
 
 def _cmd_ctx(args, manager, logger, allow_all):
-    from .commands.context_manager import CtxWorkerRunner
+    from .commands.context_manager import CtxWorkerRunner, ManualCtxRunner
+    if getattr(args, "action", None) == "done":
+        ManualCtxRunner().done(error=args.error)
+        return
     CtxWorkerRunner().run_manual(mode="ctx")
 
 
 def _cmd_updr(args, manager, logger, allow_all):
-    from .commands.context_manager import CtxWorkerRunner
+    from .commands.context_manager import CtxWorkerRunner, ManualCtxRunner
+    if args.subproject == "done":
+        ManualCtxRunner().done(error=args.error)
+        return
     mode = None if args.ctx else "updr"
     CtxWorkerRunner().run_manual(mode=mode, subproject=args.subproject)
 
@@ -440,11 +446,6 @@ def _cmd_updr(args, manager, logger, allow_all):
 def _cmd_ctx_template(args, manager, logger, allow_all):
     from .commands.context_manager import ManualCtxRunner
     ManualCtxRunner().template(subproject=args.subproject)
-
-
-def _cmd_ctx_ack(args, manager, logger, allow_all):
-    from .commands.context_manager import ManualCtxRunner
-    ManualCtxRunner().ack()
 
 
 def _cmd_touched(args, manager, logger, allow_all):
@@ -564,7 +565,6 @@ _COMMAND_HANDLERS = {
     "ctx": _cmd_ctx,
     "updr": _cmd_updr,
     "ctx-template": _cmd_ctx_template,
-    "ctx-ack": _cmd_ctx_ack,
     "touched": _cmd_touched,
     "backup": _cmd_backup,
     "retrieve": _cmd_retrieve,

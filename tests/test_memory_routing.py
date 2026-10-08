@@ -366,8 +366,8 @@ def test_ctx_dispatch_routes_subproject_override_and_touched_repo(
         lambda sid: tmp_path / "context.md",
     )
     runner = CtxWorkerRunner()
-    monkeypatch.setattr(runner, "_read_counters", lambda sid, cid: {})
-    monkeypatch.setattr(runner, "_write_counters", lambda *args: None)
+    monkeypatch.setattr(runner, "_read_window_state", lambda sid, cid: {})
+    monkeypatch.setattr(runner, "_write_window_state", lambda *args: None)
     monkeypatch.setattr(
         runner, "_load_touched_entries",
         lambda sid, cid: [{"path": str(source), "note": ""}],

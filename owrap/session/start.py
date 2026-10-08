@@ -383,7 +383,10 @@ class AttachRunner(BaseRunner):
         re-export its environment variables.
         """
         if not target_session_id:
-            print("ERROR: owrap attach <session_id|project|repository> — missing target.")
+            print(
+                "ERROR: owrap attach <session_id|project|repository> — "
+                "missing target.",
+            )
             print()
             print_known_sessions()
             sys.exit(2)
@@ -433,10 +436,17 @@ class DetachRunner(BaseRunner):
         Detach the current ccsid/oid from its session without affecting
         any other window still attached to it.
         """
+        window_id = (
+            os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
+            or os.environ.get("CODEX_SESSION_ID", "").strip()
+        )
         sid = detach()
         if not sid:
             print("Not attached to any session")
             sys.exit(1)
+
+        from ..commands.context_manager import prune_ctx_state_window
+        prune_ctx_state_window(sid, window_id)
 
         remaining = len(attached_ccsids(sid))
         print(f"DETACHED session={sid}  still_attached={remaining}")

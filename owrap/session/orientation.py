@@ -1,4 +1,5 @@
 import io as _io
+import json as _json
 import re as _re
 import shutil as _shutil
 import sys as _sys
@@ -25,13 +26,17 @@ def print_orientation(
     plan_steps = []
     env_line = ""
     ctx_status = None
+    if session_id and context_path:
+        _state_path = _Path(context_path).parent / "ctx_state.json"
+        if _state_path.exists():
+            try:
+                ctx_status = _json.loads(_state_path.read_text()).get("ctx_status")
+            except (_json.JSONDecodeError, OSError):
+                pass
     if context_path:
         _cp = _Path(context_path)
         if _cp.exists():
             _text = _cp.read_text()
-            _m = _re.search(r"^ctx_status:\s*(\S+)", _text, _re.MULTILINE)
-            if _m:
-                ctx_status = _m.group(1)
             _m = _re.search(
                 r"^## Focus\s*\n(.+?)(?=\n## |\Z)",
                 _text, _re.DOTALL | _re.MULTILINE,
@@ -74,7 +79,7 @@ def print_orientation(
             print(
                 f"  ⚠ last context-manager dispatch: {ctx_status} — "
                 f"opencode is down{reason}; run `owrap ctx-template`, "
-                f"update the files by hand, then `owrap ctx-ack`",
+                f"update the files by hand, then `owrap ctx done`",
             )
         else:
             print(

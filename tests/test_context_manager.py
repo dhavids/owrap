@@ -528,9 +528,10 @@ def test_ctx_worker_with_new_text(tmp_path, monkeypatch):
     assert "--dangerously-skip-permissions" not in cmd
     assert not (ctx_dir / "opencode.json").exists()
 
-    # Cursor advanced to the last entry's timestamp
-    updated = json.loads(cp.read_text())
-    assert updated["transcript_cursor_ns"] == _entry_ts_ns(4)
+    # Cursor advanced to the last entry's timestamp, in the session-level
+    # ctx_state.json the legacy per-window counters.json migrated into.
+    state = json.loads((sessions_dir / owrap_sid / "ctx_state.json").read_text())
+    assert state["windows"][ccsid]["transcript_cursor_ns"] == _entry_ts_ns(4)
 
 
 # Context status tracking
@@ -546,10 +547,13 @@ def _make_context_md(sessions_dir, owrap_sid):
 
 
 def _ctx_status(context_path):
-    for line in context_path.read_text().splitlines():
-        if line.startswith("ctx_status:"):
-            return line.split(":", 1)[1].strip()
-    return None
+    state_path = context_path.parent / "ctx_state.json"
+    if not state_path.exists():
+        return None
+    try:
+        return json.loads(state_path.read_text()).get("ctx_status")
+    except (json.JSONDecodeError, OSError):
+        return None
 
 
 def test_ctx_status_ok_after_successful_dispatch(tmp_path, monkeypatch):
@@ -751,16 +755,9 @@ def test_ctx_worker_isolated_per_ccsid_under_multi_attach(tmp_path, monkeypatch)
     assert "from window A" in transcript_tmp_a.read_text()
     assert "from window B" in transcript_tmp_b.read_text()
 
-    counters_a = json.loads((
-        sessions_dir / owrap_sid / "ctx" / "windows" / ccsid_a
-        / "counters.json"
-    ).read_text())
-    counters_b = json.loads((
-        sessions_dir / owrap_sid / "ctx" / "windows" / ccsid_b
-        / "counters.json"
-    ).read_text())
-    assert counters_a["transcript_cursor_ns"] == _entry_ts_ns(0)
-    assert counters_b["transcript_cursor_ns"] == _entry_ts_ns(0)
+    state = json.loads((sessions_dir / owrap_sid / "ctx_state.json").read_text())
+    assert state["windows"][ccsid_a]["transcript_cursor_ns"] == _entry_ts_ns(0)
+    assert state["windows"][ccsid_b]["transcript_cursor_ns"] == _entry_ts_ns(0)
 
 
 # Same window across sessions
@@ -1112,7 +1109,7 @@ def test_manual_ctx_template_prints_full_excerpt_without_truncation(
     assert "Transcript excerpt since the last update (not truncated)" in out
 
 
-def test_manual_ctx_ack_advances_cursor_and_sets_status_ok(tmp_path, monkeypatch):
+def test_manual_ctx_done_advances_cursor_and_sets_status_ok(tmp_path, monkeypatch):
     from owrap.commands.context_manager import ManualCtxRunner
     _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
     ccsid = "claude-ack"
@@ -1131,13 +1128,36 @@ def test_manual_ctx_ack_advances_cursor_and_sets_status_ok(tmp_path, monkeypatch
         lambda ccsid, workspace: transcript,
     )
 
-    ManualCtxRunner().ack()
+    ManualCtxRunner().done()
 
     assert _ctx_status(context_md) == "ok"
-    counters = json.loads((
-        sessions_dir / owrap_sid / "ctx" / "windows" / ccsid / "counters.json"
-    ).read_text())
-    assert counters["transcript_cursor_ns"] == _entry_ts_ns(0)
+    state = json.loads(
+        (sessions_dir / owrap_sid / "ctx_state.json").read_text()
+    )
+    assert state["windows"][ccsid]["transcript_cursor_ns"] == _entry_ts_ns(0)
+    assert state["last_dispatch"]["kind"] == "manual"
+
+
+def test_manual_ctx_done_with_error_sets_status_failed(tmp_path, monkeypatch):
+    from owrap.commands.context_manager import ManualCtxRunner
+    _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
+    ccsid = "claude-ack-err"
+    owrap_sid = "ack02"
+    _make_session_file(sessions_dir, owrap_sid, ccsid)
+    context_md = _make_context_md(sessions_dir, owrap_sid)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", ccsid)
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.claude_transcript_path",
+        lambda ccsid, workspace: None,
+    )
+
+    ManualCtxRunner().done(error="couldn't reach the repo file")
+
+    assert _ctx_status(context_md) == "failed"
+    state = json.loads(
+        (sessions_dir / owrap_sid / "ctx_state.json").read_text()
+    )
+    assert state["last_dispatch"]["reason"] == "couldn't reach the repo file"
 
 
 def test_run_manual_ctx_queues_background_dispatch(tmp_path, monkeypatch):
@@ -1741,10 +1761,8 @@ def test_codex_update_only_transcript_advances_offset(tmp_path, monkeypatch):
         CtxWorkerRunner().run(input_path=input_path)
 
     terminal.assert_not_called()
-    counters = json.loads((
-        sessions_dir / sid / "ctx" / "windows" / cid / "counters.json"
-    ).read_text())
-    assert counters["transcript_cursor_ns"] == _entry_ts_ns(1)
+    state = json.loads((sessions_dir / sid / "ctx_state.json").read_text())
+    assert state["windows"][cid]["transcript_cursor_ns"] == _entry_ts_ns(1)
 
 
 def test_ctx_worker_run_honors_mode_ctx_only(tmp_path, monkeypatch):

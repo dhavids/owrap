@@ -508,3 +508,14 @@ def context_lock_path(session_id: str) -> Path:
     Return session-scoped context lock file path.
     """
     return session_dir(session_id) / "context.lock"
+
+
+def session_ctx_state_path(session_id: str) -> Path:
+    """
+    Return the session-scoped context-manager state file: ctx_status,
+    last dispatch result, per-target sync timestamps, and the per-window
+    transcript cursor/touched-entries map -- one canonical JSON per
+    session, guarded by the same lock as context.md (context_lock_path),
+    since both describe the same session-level resource.
+    """
+    return session_dir(session_id) / "ctx_state.json"

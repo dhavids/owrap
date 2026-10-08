@@ -143,16 +143,21 @@ REPRESENTATIVE_CASES = [
         "allow_all": False, "command": "ctx-worker", "input": "/path.json"
     }),
     (["ctx"], {
-        "allow_all": False, "command": "ctx"
+        "allow_all": False, "command": "ctx", "action": None, "error": None,
+    }),
+    (["ctx", "done", "--error", "oops"], {
+        "allow_all": False, "command": "ctx", "action": "done", "error": "oops",
     }),
     (["updr", "sub1", "--ctx"], {
-        "allow_all": False, "command": "updr", "ctx": True, "subproject": "sub1"
+        "allow_all": False, "command": "updr", "ctx": True, "subproject": "sub1",
+        "error": None,
+    }),
+    (["updr", "done", "--error", "oops"], {
+        "allow_all": False, "command": "updr", "ctx": False,
+        "subproject": "done", "error": "oops",
     }),
     (["ctx-template", "sub1"], {
         "allow_all": False, "command": "ctx-template", "subproject": "sub1"
-    }),
-    (["ctx-ack"], {
-        "allow_all": False, "command": "ctx-ack"
     }),
     (["touched", "a.py", "b.py", "--note", "n"], {
         "allow_all": False, "command": "touched", "note": "n", "paths": ["a.py", "b.py"]

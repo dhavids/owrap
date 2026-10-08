@@ -8,7 +8,7 @@ Codex) working in a workspace:
    (`owrap ctx`/`updr`/`uall`, a PreCompact hook, and a background daemon
    check). Dispatches to one of opencode's free models, not the planner's
    own model. If opencode is unreachable (`owrap get opencode`), the
-   planner can do the update itself via `owrap ctx-template`/`ctx-ack`.
+   planner can do the update itself via `owrap ctx-template`/`ctx done`.
    Runs regardless of whether the role below is enabled.
 2. **Opencode wrapper** — dispatches planner work to an opencode-backed
    executor (`orun`/`oexec`/`oagent`/`owrap f`), with session isolation, a
