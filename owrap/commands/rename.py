@@ -1,4 +1,5 @@
 import os
+import time
 from pathlib import Path
 
 from ..utils.memory.records import _record, _slug, _write_atomic, _dump_yaml, docs_root
@@ -68,6 +69,7 @@ class RenameRunner:
         old_dir.rename(new_dir)
         (new_dir / f"{old_id}.yaml").rename(new_dir / f"{new_id}.yaml")
         record["id"] = new_id
+        record["last_updated"] = time.time()
         _write_atomic(new_dir / f"{new_id}.yaml", _dump_yaml(record))
         self._rewrite_project_backrefs(new_dir, old_id, new_id)
         self._update_sessions(
@@ -97,10 +99,22 @@ class RenameRunner:
             raise ValueError(f"unknown subproject: {project_id}/{old_sub}")
         if new_sub in subprojects:
             raise FileExistsError(f"subproject already exists: {project_id}/{new_sub}")
-        subprojects[new_sub] = subprojects.pop(old_sub)
-        for entry in subprojects.values():
-            if isinstance(entry, dict) and entry.get("parent") == old_sub:
-                entry["parent"] = new_sub
+        entry = subprojects.pop(old_sub)
+        if isinstance(entry, dict):
+            old_md_path = directory / entry.get("file", f"{old_sub}.md")
+            new_md_path = directory / f"{new_sub}.md"
+            if old_md_path.exists() and old_md_path != new_md_path:
+                if new_md_path.exists():
+                    raise FileExistsError(
+                        f"subproject file already exists: {new_md_path}"
+                    )
+                old_md_path.rename(new_md_path)
+                entry["file"] = new_md_path.name
+        subprojects[new_sub] = entry
+        for other in subprojects.values():
+            if isinstance(other, dict) and other.get("parent") == old_sub:
+                other["parent"] = new_sub
+        record["last_updated"] = time.time()
         _write_atomic(yaml_path, _dump_yaml(record))
         self._update_sessions(
             lambda d: (
@@ -131,6 +145,7 @@ class RenameRunner:
         old_dir.rename(new_dir)
         (new_dir / f"{old_id}.yaml").rename(new_dir / f"{new_id}.yaml")
         record["id"] = new_id
+        record["last_updated"] = time.time()
         _write_atomic(new_dir / f"{new_id}.yaml", _dump_yaml(record))
         self._relink_repository(root, old_id, new_id)
         self._update_sessions(
@@ -163,6 +178,7 @@ class RenameRunner:
                 continue
             changed = self._relink_one_record(record, old_id, new_id)
             if changed:
+                record["last_updated"] = time.time()
                 _write_atomic(yaml_path, _dump_yaml(record))
 
     def _relink_one_record(self, record: dict, old_id: str, new_id: str) -> bool:

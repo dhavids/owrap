@@ -285,6 +285,28 @@ def _dump_yaml(record: dict) -> str:
     return yaml.safe_dump(record, sort_keys=False, allow_unicode=True)
 
 
+def touch_record_last_updated(yaml_path: Path) -> float:
+    """
+    Bump a project/repository record's last_updated field to now, for any
+    writer (Decisions, Goals, ctx dispatch, rename) that changes the
+    record without already holding its own loaded copy to stamp inline.
+    Returns the timestamp written, or the current time if the record
+    couldn't be read (never raises).
+    """
+    now = time.time()
+    with file_lock(yaml_path.with_suffix(".yaml.lock")):
+        try:
+            import yaml as _yaml
+            record = _yaml.safe_load(yaml_path.read_text())
+        except Exception:
+            return now
+        if not isinstance(record, dict):
+            return now
+        record["last_updated"] = now
+        _write_atomic(yaml_path, _dump_yaml(record))
+    return now
+
+
 def _git_root(path: Path) -> Path | None:
     """
     Return the git repository root containing path, or None if there isn't
@@ -351,6 +373,7 @@ def _register_repository(root: Path, git_root: Path) -> str | None:
         remote = _git_remote(git_root)
         if remote:
             record["remote"] = remote
+        record["last_updated"] = time.time()
         _write_atomic(yaml_path, _dump_yaml(record))
         _write_atomic(
             directory / "memory.md",
@@ -375,6 +398,7 @@ def _add_project_repository(root: Path, project_id: str, repo_id: str) -> None:
         repositories = record.setdefault("repositories", [])
         if repo_id not in repositories:
             repositories.append(repo_id)
+            record["last_updated"] = time.time()
             _write_atomic(yaml_path, _dump_yaml(record))
 
 
@@ -419,6 +443,7 @@ def ensure_project_exists(
                 "schema_version": 1, "kind": "project", "id": project_id,
                 "title": project_id, "main": "main.md",
                 "repositories": [], "subprojects": {},
+                "last_updated": time.time(),
             }
             _write_atomic(yaml_path, _dump_yaml(record))
             _write_atomic(directory / "main.md", _project_stub_text(project_id))
@@ -440,6 +465,7 @@ def ensure_project_exists(
         subprojects[subproject_id] = {
             "kind": "regular", "file": markdown_path.name, "parent": "main",
         }
+        record["last_updated"] = time.time()
         _write_atomic(
             markdown_path, _subproject_stub_text(project_id, subproject_id),
         )

@@ -30,7 +30,7 @@ from ..utils.filelock import file_lock
 from ..utils.log import context_jobs
 from ..utils.memory.records import (
     register_discovered_repositories, resolve_memory_target,
-    touched_repository_paths,
+    touched_repository_paths, touch_record_last_updated,
 )
 from ..constants import (
     CTX_SCOPED_TASK_TEMPLATE, CTX_CONTEXT_BLOCK,
@@ -802,6 +802,7 @@ class CtxWorkerRunner:
                 )
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text)
+        touch_record_last_updated(path.parent / f"{path.parent.name}.yaml")
 
     def _merge_record_repository(
         self, block, path, event_ns=None, snapshot=None,
@@ -836,6 +837,7 @@ class CtxWorkerRunner:
                         )
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text)
+        touch_record_last_updated(path.parent / f"{path.parent.name}.yaml")
 
     def _replace_record_facts(self, text, heading, entries):
         current = extract_section(text, heading)

@@ -1,7 +1,9 @@
 import os
 import sys
 
-from ..utils.memory.records import add_decision, resolve_memory_target
+from ..utils.memory.records import (
+    add_decision, resolve_memory_target, touch_record_last_updated,
+)
 from ..utils.parser.text import preview
 from ..utils.session.resolver import (
     session_file, _parse, resolve_session_or_exit,
@@ -26,12 +28,15 @@ class DecideRunner:
             print('  owrap decide myproject "Keep the dev/live split"')
             sys.exit(2)
 
-        project_path = self._resolve_target(target)
+        memory_target = self._resolve_target(target)
+        project_path = memory_target.project_path
         try:
             line = add_decision(project_path, text)
         except (OSError, ValueError) as exc:
             print(f"ERROR: {exc}")
             sys.exit(2)
+        yaml_path = project_path.parent / f"{memory_target.project_id}.yaml"
+        touch_record_last_updated(yaml_path)
         print(f'DECISION added to {project_path}: "{preview(text)}"')
 
 
@@ -40,7 +45,7 @@ class DecideRunner:
     def _resolve_target(self, target):
         """
         Resolve a session id/project/repository name (or the currently
-        attached session, if target is empty) to its project record file.
+        attached session, if target is empty) to its project MemoryTarget.
         """
         if target:
             sid = resolve_session_or_exit(target)
@@ -62,4 +67,4 @@ class DecideRunner:
         if memory_target.kind == "repository":
             print("ERROR: repository-only sessions have no project decisions")
             sys.exit(2)
-        return memory_target.project_path
+        return memory_target
