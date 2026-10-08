@@ -73,7 +73,7 @@ class TestStageAll:
             "owrap_context_manager_enabled": True,
             "runner_use_oread": False,
             "context_injection_enabled": True,
-            "research_root": str(tmp_path / "docs" / "research"),
+            "docs_root": str(tmp_path / "docs" / "research"),
             "workspace": str(tmp_path / "marl"),
             "exec_model": "opencode-go/qwen3.6-plus",
             "daemon_interval_s": 10,
@@ -178,7 +178,7 @@ class TestStageAll:
         (workspace / "AGENTS.md").write_text("User agent notes\n")
         config = {
             "workspace": str(workspace),
-            "research_root": str(tmp_path / "records"),
+            "docs_root": str(tmp_path / "records"),
             "bin_dir": str(tmp_path / "bin"),
             "role_harnesses": {
                 "planner": ["codex", "claude"],

@@ -155,8 +155,7 @@ class StartRunner(BaseRunner):
             try:
                 if (
                     get_workspace_config(workspace_name).get("docs_root")
-                    or get_workspace_config(workspace_name).get("research_root")
-                    or base.get("docs_root") or base.get("research_root")
+                    or base.get("docs_root")
                 ):
                     if project_id:
                         ensure_project_exists(

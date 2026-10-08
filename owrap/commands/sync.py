@@ -30,10 +30,7 @@ class SyncRunner:
 
         staged = stage_all(workspace_name)
         workspace = config["workspace"]
-        docs_root = (
-            config.get("docs_root") or config.get("research_root")
-            or f"{workspace}/docs/research"
-        )
+        docs_root = config.get("docs_root") or f"{workspace}/docs/research"
 
         flags = resolve_flags(config)
         self._sync_global_read_permission(bool(flags.get("OREAD")))

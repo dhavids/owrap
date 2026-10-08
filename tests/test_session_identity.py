@@ -103,11 +103,11 @@ def test_start_with_bare_name_resolves_to_project(
          }), \
          patch(
              "owrap.session.start.get_workspace_config",
-             lambda name: {"research_root": str(root)} if name == "test" else {},
+             lambda name: {"docs_root": str(root)} if name == "test" else {},
          ), \
          patch(
              "owrap.utils.memory.records.get_workspace_config",
-             lambda name: {"research_root": str(root)} if name == "test" else {},
+             lambda name: {"docs_root": str(root)} if name == "test" else {},
          ), \
          patch("owrap.session.start.print_orientation"), \
          patch("owrap.utils.dispatch.pool._pool_active", return_value=True), \
@@ -151,11 +151,11 @@ def test_start_with_bare_name_and_area_resolves_to_subproject(
          }), \
          patch(
              "owrap.session.start.get_workspace_config",
-             lambda name: {"research_root": str(root)} if name == "test" else {},
+             lambda name: {"docs_root": str(root)} if name == "test" else {},
          ), \
          patch(
              "owrap.utils.memory.records.get_workspace_config",
-             lambda name: {"research_root": str(root)} if name == "test" else {},
+             lambda name: {"docs_root": str(root)} if name == "test" else {},
          ), \
          patch("owrap.session.start.print_orientation"), \
          patch("owrap.utils.dispatch.pool._pool_active", return_value=True), \
@@ -223,11 +223,11 @@ def test_refresh_with_bare_name_redirects_to_project(
     }), \
          patch(
              "owrap.session.start.get_workspace_config",
-             lambda name: {"research_root": str(root)} if name == "test" else {},
+             lambda name: {"docs_root": str(root)} if name == "test" else {},
          ), \
          patch(
              "owrap.utils.memory.records.get_workspace_config",
-             lambda name: {"research_root": str(root)} if name == "test" else {},
+             lambda name: {"docs_root": str(root)} if name == "test" else {},
          ), \
          patch("owrap.session.start.print_orientation"), \
          patch("owrap.utils.dispatch.pool._pool_active", return_value=True), \
@@ -332,7 +332,7 @@ def test_start_skips_plan_refresh_when_runner_disabled(
     mock_manager, monkeypatch, tmp_path,
 ):
     """
-    The Active Plan workflow is a runner-only concept -- with the
+    The Active Plan workflow is a runner-only concept — with the
     runner disabled, start() must not read/write exec/plan.md at all.
     """
     session_path = tmp_path / "anon456.session"

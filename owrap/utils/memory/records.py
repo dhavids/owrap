@@ -63,20 +63,10 @@ def docs_root(workspace: str = "") -> Path:
     """
     config = get_workspace_config(workspace) if workspace else {}
     base = _read_config()
-    root = (
-        config.get("docs_root") or config.get("research_root")
-        or base.get("docs_root") or base.get("research_root")
-    )
+    root = config.get("docs_root") or base.get("docs_root")
     if not root:
         raise ValueError("docs_root not configured")
     return Path(root)
-
-
-def research_root(workspace: str = "") -> Path:
-    """
-    Return the documentation root for legacy callers.
-    """
-    return docs_root(workspace)
 
 
 def _slug(value: str, label: str) -> str:

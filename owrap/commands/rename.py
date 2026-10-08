@@ -62,7 +62,7 @@ class RenameRunner:
       - project/subproject markdown: `[id](main.md)` backrefs
       - backup directories: project/<id>[/<subproject_id>],
         repository/<id>
-      - ctx_state.json: nothing currently -- it has no project/repo id
+      - ctx_state.json: nothing currently — it has no project/repo id
         of its own, only session-scoped dispatch/window state
     """
 

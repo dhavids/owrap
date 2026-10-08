@@ -28,7 +28,7 @@ def _project(tmp_path, monkeypatch):
     (tmp_path / "checkout").mkdir()
     monkeypatch.setattr(
         "owrap.utils.memory.records.get_workspace_config",
-        lambda workspace: {"research_root": str(root)},
+        lambda workspace: {"docs_root": str(root)},
     )
     return project
 

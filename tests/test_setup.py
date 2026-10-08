@@ -71,7 +71,7 @@ def test_dev_setup_rejects_existing_external_memory_root(setup_env, tmp_path):
     configs.mkdir(parents=True)
     external = tmp_path / "live-memory"
     (configs / "workspace.json").write_text(json.dumps({
-        "research_root": str(external),
+        "docs_root": str(external),
     }))
 
     with pytest.raises(SystemExit) as result:
@@ -112,6 +112,25 @@ def test_setup_explicit_flags_override_existing_config(setup_env):
     config = json.loads((configs / "workspace.json").read_text())
     assert config["runner_allow_all"] is True
     assert config["runner_use_oread"] is False
+
+
+def test_setup_migrates_legacy_research_root_key(setup_env):
+    setup_module, workspace, configs, _ = setup_env
+    configs.mkdir(parents=True)
+    # Not the default docs/research path — a pass proves migration, not a lucky default.
+    legacy_root = workspace / "custom" / "docs-location"
+    legacy_root.mkdir(parents=True)
+    (configs / "workspace.json").write_text(json.dumps({
+        "research_root": str(legacy_root),
+    }))
+
+    with pytest.raises(SystemExit) as result:
+        setup_module.SetupRunner().run(path=workspace)
+
+    assert result.value.code == 0
+    config = json.loads((configs / "workspace.json").read_text())
+    assert config["docs_root"] == str(legacy_root)
+    assert "research_root" not in config
 
 
 def test_setup_stores_role_harnesses(setup_env, capsys):

@@ -33,7 +33,7 @@ def _records(tmp_path, monkeypatch):
     (other_repo / "memory.md").write_text("repo-b content\n")
     monkeypatch.setattr(
         "owrap.utils.memory.records.get_workspace_config",
-        lambda workspace: {"research_root": str(root)},
+        lambda workspace: {"docs_root": str(root)},
     )
     return project, repo, other_repo
 

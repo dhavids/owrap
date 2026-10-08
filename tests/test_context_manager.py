@@ -934,13 +934,13 @@ def test_stage_all_includes_sessionstart_and_ctx_hook(tmp_path, monkeypatch):
     ws_config = configs_dir / "test_stage.json"
     ws_config.write_text(json.dumps({
         "workspace": str(workspace),
-        "research_root": str(workspace / "docs" / "research"),
+        "docs_root": str(workspace / "docs" / "research"),
     }))
 
     with patch("owrap.staging.get_workspace_config") as mock_ws_cfg:
         mock_ws_cfg.return_value = {
             "workspace": str(workspace),
-            "research_root": str(workspace / "docs" / "research"),
+            "docs_root": str(workspace / "docs" / "research"),
         }
         staged = stage_all("test_stage")
 

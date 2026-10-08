@@ -84,7 +84,7 @@ def resolve_placeholders(config: dict, workspace_name: str) -> dict:
     Build the full placeholder → value map from workspace config + derived values.
     """
     workspace = config.get("workspace", "")
-    docs_root = config.get("docs_root") or config.get("research_root") or (
+    docs_root = config.get("docs_root") or (
         f"{workspace}/docs/research" if workspace else ""
     )
     bin_dir = config.get("bin_dir") or str(Path.home() / "bin")
@@ -481,7 +481,7 @@ def stage_all(workspace_name: str) -> Path:
     flags = resolve_flags(config)
     workspace_value = config.get("workspace")
     workspace = Path(workspace_value) if workspace_value else None
-    docs_value = config.get("docs_root") or config.get("research_root")
+    docs_value = config.get("docs_root")
     if not docs_value and workspace:
         docs_value = str(workspace / "docs" / "research")
     docs_root = Path(docs_value) if docs_value else None

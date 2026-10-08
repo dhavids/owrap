@@ -431,7 +431,7 @@ class Manager:
         """
         cp = self.context_path
         config = _read_config()
-        docs_root = config.get("docs_root") or config.get("research_root", "")
+        docs_root = config.get("docs_root", "")
         venv = config.get("venv", "")
         plan = str(get_plan_path(self.session_id)) if self.session_id else "none"
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -491,7 +491,7 @@ class Manager:
     def _read_ctx_status(self) -> str | None:
         """
         Read the canonical ctx_status from ctx_state.json, for display
-        only -- context.md never writes this back, ctx_state.json does.
+        only — context.md never writes this back, ctx_state.json does.
         """
         if not self.session_id:
             return None

@@ -47,7 +47,7 @@ def _records(tmp_path, monkeypatch):
     (repo / "memory.md").write_text("# Architecture\n\nRepository facts.\n")
     monkeypatch.setattr(
         "owrap.utils.memory.records.get_workspace_config",
-        lambda workspace: {"research_root": str(root)},
+        lambda workspace: {"docs_root": str(root)},
     )
     return root, project, repo
 
@@ -384,7 +384,7 @@ def test_ctx_dispatch_routes_subproject_override_and_touched_repo(
     )
 
     result = runner._dispatch(
-        "sid", "cid", str(transcript), {"research_root": str(root)},
+        "sid", "cid", str(transcript), {"docs_root": str(root)},
         do_context=False, do_protocol=True,
         subproject_override="migration",
     )

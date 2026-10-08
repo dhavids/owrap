@@ -45,7 +45,7 @@ def fake_owrap(tmp_path):
     configs.mkdir()
     import json
     configs.joinpath("fakews.json").write_text(json.dumps({
-        "research_root": str(tmp_path / "research"),
+        "docs_root": str(tmp_path / "research"),
         "workspace": "/fake/ws",
     }))
 
@@ -309,7 +309,7 @@ def _project_session(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(
         "owrap.utils.memory.records.get_workspace_config",
-        lambda workspace: {"research_root": str(root)},
+        lambda workspace: {"docs_root": str(root)},
     )
     return project, repo
 
@@ -375,14 +375,14 @@ def test_get_config(tmp_path, monkeypatch, capsys):
     sid = "testsid"
     sf = sessions_dir / f"{sid}.session"
     sf.write_text("session_id=testsid\nresearch=myresearch\narea=main\nworkspace=marl\n")
-    cfg = {"research_root": "/some/path", "runner_use_oread": True}
+    cfg = {"docs_root": "/some/path", "runner_use_oread": True}
     (configs_dir / "marl.json").write_text(_json.dumps(cfg))
     monkeypatch.setenv("SESSION_ID", sid)
     monkeypatch.setattr("owrap.commands.get.RUNTIME_HOME", tmp_path)
     from owrap.commands.get import GetRunner
     GetRunner().run("config")
     out = capsys.readouterr().out
-    assert "research_root" in out
+    assert "docs_root" in out
     assert "/some/path" in out
 
 

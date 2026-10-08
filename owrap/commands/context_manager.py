@@ -90,7 +90,7 @@ def register_ctx_state_window(
 ) -> None:
     """
     Ensure one window has an entry in the session's ctx_state.json, on
-    `owrap attach` -- so the windows map (the source of "all attached
+    `owrap attach` — so the windows map (the source of "all attached
     windows" for this session) reflects reality from the moment a
     window attaches, not only once it first dispatches/touches/done()s.
     Never clobbers an existing entry's cursor/touched state; only adds
@@ -198,7 +198,7 @@ def _rw_ctx_state_running(session_id: str, mutate) -> None:
 def register_running_task(session_id: str, task_id: str, info: dict) -> None:
     """
     Record one currently-dispatched msg/task/exec/agent call in the
-    session's ctx_state.json -- so "what's running for this session"
+    session's ctx_state.json — so "what's running for this session"
     (there can be several at once) is queryable without globbing
     RUNNING_DIR for sentinel files.
     """
@@ -1317,7 +1317,7 @@ class CtxWorkerRunner:
     ):
         """
         Record ctx_status and the last dispatch's outcome in the
-        session-level ctx_state.json -- the single source of truth
+        session-level ctx_state.json — the single source of truth
         orientation.py reads, instead of a line regexed out of
         context.md's prose.
         """
@@ -1584,8 +1584,8 @@ class ManualCtxRunner:
     def _check_manual_update_happened(self, worker, owrap_sid: str) -> None:
         """
         Refuse with an error (exit 2) if `ctx-template` was run for this
-        session and none of its listed target files have changed since
-        -- the planner either hasn't edited them yet or ran `done`
+        session and none of its listed target files have changed since —
+        the planner either hasn't edited them yet or ran `done`
         against the wrong session. No-op if `ctx-template` was never run
         (nothing to compare against) or has already been cleared.
         """

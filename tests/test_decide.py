@@ -23,7 +23,7 @@ def _project(tmp_path, monkeypatch, decisions_body=""):
     )
     monkeypatch.setattr(
         "owrap.utils.memory.records.get_workspace_config",
-        lambda workspace: {"research_root": str(root)},
+        lambda workspace: {"docs_root": str(root)},
     )
     return project
 
@@ -146,7 +146,7 @@ class TestDecideRunner:
         (project / "main.md").write_text(_project_stub_text("proj"))
         monkeypatch.setattr(
             "owrap.utils.memory.records.get_workspace_config",
-            lambda workspace: {"research_root": str(root)},
+            lambda workspace: {"docs_root": str(root)},
         )
         _session(
             tmp_path, monkeypatch,
@@ -182,7 +182,7 @@ class TestDecideRunnerTargetResolution:
         (repo / "memory.md").write_text("# Architecture\n\nFacts.\n")
         monkeypatch.setattr(
             "owrap.utils.memory.records.get_workspace_config",
-            lambda workspace: {"research_root": str(root)},
+            lambda workspace: {"docs_root": str(root)},
         )
         _session(
             tmp_path, monkeypatch,
