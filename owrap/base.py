@@ -93,6 +93,11 @@ class BaseRunner(ABC):
             "dispatch.start", kind=kind, label=title, url=data["server_url"],
             task_id=str(task_id),
         )
+        from .commands.context_manager import register_running_task
+        register_running_task(session_id, name, {
+            "kind": kind, "call_type": call_type, "title": title,
+            "pid": data["pid"], "started": data["started"],
+        })
         return path
 
     def _complete_sentinel(
@@ -132,6 +137,8 @@ class BaseRunner(ABC):
                     pass
                 raise
             sentinel_path.unlink()
+            from .commands.context_manager import clear_running_task
+            clear_running_task(data.get("session_id", ""), done_name)
         except Exception:
             pass
 

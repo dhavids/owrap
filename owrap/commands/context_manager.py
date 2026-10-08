@@ -170,6 +170,56 @@ def append_touched_entries(session_id: str, ccsid: str, entries: list) -> int:
         return len(touched)
 
 
+def _rw_ctx_state_running(session_id: str, mutate) -> None:
+    """
+    Shared read-mutate-write for the session's `running` map (currently
+    dispatched msg/task/exec/agent calls, keyed by task_id) in
+    ctx_state.json. `mutate(running_dict)` edits in place.
+    """
+    p = session_ctx_state_path(session_id)
+    with file_lock(ctx_state_lock_path(session_id)):
+        state = {"windows": {}}
+        if p.exists():
+            try:
+                with open(p) as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    state = loaded
+                    state.setdefault("windows", {})
+            except (json.JSONDecodeError, OSError):
+                pass
+        running = state.setdefault("running", {})
+        mutate(running)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "w") as f:
+            json.dump(state, f)
+
+
+def register_running_task(session_id: str, task_id: str, info: dict) -> None:
+    """
+    Record one currently-dispatched msg/task/exec/agent call in the
+    session's ctx_state.json -- so "what's running for this session"
+    (there can be several at once) is queryable without globbing
+    RUNNING_DIR for sentinel files.
+    """
+    if not session_id or session_id == "none":
+        return
+    _rw_ctx_state_running(
+        session_id, lambda running: running.update({task_id: info}),
+    )
+
+
+def clear_running_task(session_id: str, task_id: str) -> None:
+    """
+    Remove one task from the session's running map once it completes.
+    """
+    if not session_id or session_id == "none":
+        return
+    _rw_ctx_state_running(
+        session_id, lambda running: running.pop(task_id, None),
+    )
+
+
 def _ts_ns(stamp) -> int | None:
     """
     Parse a transcript entry's `timestamp` field (ISO-8601, `Z` suffix)
