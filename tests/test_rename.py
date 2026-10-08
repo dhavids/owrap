@@ -89,6 +89,19 @@ def test_rename_subproject_updates_key_and_sessions(rename_scope):
     assert resolver._parse(session_path)["subproject_id"] == "renamed-sub"
 
 
+def test_rename_subproject_also_renames_underlying_file(rename_scope):
+    root, _ = rename_scope
+    project_dir = root / "projects" / "demo"
+
+    RenameRunner().subproject("demo", "worker", "renamed-sub")
+
+    assert not (project_dir / "worker.md").exists()
+    assert (project_dir / "renamed-sub.md").exists()
+    import yaml
+    record = yaml.safe_load((project_dir / "demo.yaml").read_text())
+    assert record["subprojects"]["renamed-sub"]["file"] == "renamed-sub.md"
+
+
 def test_rename_subproject_updates_parent_references(rename_scope):
     root, _ = rename_scope
 

@@ -2,7 +2,7 @@ import os
 import sys
 
 from ..utils.memory.goals import edit_goals
-from ..utils.memory.records import resolve_memory_target
+from ..utils.memory.records import resolve_memory_target, touch_record_last_updated
 from ..utils.parser.text import preview
 from ..utils.session.resolver import (
     session_file, _parse, resolve_session_or_exit,
@@ -38,7 +38,8 @@ class TodoRunner:
             print("  owrap todo clear myproject")
             sys.exit(2)
 
-        goal_path = self._resolve_target(target)
+        memory_target = self._resolve_target(target)
+        goal_path = memory_target.project_path
 
         if arg3 is not None:
             try:
@@ -59,6 +60,7 @@ class TodoRunner:
         except (OSError, ValueError) as exc:
             print(f"ERROR: {exc}")
             sys.exit(2)
+        self._touch(memory_target)
         print(f'GOAL added to {goal_path}: "{preview(text)}"')
 
     def run_update(self, target: str, position: str, text: str):
@@ -79,24 +81,28 @@ class TodoRunner:
             print(f"ERROR: position must be 0, -1, or >= 1, got '{position_value}'")
             sys.exit(2)
 
-        goal_path = self._resolve_target(target)
+        memory_target = self._resolve_target(target)
+        goal_path = memory_target.project_path
         try:
             edit_goals(goal_path, "update", text, position_value)
         except (OSError, ValueError) as exc:
             print(f"ERROR: {exc}")
             sys.exit(2)
+        self._touch(memory_target)
         print(f'GOAL updated in {goal_path}: "{preview(text)}"')
 
     def run_clear(self, target: str = None):
         """
         Remove every checked (done) goal item from the target's project.
         """
-        goal_path = self._resolve_target(target)
+        memory_target = self._resolve_target(target)
+        goal_path = memory_target.project_path
         try:
             removed, _ = edit_goals(goal_path, "clear")
         except (OSError, ValueError) as exc:
             print(f"ERROR: {exc}")
             sys.exit(2)
+        self._touch(memory_target)
         print(f"GOALS cleared {removed} done item(s) from {goal_path}")
 
     def run_done(self, target: str, selector: str):
@@ -114,12 +120,14 @@ class TodoRunner:
             print('  owrap todo done myproject "auth redirect bug"')
             sys.exit(2)
 
-        goal_path = self._resolve_target(target)
+        memory_target = self._resolve_target(target)
+        goal_path = memory_target.project_path
         try:
             _, selected = edit_goals(goal_path, "done", selector)
         except (OSError, ValueError) as exc:
             print(f"ERROR: {exc}")
             sys.exit(2)
+        self._touch(memory_target)
         print(f'GOAL marked done in {goal_path}: "{preview(selected)}"')
 
 
@@ -128,7 +136,7 @@ class TodoRunner:
     def _resolve_target(self, target):
         """
         Resolve a session id/project/repository name (or the currently
-        attached session, if target is empty) to its project goal file.
+        attached session, if target is empty) to its project MemoryTarget.
         """
         if target:
             sid = resolve_session_or_exit(target)
@@ -150,4 +158,14 @@ class TodoRunner:
         if memory_target.kind == "repository":
             print("ERROR: repository-only sessions have no project goals")
             sys.exit(2)
-        return memory_target.project_path
+        return memory_target
+
+    def _touch(self, memory_target):
+        """
+        Bump the target project record's last_updated after a Goals edit.
+        """
+        yaml_path = (
+            memory_target.project_path.parent
+            / f"{memory_target.project_id}.yaml"
+        )
+        touch_record_last_updated(yaml_path)

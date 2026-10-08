@@ -56,6 +56,14 @@ class TestTodoRunnerAdd:
         TodoRunner().run("abc123", "second item", None)
         assert _goal_lines(todo_setup) == ["[ ] first item", "[ ] second item"]
 
+    def test_bumps_project_last_updated(self, todo_setup):
+        import time
+        before = time.time()
+        TodoRunner().run("abc123", "first item", None)
+        import yaml
+        record = yaml.safe_load((todo_setup / "proj.yaml").read_text())
+        assert record["last_updated"] >= before
+
     def test_insert_at_position_renumbers(self, todo_setup):
         TodoRunner().run("abc123", "a", None)
         TodoRunner().run("abc123", "b", None)

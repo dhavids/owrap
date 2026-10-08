@@ -88,6 +88,13 @@ class TestDecideRunner:
         assert "Keep this.\n" in text
         assert "Keep this too.\n" in text
 
+    def test_bumps_project_last_updated(self, decide_setup):
+        before = time.time()
+        DecideRunner().run("abc123", "text")
+        import yaml
+        record = yaml.safe_load((decide_setup / "proj.yaml").read_text())
+        assert record["last_updated"] >= before
+
     def test_prints_confirmation(self, decide_setup, capsys):
         DecideRunner().run("abc123", "Keep the dev/live split")
         out = capsys.readouterr().out
