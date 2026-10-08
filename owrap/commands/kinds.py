@@ -51,6 +51,16 @@ class Repository(Record):
         remove_repository(old_id)
         return f"Removed repository {old_id}"
 
+    def attach(self, repo_id: str, project_id: str) -> str:
+        from .link import link_project_repository
+        link_project_repository(repo_id, project_id)
+        return f"ATTACHED repo={repo_id} project={project_id}"
+
+    def detach(self, repo_id: str, project_id: str) -> str:
+        from .link import unlink_project_repository
+        unlink_project_repository(repo_id, project_id)
+        return f"DETACHED repo={repo_id} project={project_id}"
+
 
 class Subproject(NestedRecord):
     """

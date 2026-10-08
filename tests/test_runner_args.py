@@ -40,11 +40,11 @@ REPRESENTATIVE_CASES = [
     }),
     (["attach", "sid1"], {
         "allow_all": False, "command": "attach", "shell_pid": None,
-        "target_session_id": "sid1", "arg2": None, "arg3": None,
+        "target_session_id": "sid1", "repo_id": None, "project_id": None,
     }),
     (["detach"], {
         "allow_all": False, "command": "detach",
-        "target": None, "arg2": None, "arg3": None,
+        "target": None, "repo_id": None, "project_id": None,
     }),
     (["todo", "proj1", "text here"], {
         "allow_all": False, "arg2": "text here", "arg3": None, "arg4": None,

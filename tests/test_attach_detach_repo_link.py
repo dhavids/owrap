@@ -34,7 +34,7 @@ def test_link_project_repository_missing_repo_raises(kinds_scope):
 
 def test_cmd_attach_repo_links(kinds_scope, capsys):
     _cmd_attach(
-        Namespace(target_session_id="repo", arg2="extra", arg3="demo"),
+        Namespace(target_session_id="repo", repo_id="extra", project_id="demo"),
         None, None, False,
     )
     record = _record(
@@ -47,7 +47,8 @@ def test_cmd_attach_repo_links(kinds_scope, capsys):
 def test_cmd_detach_repo_unlinks(kinds_scope, capsys):
     link_project_repository("extra", "spare", workspace="test")
     _cmd_detach(
-        Namespace(target="repo", arg2="extra", arg3="spare"), None, None, False,
+        Namespace(target="repo", repo_id="extra", project_id="spare"),
+        None, None, False,
     )
     record = _record(
         kinds_scope / "projects" / "spare" / "spare.yaml", "project", "spare",

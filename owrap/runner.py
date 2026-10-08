@@ -86,13 +86,11 @@ def _cmd_refresh(args, manager, logger, allow_all):
 
 def _cmd_attach(args, manager, logger, allow_all):
     if args.target_session_id == "repo":
-        from .commands.link import link_project_repository
         try:
-            link_project_repository(args.arg2, args.arg3)
+            print(dispatch_kw(KIND_REGISTRY, "repository", "attach", args))
         except (OSError, ValueError, FileExistsError, FileNotFoundError) as exc:
             print(f"ERROR: {exc}")
             sys.exit(2)
-        print(f"ATTACHED repo={args.arg2} project={args.arg3}")
         return
     AttachRunner(manager, logger, allow_all=allow_all).run(
         target_session_id=args.target_session_id,
@@ -101,13 +99,11 @@ def _cmd_attach(args, manager, logger, allow_all):
 
 def _cmd_detach(args, manager, logger, allow_all):
     if getattr(args, "target", None) == "repo":
-        from .commands.link import unlink_project_repository
         try:
-            unlink_project_repository(args.arg2, args.arg3)
+            print(dispatch_kw(KIND_REGISTRY, "repository", "detach", args))
         except (OSError, ValueError, FileExistsError, FileNotFoundError) as exc:
             print(f"ERROR: {exc}")
             sys.exit(2)
-        print(f"DETACHED repo={args.arg2} project={args.arg3}")
         return
     DetachRunner(manager, logger, allow_all=allow_all).run()
 

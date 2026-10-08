@@ -127,9 +127,9 @@ SUBCOMMANDS = [
             {"flags": ["target_session_id"],
              "help": "Session ID to attach to, or 'repo' to link a "
                      "repository to a project"},
-            {"flags": ["arg2"], "nargs": "?", "default": None,
+            {"flags": ["repo_id"], "nargs": "?", "default": None,
              "help": "(after 'repo') repository id"},
-            {"flags": ["arg3"], "nargs": "?", "default": None,
+            {"flags": ["project_id"], "nargs": "?", "default": None,
              "help": "(after 'repo') project id"},
             flag(_SHELL_PID, help="Shell PID (ignored)"),
         ],
@@ -139,9 +139,9 @@ SUBCOMMANDS = [
         "args": [
             {"flags": ["target"], "nargs": "?", "default": None,
              "help": "'repo' to unlink a repository from a project"},
-            {"flags": ["arg2"], "nargs": "?", "default": None,
+            {"flags": ["repo_id"], "nargs": "?", "default": None,
              "help": "(after 'repo') repository id"},
-            {"flags": ["arg3"], "nargs": "?", "default": None,
+            {"flags": ["project_id"], "nargs": "?", "default": None,
              "help": "(after 'repo') project id"},
         ],
     },
