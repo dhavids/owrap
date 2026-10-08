@@ -1,6 +1,7 @@
 import json
 import os
 import shlex
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -1158,6 +1159,55 @@ def test_manual_ctx_done_with_error_sets_status_failed(tmp_path, monkeypatch):
         (sessions_dir / owrap_sid / "ctx_state.json").read_text()
     )
     assert state["last_dispatch"]["reason"] == "couldn't reach the repo file"
+
+
+def test_manual_ctx_done_refuses_when_nothing_changed_since_template(
+    tmp_path, monkeypatch, capsys,
+):
+    from owrap.commands.context_manager import ManualCtxRunner
+    _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
+    ccsid = "claude-notouch"
+    owrap_sid = "notouch01"
+    _make_session_file(sessions_dir, owrap_sid, ccsid)
+    _make_context_md(sessions_dir, owrap_sid)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", ccsid)
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.claude_transcript_path",
+        lambda ccsid, workspace: None,
+    )
+
+    ManualCtxRunner().template()
+    with pytest.raises(SystemExit) as exc:
+        ManualCtxRunner().done()
+    assert exc.value.code == 2
+    assert "none of the target files" in capsys.readouterr().out
+
+
+def test_manual_ctx_done_succeeds_after_context_md_edited(
+    tmp_path, monkeypatch,
+):
+    from owrap.commands.context_manager import ManualCtxRunner
+    _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
+    ccsid = "claude-didtouch"
+    owrap_sid = "didtouch01"
+    _make_session_file(sessions_dir, owrap_sid, ccsid)
+    context_md = _make_context_md(sessions_dir, owrap_sid)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", ccsid)
+    monkeypatch.setattr(
+        "owrap.commands.context_manager.claude_transcript_path",
+        lambda ccsid, workspace: None,
+    )
+
+    ManualCtxRunner().template()
+    # Simulate the planner actually editing the file afterward.
+    time.sleep(0.01)
+    context_md.write_text(context_md.read_text() + "\nedited by hand\n")
+
+    ManualCtxRunner().done()
+
+    assert _ctx_status(context_md) == "ok"
+    state = json.loads((sessions_dir / owrap_sid / "ctx_state.json").read_text())
+    assert "manual_started_ts" not in state
 
 
 def test_run_manual_ctx_queues_background_dispatch(tmp_path, monkeypatch):

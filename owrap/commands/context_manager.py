@@ -109,6 +109,33 @@ def prune_ctx_state_window(session_id: str, window_id: str) -> None:
             json.dump(state, f)
 
 
+def append_touched_entries(session_id: str, ccsid: str, entries: list) -> int:
+    """
+    Append `owrap touched` entries to a window's slice of the session's
+    ctx_state.json, for the next context-manager dispatch to pick up.
+    Returns the window's new total entry count.
+    """
+    p = session_ctx_state_path(session_id)
+    with file_lock(context_lock_path(session_id)):
+        state = {"windows": {}}
+        if p.exists():
+            try:
+                with open(p) as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    state = loaded
+                    state.setdefault("windows", {})
+            except (json.JSONDecodeError, OSError):
+                pass
+        window = state["windows"].setdefault(ccsid, {})
+        touched = window.setdefault("touched", [])
+        touched.extend(entries)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "w") as f:
+            json.dump(state, f)
+        return len(touched)
+
+
 def _ts_ns(stamp) -> int | None:
     """
     Parse a transcript entry's `timestamp` field (ISO-8601, `Z` suffix)
@@ -1160,23 +1187,36 @@ class CtxWorkerRunner:
 
     def _read_window_state(self, session_id: str, ccsid: str) -> dict:
         """
-        Read one window's slice (transcript cursor) of the session's
-        ctx_state.json, migrating its old standalone counters.json in on
-        first read if this window hasn't been folded in yet.
+        Read one window's slice (transcript cursor, touched entries) of
+        the session's ctx_state.json, migrating its old standalone
+        counters.json/touched.json in on first read if this window
+        hasn't been folded in yet.
         """
         with file_lock(context_lock_path(session_id)):
             state = self._read_ctx_state(session_id)
             if ccsid not in state["windows"]:
-                old = session_ctx_counters_path(session_id, ccsid)
-                if old.exists():
+                window = {}
+                old_counters = session_ctx_counters_path(session_id, ccsid)
+                if old_counters.exists():
                     try:
-                        with open(old) as f:
+                        with open(old_counters) as f:
                             old_data = json.load(f)
                         if isinstance(old_data, dict):
-                            state["windows"][ccsid] = old_data
-                            self._write_ctx_state(session_id, state)
+                            window.update(old_data)
                     except (json.JSONDecodeError, OSError):
                         pass
+                old_touched = session_ctx_touched_path(session_id, ccsid)
+                if old_touched.exists():
+                    try:
+                        with open(old_touched) as f:
+                            old_touched_data = json.load(f)
+                        if isinstance(old_touched_data, list):
+                            window["touched"] = old_touched_data
+                    except (json.JSONDecodeError, OSError):
+                        pass
+                if window:
+                    state["windows"][ccsid] = window
+                    self._write_ctx_state(session_id, state)
             return dict(state["windows"].get(ccsid, {}))
 
     def _write_window_state(self, session_id: str, data: dict, ccsid: str):
@@ -1209,20 +1249,21 @@ class CtxWorkerRunner:
         Return this window's pending `owrap touched` entries (item 14),
         each `{"path": ..., "note": ...}`. Empty list if none are queued.
         """
-        p = session_ctx_touched_path(session_id, ccsid)
-        if not p.exists():
-            return []
-        try:
-            return json.loads(p.read_text())
-        except (json.JSONDecodeError, OSError):
-            return []
+        return self._read_window_state(session_id, ccsid).get("touched", [])
 
     def _clear_touched_entries(self, session_id: str, ccsid: str):
         """
-        Clear this window's pending-touched-paths file after its entries
-        have been successfully applied.
+        Clear this window's pending-touched entries after they've been
+        successfully applied. Also removes the legacy standalone
+        touched.json if a migration-on-read left it behind unread.
         """
         session_ctx_touched_path(session_id, ccsid).unlink(missing_ok=True)
+        with file_lock(context_lock_path(session_id)):
+            state = self._read_ctx_state(session_id)
+            window = state["windows"].get(ccsid)
+            if window and "touched" in window:
+                window.pop("touched", None)
+                self._write_ctx_state(session_id, state)
 
     @staticmethod
     def _is_context_update_request(text: str) -> bool:
@@ -1359,6 +1400,12 @@ class ManualCtxRunner:
         else:
             print("No project/repository target configured for this session.")
 
+        worker = CtxWorkerRunner()
+        with file_lock(context_lock_path(owrap_sid)):
+            state = worker._read_ctx_state(owrap_sid)
+            state["manual_started_ts"] = time.time()
+            worker._write_ctx_state(owrap_sid, state)
+
         self._print_excerpt(ccsid, owrap_sid, source)
 
     def _print_excerpt(self, ccsid: str, owrap_sid: str, source: str) -> None:
@@ -1393,7 +1440,10 @@ class ManualCtxRunner:
         by hand: set `ctx_status` to `ok` (or `failed`, if `error` is
         given to report the manual attempt itself failed) and advance
         this window's transcript cursor to now, the same bookkeeping a
-        successful automatic dispatch leaves.
+        successful automatic dispatch leaves. Refuses to mark `ok` if
+        none of the target files changed since `ctx-template` ran --
+        catches the planner running `done` without actually having
+        edited anything.
         """
         ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
         source = "claude"
@@ -1412,12 +1462,15 @@ class ManualCtxRunner:
             print("No owrap session attached to this window — run `owrap attach` first")
             sys.exit(1)
 
+        worker = CtxWorkerRunner()
+        if not error:
+            self._check_manual_update_happened(worker, owrap_sid)
+
         transcript = (
             codex_transcript_path(ccsid) if source == "codex"
             else claude_transcript_path(ccsid, get_workspace_path())
         )
 
-        worker = CtxWorkerRunner()
         window_state = worker._read_window_state(owrap_sid, ccsid)
         if transcript is not None and transcript.exists():
             lines = transcript.read_text().splitlines()
@@ -1433,10 +1486,51 @@ class ManualCtxRunner:
             owrap_sid, status, kind="manual", reason=error,
         )
         worker._clear_touched_entries(owrap_sid, ccsid)
+        with file_lock(context_lock_path(owrap_sid)):
+            state = worker._read_ctx_state(owrap_sid)
+            if state.pop("manual_started_ts", None) is not None:
+                worker._write_ctx_state(owrap_sid, state)
         if error:
             print(f"Marked session {owrap_sid}'s manual update as failed: {error}")
         else:
             print(f"Marked session {owrap_sid}'s context update as done manually.")
+
+    def _check_manual_update_happened(self, worker, owrap_sid: str) -> None:
+        """
+        Refuse with an error (exit 2) if `ctx-template` was run for this
+        session and none of its listed target files have changed since
+        -- the planner either hasn't edited them yet or ran `done`
+        against the wrong session. No-op if `ctx-template` was never run
+        (nothing to compare against) or has already been cleared.
+        """
+        state = worker._read_ctx_state(owrap_sid)
+        started_ts = state.get("manual_started_ts")
+        if started_ts is None:
+            return
+
+        target_paths = [context_path(owrap_sid)]
+        sf_path = session_file(owrap_sid)
+        session_data = _parse(sf_path) if sf_path.exists() else {}
+        target = (
+            resolve_memory_target(session_data)
+            if session_data.get("target_kind") else None
+        )
+        if target is not None:
+            if target.project_path:
+                target_paths.append(target.project_path)
+            target_paths.extend(target.repository_paths)
+
+        changed = any(
+            p.exists() and p.stat().st_mtime > started_ts for p in target_paths
+        )
+        if not changed:
+            print(
+                "ERROR: none of the target files `ctx-template` listed have "
+                "changed since it ran — nothing looks actually updated. Edit "
+                "the files, or pass --error \"<reason>\" if the manual "
+                "update itself failed."
+            )
+            sys.exit(2)
 
 
 class CtxHookRunner:

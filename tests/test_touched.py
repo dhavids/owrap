@@ -39,17 +39,20 @@ def test_touched_errors_without_attached_session(monkeypatch, tmp_path):
     assert exc_info.value.code == 1
 
 
+def _touched_entries(sessions_dir, owrap_sid, ccsid):
+    state = json.loads((sessions_dir / owrap_sid / "ctx_state.json").read_text())
+    return state["windows"][ccsid]["touched"]
+
+
 def test_touched_writes_entries(monkeypatch, tmp_path):
     from owrap.commands.touched import TouchedRunner
-    from owrap.utils.paths import session_ctx_touched_path
     sessions_dir = _patch_dirs(monkeypatch, tmp_path)
     _attach(sessions_dir, "claude-1", "sid01")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "claude-1")
 
     TouchedRunner().run(["owrap/foo.py", "owrap/bar.py"], note="renamed helper")
 
-    entries = json.loads(session_ctx_touched_path("sid01", "claude-1").read_text())
-    assert entries == [
+    assert _touched_entries(sessions_dir, "sid01", "claude-1") == [
         {"path": "owrap/foo.py", "note": "renamed helper"},
         {"path": "owrap/bar.py", "note": "renamed helper"},
     ]
@@ -57,7 +60,6 @@ def test_touched_writes_entries(monkeypatch, tmp_path):
 
 def test_touched_appends_to_existing_entries(monkeypatch, tmp_path):
     from owrap.commands.touched import TouchedRunner
-    from owrap.utils.paths import session_ctx_touched_path
     sessions_dir = _patch_dirs(monkeypatch, tmp_path)
     _attach(sessions_dir, "claude-1", "sid01")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "claude-1")
@@ -65,8 +67,7 @@ def test_touched_appends_to_existing_entries(monkeypatch, tmp_path):
     TouchedRunner().run(["owrap/foo.py"], note="first")
     TouchedRunner().run(["owrap/bar.py"], note="second")
 
-    entries = json.loads(session_ctx_touched_path("sid01", "claude-1").read_text())
-    assert entries == [
+    assert _touched_entries(sessions_dir, "sid01", "claude-1") == [
         {"path": "owrap/foo.py", "note": "first"},
         {"path": "owrap/bar.py", "note": "second"},
     ]
