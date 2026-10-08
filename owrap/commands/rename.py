@@ -51,6 +51,19 @@ class RenameRunner:
     """
     Rename a project, subproject, or repository identity, updating every
     session file and cross-reference that points at the old id.
+
+    Every current participant that stores an id, kept here as the
+    checklist for auditing this class after any schema change:
+      - session files: project_id, subproject_id, repository_id,
+        repositories (a JSON-encoded list, project sessions only)
+      - project YAML: id, subprojects{file, parent, repositories,
+        branch_repository}, repositories
+      - repository YAML: id
+      - project/subproject markdown: `[id](main.md)` backrefs
+      - backup directories: project/<id>[/<subproject_id>],
+        repository/<id>
+      - ctx_state.json: nothing currently -- it has no project/repo id
+        of its own, only session-scoped dispatch/window state
     """
 
     def project(self, old_id: str, new_id: str, workspace: str = "") -> None:
