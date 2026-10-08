@@ -425,33 +425,36 @@ class Manager:
         """
         Create or update the session context file. docs_root/venv/
         ctx_status are refreshed from their canonical sources (workspace
-        config, ctx_state.json) on every call, not just at creation --
+        config, ctx_state.json) on every call, not just at creation —
         context.md is a rendered view of them, never an independent
-        copy that can drift.
+        copy that can drift. `server`/`plan` are runner-only concepts
+        and only appear in the header while the runner is enabled.
         """
         cp = self.context_path
         config = _read_config()
+        runner_enabled = config.get("owrap_runner_enabled", True)
         docs_root = config.get("docs_root", "")
         venv = config.get("venv", "")
-        plan = str(get_plan_path(self.session_id)) if self.session_id else "none"
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
-        url = self.get_url() or ""
         ctx_status = self._read_ctx_status()
+        fields = [("session", self.session_id or "none")]
+        if runner_enabled:
+            fields.append(("server", self.get_url() or ""))
+            plan = str(get_plan_path(self.session_id)) if self.session_id else "none"
+            fields.append(("plan", plan))
+        fields += [
+            ("docs_root", docs_root), ("venv", venv), ("last_updated", now),
+        ]
+        if ctx_status is not None:
+            fields.append(("ctx_status", ctx_status))
         if cp.exists():
             text = cp.read_text()
             text = re.sub(r"^research:.*\n", "", text, flags=re.MULTILINE)
             text = re.sub(r"^research_root:.*\n", "", text, flags=re.MULTILINE)
             text = re.sub(r"^phase:.*\n", "", text, flags=re.MULTILINE)
-            fields = [
-                ("session", self.session_id or "none"),
-                ("server", url),
-                ("plan", plan),
-                ("docs_root", docs_root),
-                ("venv", venv),
-                ("last_updated", now),
-            ]
-            if ctx_status is not None:
-                fields.append(("ctx_status", ctx_status))
+            if not runner_enabled:
+                text = re.sub(r"^server:.*\n", "", text, flags=re.MULTILINE)
+                text = re.sub(r"^plan:.*\n", "", text, flags=re.MULTILINE)
             for field, value in fields:
                 if re.search(rf"^{field}:.*$", text, re.MULTILINE):
                     text = re.sub(
@@ -466,16 +469,9 @@ class Manager:
             cp.write_text(text)
             self._cap_context_sections(cp)
             return
-        status_line = f"ctx_status: {ctx_status}\n" if ctx_status is not None else ""
+        header = "".join(f"{field}: {value}\n" for field, value in fields)
         content = (
-            "## Session\n\n"
-            f"session: {self.session_id or 'none'}\n"
-            f"server: {url}\n"
-            f"plan: {plan}\n"
-            f"docs_root: {docs_root}\n"
-            f"venv: {venv}\n"
-            f"last_updated: {now}\n"
-            f"{status_line}"
+            f"## Session\n\n{header}"
             "\n## Focus\n\n"
             "## Active Plan\n\n"
             "## Key Locations\n\n"

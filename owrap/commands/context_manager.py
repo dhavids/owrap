@@ -591,6 +591,14 @@ class CtxWorkerRunner:
 
         if not combined_texts:
             print("ctx-worker: nothing to summarize", flush=True)
+            # Always leave a transcript.txt behind, even empty — a job
+            # directory with no file at all means something crashed
+            # before reaching here, not that there was nothing new.
+            job_dir = getattr(self, "_job_dir", None)
+            placeholder = "(nothing new since the last update)"
+            session_ctx_transcript_path(owrap_sid, ccsid).write_text(placeholder)
+            if job_dir:
+                (job_dir / "transcript.txt").write_text(placeholder)
             if self._has_recognized_transcript_entries(
                 transcript_lines, effective_cursor_ns, source,
             ):

@@ -455,12 +455,13 @@ def test_ctx_worker_nothing_new(tmp_path, monkeypatch):
         sessions_dir / owrap_sid / "ctx" / "windows" / ccsid / "input.md"
     )
     assert not task_file.exists()
-    # No transcript tmp file
+    # A placeholder transcript.txt is still written — a missing file
+    # must always mean something crashed, never "nothing new."
     transcript_tmp = (
         sessions_dir / owrap_sid / "ctx" / "windows" / ccsid
         / "transcript.txt"
     )
-    assert not transcript_tmp.exists()
+    assert "nothing new" in transcript_tmp.read_text()
     # Cursor unchanged
     updated = json.loads(cp.read_text())
     assert updated["transcript_cursor_ns"] == _entry_ts_ns(1)

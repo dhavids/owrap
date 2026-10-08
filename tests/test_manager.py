@@ -245,6 +245,46 @@ def test_create_context_fresh_file_has_no_phase_or_research_root(monkeypatch):
     assert "research_root:" not in text
 
 
+def test_create_context_omits_server_and_plan_when_runner_disabled(monkeypatch):
+    manager = _make_manager()
+    manager.session_id = "sid01b"
+    monkeypatch.setattr(
+        "owrap.manager._read_config",
+        lambda: {"docs_root": "/docs/root", "owrap_runner_enabled": False},
+    )
+
+    manager.create_context()
+
+    text = manager.context_path.read_text()
+    assert "server:" not in text
+    assert "plan:" not in text
+    assert "docs_root: /docs/root" in text
+
+
+def test_create_context_strips_server_and_plan_once_runner_disabled(
+    monkeypatch,
+):
+    manager = _make_manager()
+    manager.session_id = "sid01c"
+    manager.context_path.parent.mkdir(parents=True, exist_ok=True)
+    manager.context_path.write_text(
+        "## Session\n\nsession: sid01c\nserver: http://x\n"
+        "plan: /some/plan.md\nlast_updated: 2026-01-01 00:00\n"
+        "\n## Focus\n\nkeep this\n"
+    )
+    monkeypatch.setattr(
+        "owrap.manager._read_config",
+        lambda: {"docs_root": "/docs/root", "owrap_runner_enabled": False},
+    )
+
+    manager.create_context()
+
+    text = manager.context_path.read_text()
+    assert "server:" not in text
+    assert "plan:" not in text
+    assert "keep this" in text
+
+
 def test_create_context_refreshes_docs_root_and_venv_on_existing_file(
     monkeypatch,
 ):
