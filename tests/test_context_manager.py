@@ -552,7 +552,7 @@ def _ctx_status(context_path):
     if not state_path.exists():
         return None
     try:
-        return json.loads(state_path.read_text()).get("ctx_status")
+        return json.loads(state_path.read_text()).get("ctx", {}).get("status")
     except (json.JSONDecodeError, OSError):
         return None
 
@@ -1136,7 +1136,7 @@ def test_manual_ctx_done_advances_cursor_and_sets_status_ok(tmp_path, monkeypatc
         (sessions_dir / owrap_sid / "ctx_state.json").read_text()
     )
     assert state["windows"][ccsid]["transcript_cursor_ns"] == _entry_ts_ns(0)
-    assert state["last_dispatch"]["kind"] == "manual"
+    assert state["ctx"]["last_dispatch"]["kind"] == "manual"
 
 
 def test_manual_ctx_done_with_error_sets_status_failed(tmp_path, monkeypatch):
@@ -1158,7 +1158,7 @@ def test_manual_ctx_done_with_error_sets_status_failed(tmp_path, monkeypatch):
     state = json.loads(
         (sessions_dir / owrap_sid / "ctx_state.json").read_text()
     )
-    assert state["last_dispatch"]["reason"] == "couldn't reach the repo file"
+    assert state["ctx"]["last_dispatch"]["reason"] == "couldn't reach the repo file"
 
 
 def test_manual_ctx_done_refuses_when_nothing_changed_since_template(
@@ -1207,7 +1207,7 @@ def test_manual_ctx_done_succeeds_after_context_md_edited(
 
     assert _ctx_status(context_md) == "ok"
     state = json.loads((sessions_dir / owrap_sid / "ctx_state.json").read_text())
-    assert "manual_started_ts" not in state
+    assert "manual_started_ts" not in state["ctx"]
 
 
 def test_register_ctx_state_window_adds_entry(tmp_path, monkeypatch):

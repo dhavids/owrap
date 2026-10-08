@@ -235,11 +235,13 @@ class StartRunner(BaseRunner):
 
         plan_path = get_plan_path(session_id)
         input_path = session_input(session_id)
+        runner_enabled = _read_config().get("owrap_runner_enabled", True)
 
         self.manager.session_id = session_id
         self.manager.create_context()
         self.manager._housekeeping()
-        self.manager.refresh_context_plan(plan_path)
+        if runner_enabled:
+            self.manager.refresh_context_plan(plan_path)
         self.manager.start_watchdog()
 
         if self.logger:
@@ -250,7 +252,7 @@ class StartRunner(BaseRunner):
         print_orientation(
             session_id, plan_path=plan_path,
             input_path=input_path, context_path=cp,
-            runner_enabled=_read_config().get("owrap_runner_enabled", True),
+            runner_enabled=runner_enabled,
             target=_orientation_target(session_id),
         )
         print(f"\n__OWRAP_EXPORT__ SESSION_ID={session_id}")

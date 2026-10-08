@@ -13,7 +13,8 @@ from ..utils.paths import (
     get_model_chain, get_workspace_path, claude_transcript_path,
     codex_transcript_path,
     context_lock_path, session_ctx_touched_path,
-    session_ctx_counters_path, session_ctx_state_path, OPENCODE_STATUS_FILE,
+    session_ctx_counters_path, session_ctx_state_path, ctx_state_lock_path,
+    OPENCODE_STATUS_FILE,
 )
 from ..utils.session.resolver import (
     _parse, session_file, owrap_sid_for_ccsid, all_attached_ccsid_pairs,
@@ -98,7 +99,7 @@ def register_ctx_state_window(
     if not window_id:
         return
     p = session_ctx_state_path(session_id)
-    with file_lock(context_lock_path(session_id)):
+    with file_lock(ctx_state_lock_path(session_id)):
         state = {"windows": {}}
         if p.exists():
             try:
@@ -127,7 +128,7 @@ def prune_ctx_state_window(session_id: str, window_id: str) -> None:
     if not window_id:
         return
     p = session_ctx_state_path(session_id)
-    with file_lock(context_lock_path(session_id)):
+    with file_lock(ctx_state_lock_path(session_id)):
         if not p.exists():
             return
         try:
@@ -149,7 +150,7 @@ def append_touched_entries(session_id: str, ccsid: str, entries: list) -> int:
     Returns the window's new total entry count.
     """
     p = session_ctx_state_path(session_id)
-    with file_lock(context_lock_path(session_id)):
+    with file_lock(ctx_state_lock_path(session_id)):
         state = {"windows": {}}
         if p.exists():
             try:
@@ -1195,10 +1196,11 @@ class CtxWorkerRunner:
 
     def _read_ctx_state(self, session_id: str) -> dict:
         """
-        Read this session's whole ctx_state.json: ctx_status,
-        last_dispatch, per-target sync state, and the windows map (one
-        entry per attached window's transcript cursor). An empty skeleton
-        if the file doesn't exist yet or is unreadable.
+        Read this session's whole ctx_state.json: a `ctx` sub-object
+        (status, last_dispatch, manual_started_ts), per-target sync
+        state, and the windows map (one entry per attached window's
+        transcript cursor). An empty skeleton if the file doesn't exist
+        yet or is unreadable.
         """
         p = session_ctx_state_path(session_id)
         if p.exists():
@@ -1207,10 +1209,11 @@ class CtxWorkerRunner:
                     data = json.load(f)
                 if isinstance(data, dict):
                     data.setdefault("windows", {})
+                    data.setdefault("ctx", {})
                     return data
             except (json.JSONDecodeError, OSError):
                 pass
-        return {"windows": {}}
+        return {"windows": {}, "ctx": {}}
 
     def _write_ctx_state(self, session_id: str, data: dict):
         p = session_ctx_state_path(session_id)
@@ -1225,7 +1228,7 @@ class CtxWorkerRunner:
         counters.json/touched.json in on first read if this window
         hasn't been folded in yet.
         """
-        with file_lock(context_lock_path(session_id)):
+        with file_lock(ctx_state_lock_path(session_id)):
             state = self._read_ctx_state(session_id)
             if ccsid not in state["windows"]:
                 window = {}
@@ -1253,7 +1256,7 @@ class CtxWorkerRunner:
             return dict(state["windows"].get(ccsid, {}))
 
     def _write_window_state(self, session_id: str, data: dict, ccsid: str):
-        with file_lock(context_lock_path(session_id)):
+        with file_lock(ctx_state_lock_path(session_id)):
             state = self._read_ctx_state(session_id)
             state["windows"][ccsid] = data
             self._write_ctx_state(session_id, state)
@@ -1268,10 +1271,10 @@ class CtxWorkerRunner:
         orientation.py reads, instead of a line regexed out of
         context.md's prose.
         """
-        with file_lock(context_lock_path(session_id)):
+        with file_lock(ctx_state_lock_path(session_id)):
             state = self._read_ctx_state(session_id)
-            state["ctx_status"] = status
-            state["last_dispatch"] = {
+            state["ctx"]["status"] = status
+            state["ctx"]["last_dispatch"] = {
                 "ts": time.time(), "kind": kind, "status": status,
                 "model": model, "reason": reason,
             }
@@ -1291,7 +1294,7 @@ class CtxWorkerRunner:
         touched.json if a migration-on-read left it behind unread.
         """
         session_ctx_touched_path(session_id, ccsid).unlink(missing_ok=True)
-        with file_lock(context_lock_path(session_id)):
+        with file_lock(ctx_state_lock_path(session_id)):
             state = self._read_ctx_state(session_id)
             window = state["windows"].get(ccsid)
             if window and "touched" in window:
@@ -1434,9 +1437,9 @@ class ManualCtxRunner:
             print("No project/repository target configured for this session.")
 
         worker = CtxWorkerRunner()
-        with file_lock(context_lock_path(owrap_sid)):
+        with file_lock(ctx_state_lock_path(owrap_sid)):
             state = worker._read_ctx_state(owrap_sid)
-            state["manual_started_ts"] = time.time()
+            state["ctx"]["manual_started_ts"] = time.time()
             worker._write_ctx_state(owrap_sid, state)
 
         self._print_excerpt(ccsid, owrap_sid, source)
@@ -1519,9 +1522,9 @@ class ManualCtxRunner:
             owrap_sid, status, kind="manual", reason=error,
         )
         worker._clear_touched_entries(owrap_sid, ccsid)
-        with file_lock(context_lock_path(owrap_sid)):
+        with file_lock(ctx_state_lock_path(owrap_sid)):
             state = worker._read_ctx_state(owrap_sid)
-            if state.pop("manual_started_ts", None) is not None:
+            if state["ctx"].pop("manual_started_ts", None) is not None:
                 worker._write_ctx_state(owrap_sid, state)
         if error:
             print(f"Marked session {owrap_sid}'s manual update as failed: {error}")
@@ -1537,7 +1540,7 @@ class ManualCtxRunner:
         (nothing to compare against) or has already been cleared.
         """
         state = worker._read_ctx_state(owrap_sid)
-        started_ts = state.get("manual_started_ts")
+        started_ts = state["ctx"].get("manual_started_ts")
         if started_ts is None:
             return
 

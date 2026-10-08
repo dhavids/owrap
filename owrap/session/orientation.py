@@ -30,7 +30,10 @@ def print_orientation(
         _state_path = _Path(context_path).parent / "ctx_state.json"
         if _state_path.exists():
             try:
-                ctx_status = _json.loads(_state_path.read_text()).get("ctx_status")
+                ctx_status = (
+                    _json.loads(_state_path.read_text())
+                    .get("ctx", {}).get("status")
+                )
             except (_json.JSONDecodeError, OSError):
                 pass
     if context_path:
