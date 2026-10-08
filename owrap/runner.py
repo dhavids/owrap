@@ -15,7 +15,8 @@ from .commands import (
 )
 from .commands.sync import SyncRunner
 from .commands.daemon import DaemonRunner
-from .commands.update import UpdateRunner
+from .commands.kinds import KIND_REGISTRY
+from .utils.actions import dispatch
 from .manager import Manager
 from .utils.paths import _read_config, get_workspace_config
 from .utils.arg_parser import OwrapArgumentParser
@@ -470,15 +471,15 @@ def _cmd_delete(args, manager, logger, allow_all):
         DeleteBackupRunner().run(args.target, which=args.which)
 
 
-def _cmd_verb(runner_cls, label):
+def _cmd_action(action):
     """
-    Build a CLI handler for a kind-dispatched verb: collect the given
-    arg1/arg2/arg3 (skipping ones argparse left as None), call
-    runner_cls().run(args.kind, *collected), print what it returns, and
-    turn one of its expected errors into `ERROR: ...` plus exit 2.
+    Build a CLI handler for a kind-dispatched action: collect the given
+    arg1/arg2/arg3 (skipping ones argparse left as None), dispatch
+    `action` against KIND_REGISTRY by args.kind, print what it
+    returns, and turn one of its expected errors into `ERROR: ...`
+    plus exit 2.
     """
     def _cmd(args, manager, logger, allow_all):
-        runner = runner_cls()
         call_args = [
             value for value in (
                 getattr(args, "arg1", None), getattr(args, "arg2", None),
@@ -486,17 +487,17 @@ def _cmd_verb(runner_cls, label):
             ) if value is not None
         ]
         try:
-            message = runner.run(args.kind, *call_args)
+            message = dispatch(KIND_REGISTRY, args.kind, action, *call_args)
         except (OSError, ValueError, FileExistsError, FileNotFoundError) as exc:
             print(f"ERROR: {exc}")
             sys.exit(2)
         if message:
             print(message)
-    _cmd.__name__ = f"_cmd_{label}"
+    _cmd.__name__ = f"_cmd_{action}"
     return _cmd
 
 
-_cmd_update = _cmd_verb(UpdateRunner, "update")
+_cmd_update = _cmd_action("update")
 
 
 def _cmd_get(args, manager, logger, allow_all):
