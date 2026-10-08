@@ -176,6 +176,41 @@ class Daemon(Entity):
         return "daemon: restarted"
 
 
+class Ctx(Entity):
+    """
+    The Update Context dispatch: no stored record, just a background
+    model job for the attached window's session.
+    """
+
+    kind = "ctx"
+
+    def start(self) -> None:
+        from .context_manager import CtxWorkerRunner
+        CtxWorkerRunner().run_manual(mode="ctx")
+
+    def done(self, error: str = None) -> None:
+        from .context_manager import ManualCtxRunner
+        ManualCtxRunner().done(error=error)
+
+
+class Updr(Entity):
+    """
+    The Update Protocol dispatch (optionally bundled with Update
+    Context too): no stored record, just a background model job.
+    """
+
+    kind = "updr"
+
+    def start(self, subproject: str = None, ctx: bool = False) -> None:
+        from .context_manager import CtxWorkerRunner
+        mode = None if ctx else "updr"
+        CtxWorkerRunner().run_manual(mode=mode, subproject=subproject)
+
+    def done(self, error: str = None) -> None:
+        from .context_manager import ManualCtxRunner
+        ManualCtxRunner().done(error=error)
+
+
 class Decision(SectionEntry):
     """
     A timestamped decision line-item under a project/subproject's
@@ -208,4 +243,6 @@ KIND_REGISTRY = {
     "todo": Todo,
     "decision": Decision,
     "daemon": Daemon,
+    "ctx": Ctx,
+    "updr": Updr,
 }

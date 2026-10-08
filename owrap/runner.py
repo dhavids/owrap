@@ -454,20 +454,17 @@ def _cmd_ctx_worker(args, manager, logger, allow_all):
 
 
 def _cmd_ctx(args, manager, logger, allow_all):
-    from .commands.context_manager import CtxWorkerRunner, ManualCtxRunner
     if getattr(args, "action", None) == "done":
-        ManualCtxRunner().done(error=args.error)
+        dispatch_kw(KIND_REGISTRY, "ctx", "done", args)
         return
-    CtxWorkerRunner().run_manual(mode="ctx")
+    dispatch_kw(KIND_REGISTRY, "ctx", "start", args)
 
 
 def _cmd_updr(args, manager, logger, allow_all):
-    from .commands.context_manager import CtxWorkerRunner, ManualCtxRunner
     if args.subproject == "done":
-        ManualCtxRunner().done(error=args.error)
+        dispatch_kw(KIND_REGISTRY, "updr", "done", args)
         return
-    mode = None if args.ctx else "updr"
-    CtxWorkerRunner().run_manual(mode=mode, subproject=args.subproject)
+    dispatch_kw(KIND_REGISTRY, "updr", "start", args)
 
 
 def _cmd_ctx_template(args, manager, logger, allow_all):
