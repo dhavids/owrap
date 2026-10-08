@@ -349,6 +349,8 @@ class RefreshRunner(BaseRunner):
         elif subproject_name is not None:
             update_session_field(session_id, "subproject_id", subproject_name)
 
+        self.manager.session_id = session_id
+        self.manager.create_context()
         self.manager._housekeeping()
 
         plan_path = get_plan_path(session_id)
