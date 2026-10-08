@@ -498,6 +498,8 @@ def _cmd_action(action):
 
 
 _cmd_update = _cmd_action("update")
+_cmd_add = _cmd_action("add")
+_cmd_clear = _cmd_action("clear")
 
 
 def _cmd_get(args, manager, logger, allow_all):
@@ -579,6 +581,8 @@ _COMMAND_HANDLERS = {
     "delete": _cmd_delete,
     "update": _cmd_update,
     "rename": _cmd_update,
+    "add": _cmd_add,
+    "clear": _cmd_clear,
     "get": _cmd_get,
 }
 

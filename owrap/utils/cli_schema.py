@@ -455,17 +455,43 @@ SUBCOMMANDS = [
     },
     {
         "name": "update", "aliases": ["rename"],
-        "help": "Change a project/subproject/repository's id (rename)",
+        "help": "Rename a project/subproject/repository's id, or replace "
+                "a todo item's text in place",
         "args": [
             {"flags": ["kind"], "choices": [
                 "project", "proj", "subproject", "sub", "repository", "repo",
+                "todo",
             ]},
             {"flags": ["arg1"],
-             "help": "Old id (project/repository), or project id (subproject)"},
+             "help": "Old id (project/repository), project id (subproject), "
+                     "or target (todo)"},
             {"flags": ["arg2"],
-             "help": "New id (project/repository), or old subproject id"},
+             "help": "New id (project/repository), old subproject id, or "
+                     "position (todo)"},
             {"flags": ["arg3"], "nargs": "?", "default": None,
-             "help": "New subproject id (subproject only)"},
+             "help": "New subproject id (subproject only), or new text "
+                     "(todo)"},
+        ],
+    },
+    {
+        "name": "add",
+        "help": "Add a todo item, decision, or subproject",
+        "args": [
+            {"flags": ["kind"], "choices": ["todo", "decision", "subproject", "sub"]},
+            {"flags": ["arg1"],
+             "help": "Target (todo/decision), or new subproject name"},
+            {"flags": ["arg2"], "nargs": "?", "default": None,
+             "help": "Text or position (todo), text (decision)"},
+            {"flags": ["arg3"], "nargs": "?", "default": None,
+             "help": "Text, when arg2 was a position (todo only)"},
+        ],
+    },
+    {
+        "name": "clear",
+        "help": "Clear done todo items for a target",
+        "args": [
+            {"flags": ["kind"], "choices": ["todo"]},
+            {"flags": ["arg1"], "nargs": "?", "default": None, "help": "Target"},
         ],
     },
     {

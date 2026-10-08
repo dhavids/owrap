@@ -80,3 +80,25 @@ def test_dispatch_unknown_kind_raises():
 def test_dispatch_unsupported_action_raises(kinds_scope):
     with pytest.raises(ValueError, match="project does not support add"):
         dispatch(KIND_REGISTRY, "project", "add", "demo")
+
+
+def test_dispatch_add_decision(kinds_scope, capsys):
+    root = kinds_scope
+    dispatch(KIND_REGISTRY, "decision", "add", "abc123", "Use the new grammar")
+    main_text = (root / "projects" / "demo" / "worker.md").read_text()
+    assert "Use the new grammar" in main_text
+    assert "DECISION added" in capsys.readouterr().out
+
+
+def test_dispatch_add_and_clear_todo(kinds_scope, capsys):
+    root = kinds_scope
+    dispatch(KIND_REGISTRY, "todo", "add", "abc123", "Ship the kinds refactor")
+    main_text = (root / "projects" / "demo" / "worker.md").read_text()
+    assert "Ship the kinds refactor" in main_text
+    captured = capsys.readouterr().out
+    assert "GOAL added" in captured
+
+    dispatch(KIND_REGISTRY, "todo", "update", "abc123", "1", "Ship it carefully")
+    dispatch(KIND_REGISTRY, "todo", "clear", "abc123")
+    captured = capsys.readouterr().out
+    assert "GOALS cleared" in captured
