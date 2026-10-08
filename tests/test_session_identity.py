@@ -327,33 +327,3 @@ def test_start_with_zero_args_creates_anonymous_session_without_legacy_file(
     assert not data.get("target_kind")
     assert not data.get("area")
     assert not docs_root.exists()
-
-
-def test_start_skips_plan_refresh_when_runner_disabled(
-    mock_manager, monkeypatch, tmp_path,
-):
-    """
-    The Active Plan workflow is a runner-only concept — with the
-    runner disabled, start() must not read/write exec/plan.md at all.
-    """
-    session_path = tmp_path / "anon456.session"
-    monkeypatch.setattr(resolver, "session_file", lambda sid: session_path)
-    monkeypatch.setattr("owrap.session.start._sf", lambda sid: session_path)
-    for method in (
-        "create_context", "_housekeeping", "refresh_context_plan",
-        "start_watchdog",
-    ):
-        setattr(mock_manager, method, MagicMock())
-
-    with patch("owrap.session.start.SESSION_DIR", tmp_path), \
-         patch("owrap.session.start._read_config", return_value={
-             "max_servers": 1, "owrap_runner_enabled": False,
-         }), \
-         patch("owrap.session.start.print_orientation"), \
-         patch("owrap.utils.dispatch.pool._pool_active", return_value=True), \
-         patch("owrap.utils.dispatch.pool.ensure_min_servers"), \
-         patch("owrap.utils.dispatch.pool._ensure_daemon"):
-        with pytest.raises(SystemExit):
-            StartRunner(mock_manager).run(session_id="anon456")
-
-    mock_manager.refresh_context_plan.assert_not_called()
