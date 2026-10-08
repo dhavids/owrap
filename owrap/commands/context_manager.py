@@ -495,31 +495,40 @@ class CtxWorkerRunner:
         uncaught exception — so a crash in our own code shows up too, not
         just a failed model dispatch.
         """
+        kind = "context+protocol" if do_context and do_protocol else (
+            "context" if do_context else "protocol"
+        )
         self._set_ctx_dispatch_result(owrap_sid, "pending")
         try:
-            rc = self._dispatch(
+            rc, reason, model = self._dispatch(
                 owrap_sid, ccsid, transcript_path, config,
                 do_context=do_context, do_protocol=do_protocol,
                 subproject_override=subproject_override,
                 source=source,
             )
-        except Exception:
-            self._set_ctx_dispatch_result(owrap_sid, "failed")
+        except Exception as e:
+            self._set_ctx_dispatch_result(
+                owrap_sid, "failed", kind=kind, reason=str(e),
+            )
             raise
-        self._set_ctx_dispatch_result(owrap_sid, "ok" if rc == 0 else "failed")
+        self._set_ctx_dispatch_result(
+            owrap_sid, "ok" if rc == 0 else "failed",
+            kind=kind, model=model, reason=reason,
+        )
         return rc
 
     def _dispatch(
         self, owrap_sid, ccsid, transcript_path, config,
         do_context, do_protocol,
         subproject_override=None, source="claude",
-    ) -> int:
+    ) -> tuple:
         """
         Build the scoped sandbox, dispatch to the model, and apply its
         output back to the session context and explicit memory records.
 
-        Returns the opencode process's exit code (0 if nothing needed
-        summarizing).
+        Returns (returncode, reason, model) — returncode is 0 if nothing
+        needed summarizing or on success; reason explains a failure;
+        model is the one that produced the successful output.
         """
         session_data = {}
         sf_path = session_file(owrap_sid)
@@ -543,7 +552,7 @@ class CtxWorkerRunner:
 
         if not transcript_path or not Path(transcript_path).exists():
             print("ctx-worker: transcript path missing", file=sys.stderr)
-            return 1
+            return 1, "transcript path missing", None
 
         transcript_lines = Path(transcript_path).read_text().splitlines()
 
@@ -604,7 +613,7 @@ class CtxWorkerRunner:
             ):
                 counters["transcript_cursor_ns"] = new_cursor_ns
                 self._write_window_state(owrap_sid, counters, ccsid)
-            return 0
+            return 0, None, None
 
         excerpt = "\n\n".join(combined_texts)
         excerpt_limit = (
@@ -658,7 +667,7 @@ class CtxWorkerRunner:
             self._write_window_state(owrap_sid, counters, ccsid)
             if touched_entries:
                 self._clear_touched_entries(owrap_sid, ccsid)
-            return 0
+            return 0, None, None
         task_content = CTX_SCOPED_TASK_TEMPLATE.format(blocks=blocks)
         if do_protocol:
             task_content += (
@@ -734,7 +743,7 @@ class CtxWorkerRunner:
                 "leaving excerpt queued for the next dispatch",
                 file=sys.stderr,
             )
-            return 1
+            return 1, reason, None
 
         _write_opencode_status("up")
         if job_dir:
@@ -750,7 +759,7 @@ class CtxWorkerRunner:
         self._write_window_state(owrap_sid, counters, ccsid)
         if touched_entries:
             self._clear_touched_entries(owrap_sid, ccsid)
-        return rc
+        return rc, None, model
 
     def _run_dispatch_attempt(
         self, ctx_dir: Path, output_path: Path, model: str,
@@ -815,17 +824,22 @@ class CtxWorkerRunner:
             if "subscription is required" in meta["stdout"]:
                 line = meta["stdout"].strip().splitlines()[-1][:160]
                 return f"subscription_required: {meta['model']} — {line}"
+        # Reads/tool-call progress lines survive strip_boilerplate, so a
+        # model that got partway through (e.g. read its input, then idled
+        # out before writing output.md) is a model_error, not no_output —
+        # it did respond, it just didn't finish.
+        for meta in reversed(attempt_metas):
+            stripped = strip_boilerplate(meta["stdout"])
+            if stripped:
+                line = stripped.splitlines()[-1][:160]
+                suffix = " (idled out before finishing)" if meta["idled_out"] else ""
+                return f"model_error: {meta['model']} — {line}{suffix}"
         if attempt_metas and all(m["idled_out"] for m in attempt_metas):
             models = ", ".join(dict.fromkeys(m["model"] for m in attempt_metas))
             return (
                 f"no_output: {len(attempt_metas)} attempt(s) against "
                 f"{models} gave no response"
             )
-        for meta in reversed(attempt_metas):
-            stripped = strip_boilerplate(meta["stdout"])
-            if stripped:
-                line = stripped.splitlines()[-1][:160]
-                return f"model_error: {meta['model']} — {line}"
         return "model_error: no output from any attempt"
 
     def _validate_output(

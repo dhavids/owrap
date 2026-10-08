@@ -383,13 +383,13 @@ def test_ctx_dispatch_routes_subproject_override_and_touched_repo(
         ),
     )
 
-    result = runner._dispatch(
+    rc, reason, model = runner._dispatch(
         "sid", "cid", str(transcript), {"docs_root": str(root)},
         do_context=False, do_protocol=True,
         subproject_override="migration",
     )
 
-    assert result == 0
+    assert rc == 0
     prompt = (ctx_dir / "input.md").read_text()
     assert "# Repository: owrap-dev" in prompt
     assert "Migration running." in (project / "migration.md").read_text()
