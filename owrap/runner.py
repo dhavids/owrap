@@ -29,6 +29,10 @@ _UNLOGGED_CMDS = {"stat", "get", "permit", "subs", "wait", "set"}
 # Command Handlers
 
 def _cmd_start(args, manager, logger, allow_all):
+    if args.project_name == "daemon":
+        from .utils.dispatch.pool import _ensure_daemon
+        print("daemon: started" if _ensure_daemon() else "daemon: already running")
+        return
     StartRunner(manager, logger, allow_all=allow_all).run(
         shell_pid=args.shell_pid,
         session_file=args.session_file,
@@ -50,6 +54,10 @@ def _cmd_stop(args, manager, logger, allow_all):
         getattr(args, 'session_id', None)
         or getattr(args, 'target', None)
     )
+    if target == "daemon":
+        from .utils.dispatch.pool import _stop_daemon
+        print("daemon: stopped" if _stop_daemon() else "daemon: not running")
+        return
     StopRunner(manager, logger, allow_all=allow_all).run(
         session_file=args.session_file,
         force=args.force,
@@ -175,6 +183,11 @@ def _cmd_branch(args, manager, logger, allow_all):
 
 
 def _cmd_restart(args, manager, logger, allow_all):
+    if args.project_name == "daemon":
+        from .utils.dispatch.pool import _restart_daemon
+        _restart_daemon()
+        print("daemon: restarted")
+        return
     RestartRunner(manager, logger, allow_all=allow_all).run(
         shell_pid=args.shell_pid,
         session_file=args.session_file,
