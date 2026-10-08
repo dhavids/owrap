@@ -99,6 +99,20 @@ def edit_goals(
                 raise ValueError("position out of range")
             items[index] = (items[index][0], text)
             changed = 1
+        elif action == "remove":
+            if not items:
+                raise ValueError("no goal at that position")
+            if position == 0:
+                index = 0
+            elif position == -1:
+                index = len(items) - 1
+            else:
+                index = position - 1
+            if not 0 <= index < len(items):
+                raise ValueError("position out of range")
+            selected = items[index][1]
+            del items[index]
+            changed = 1
         elif action == "clear":
             remaining = [item for item in items if not item[0]]
             changed = len(items) - len(remaining)

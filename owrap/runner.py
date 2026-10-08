@@ -96,6 +96,8 @@ def _cmd_todo(args, manager, logger, allow_all):
         TodoRunner().run_done(args.arg2, args.arg3)
     elif args.target == "update":
         TodoRunner().run_update(args.arg2, args.arg3, args.arg4)
+    elif args.target == "remove":
+        TodoRunner().run_remove(args.arg2, args.arg3)
     else:
         TodoRunner().run(args.target, args.arg2, args.arg3)
 
@@ -499,6 +501,7 @@ def _cmd_action(action):
 
 _cmd_update = _cmd_action("update")
 _cmd_add = _cmd_action("add")
+_cmd_remove = _cmd_action("remove")
 _cmd_clear = _cmd_action("clear")
 
 
@@ -582,6 +585,7 @@ _COMMAND_HANDLERS = {
     "update": _cmd_update,
     "rename": _cmd_update,
     "add": _cmd_add,
+    "remove": _cmd_remove,
     "clear": _cmd_clear,
     "get": _cmd_get,
 }

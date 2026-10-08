@@ -131,18 +131,19 @@ SUBCOMMANDS = [
     {"name": "detach", "help": "Release this window's attachment to its session"},
     {
         "name": "todo",
-        "help": "Add, insert, update, mark done, or clear todo entries for a project",
+        "help": "Add, insert, update, remove, mark done, or clear todo "
+                "entries for a project",
         "args": [
             {"flags": ["target"],
              "help": "Session id, project/repository name, 'clear' to clear "
-                     "done items, 'done' to mark one item done, or 'update' "
-                     "to replace an item in place"},
+                     "done items, 'done' to mark one item done, 'update' to "
+                     "replace an item in place, or 'remove' to delete one"},
             {"flags": ["arg2"], "nargs": "?", "default": None,
-             "help": "Todo text, position, or (after 'clear'/'done'/'update') "
-                     "the target"},
+             "help": "Todo text, position, or (after "
+                     "'clear'/'done'/'update'/'remove') the target"},
             {"flags": ["arg3"], "nargs": "?", "default": None,
              "help": "Todo text when arg2 is a position, (after 'done') the "
-                     "selector, or (after 'update') the position"},
+                     "selector, or (after 'update'/'remove') the position"},
             {"flags": ["arg4"], "nargs": "?", "default": None,
              "help": "Todo text when arg3 is a position (after 'update')"},
         ],
@@ -475,22 +476,42 @@ SUBCOMMANDS = [
     },
     {
         "name": "add",
-        "help": "Add a todo item, decision, or subproject",
+        "help": "Add a todo item, decision, subproject, or repository",
         "args": [
-            {"flags": ["kind"], "choices": ["todo", "decision", "subproject", "sub"]},
+            {"flags": ["kind"], "choices": [
+                "todo", "decision", "subproject", "sub", "repository", "repo",
+            ]},
             {"flags": ["arg1"],
-             "help": "Target (todo/decision), or new subproject name"},
+             "help": "Target (todo/decision), new subproject name, or new "
+                     "repository id"},
             {"flags": ["arg2"], "nargs": "?", "default": None,
-             "help": "Text or position (todo), text (decision)"},
+             "help": "Text or position (todo), text (decision), or "
+                     "checkout path (repository)"},
             {"flags": ["arg3"], "nargs": "?", "default": None,
              "help": "Text, when arg2 was a position (todo only)"},
         ],
     },
     {
-        "name": "clear",
-        "help": "Clear done todo items for a target",
+        "name": "remove",
+        "help": "Remove a project, subproject, repository, todo item, or "
+                "decision",
         "args": [
-            {"flags": ["kind"], "choices": ["todo"]},
+            {"flags": ["kind"], "choices": [
+                "project", "proj", "subproject", "sub", "repository", "repo",
+                "todo", "decision",
+            ]},
+            {"flags": ["arg1"],
+             "help": "Id (project/repository), project id (subproject), "
+                     "or target (todo/decision)"},
+            {"flags": ["arg2"], "nargs": "?", "default": None,
+             "help": "Subproject id, or position (todo/decision)"},
+        ],
+    },
+    {
+        "name": "clear",
+        "help": "Clear done todo items, or every decision, for a target",
+        "args": [
+            {"flags": ["kind"], "choices": ["todo", "decision"]},
             {"flags": ["arg1"], "nargs": "?", "default": None, "help": "Target"},
         ],
     },

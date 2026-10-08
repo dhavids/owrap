@@ -2,7 +2,8 @@ import os
 import sys
 
 from ..utils.memory.records import (
-    add_decision, resolve_memory_target, touch_record_last_updated,
+    add_decision, clear_decisions, remove_decision, resolve_memory_target,
+    touch_record_last_updated,
 )
 from ..utils.parser.text import preview
 from ..utils.session.resolver import (
@@ -38,6 +39,46 @@ class DecideRunner:
         yaml_path = project_path.parent / f"{memory_target.project_id}.yaml"
         touch_record_last_updated(yaml_path)
         print(f'DECISION added to {project_path}: "{preview(text)}"')
+
+    def run_remove(self, target: str, position: str):
+        """
+        Remove the decision at an arbitrary 1-indexed position outright;
+        0 or -1 means first or last, same as `owrap todo remove`.
+        """
+        try:
+            position_value = int(position)
+        except (TypeError, ValueError):
+            print(f"ERROR: position must be an integer, got '{position}'")
+            sys.exit(2)
+        if position_value < -1:
+            print(f"ERROR: position must be 0, -1, or >= 1, got '{position_value}'")
+            sys.exit(2)
+
+        memory_target = self._resolve_target(target)
+        project_path = memory_target.project_path
+        try:
+            removed = remove_decision(project_path, position_value)
+        except (OSError, ValueError) as exc:
+            print(f"ERROR: {exc}")
+            sys.exit(2)
+        yaml_path = project_path.parent / f"{memory_target.project_id}.yaml"
+        touch_record_last_updated(yaml_path)
+        print(f'DECISION removed from {project_path}: "{preview(removed)}"')
+
+    def run_clear(self, target: str = None):
+        """
+        Remove every decision from the target's project.
+        """
+        memory_target = self._resolve_target(target)
+        project_path = memory_target.project_path
+        try:
+            removed = clear_decisions(project_path)
+        except (OSError, ValueError) as exc:
+            print(f"ERROR: {exc}")
+            sys.exit(2)
+        yaml_path = project_path.parent / f"{memory_target.project_id}.yaml"
+        touch_record_last_updated(yaml_path)
+        print(f"DECISIONS cleared {removed} entry(ies) from {project_path}")
 
 
     # Private Methods

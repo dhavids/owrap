@@ -1,9 +1,11 @@
 from .branch import BranchRunner
 from .decide import DecideRunner
 from .project import ProjectRunner
-from .rename import RenameRunner
+from .remove import remove_project, remove_repository, remove_subproject
+from .rename import RenameRunner, _current_workspace
 from .todo import TodoRunner
 from ..utils.actions import Record, NestedRecord, SectionEntry
+from ..utils.memory.records import add_repository
 
 
 class Project(Record):
@@ -21,6 +23,10 @@ class Project(Record):
         self._rename.project(old_id, new_id)
         return f"Renamed project {old_id} -> {new_id}"
 
+    def remove(self, old_id: str) -> str:
+        remove_project(old_id)
+        return f"Removed project {old_id}"
+
 
 class Repository(Record):
     """
@@ -33,9 +39,17 @@ class Repository(Record):
     def __init__(self):
         self._rename = RenameRunner()
 
+    def add(self, repo_id: str, checkout: str = None) -> str:
+        add_repository(repo_id, checkout, _current_workspace())
+        return f"Added repository {repo_id}"
+
     def update(self, old_id: str, new_id: str) -> str:
         self._rename.repository(old_id, new_id)
         return f"Renamed repository {old_id} -> {new_id}"
+
+    def remove(self, old_id: str) -> str:
+        remove_repository(old_id)
+        return f"Removed repository {old_id}"
 
 
 class Subproject(NestedRecord):
@@ -61,6 +75,10 @@ class Subproject(NestedRecord):
             )
         self._rename.subproject(project_id, old_id, new_id)
         return f"Renamed subproject {project_id}/{old_id} -> {new_id}"
+
+    def remove(self, project_id: str, sub_id: str) -> str:
+        remove_subproject(project_id, sub_id)
+        return f"Removed subproject {project_id}/{sub_id}"
 
 
 class Branch(Subproject):
@@ -103,6 +121,10 @@ class Todo(SectionEntry):
         # run_update prints its own result/usage and exits on error.
         self._todo.run_update(target, position, text)
 
+    def remove(self, target: str, position: str) -> None:
+        # run_remove prints its own result/usage and exits on error.
+        self._todo.run_remove(target, position)
+
     def clear(self, target: str = None) -> None:
         # run_clear prints its own result.
         self._todo.run_clear(target)
@@ -122,6 +144,14 @@ class Decision(SectionEntry):
     def add(self, target: str, text: str = None) -> None:
         # run prints its own result/usage and exits on error.
         self._decide.run(target, text)
+
+    def remove(self, target: str, position: str) -> None:
+        # run_remove prints its own result/usage and exits on error.
+        self._decide.run_remove(target, position)
+
+    def clear(self, target: str = None) -> None:
+        # run_clear prints its own result.
+        self._decide.run_clear(target)
 
 
 KIND_REGISTRY = {

@@ -91,6 +91,30 @@ class TodoRunner:
         self._touch(memory_target)
         print(f'GOAL updated in {goal_path}: "{preview(text)}"')
 
+    def run_remove(self, target: str, position: str):
+        """
+        Remove the goal at an arbitrary 1-indexed position outright; 0
+        or -1 means first or last, same as elsewhere.
+        """
+        try:
+            position_value = int(position)
+        except (TypeError, ValueError):
+            print(f"ERROR: position must be an integer, got '{position}'")
+            sys.exit(2)
+        if position_value < -1:
+            print(f"ERROR: position must be 0, -1, or >= 1, got '{position_value}'")
+            sys.exit(2)
+
+        memory_target = self._resolve_target(target)
+        goal_path = memory_target.project_path
+        try:
+            _, selected = edit_goals(goal_path, "remove", position=position_value)
+        except (OSError, ValueError) as exc:
+            print(f"ERROR: {exc}")
+            sys.exit(2)
+        self._touch(memory_target)
+        print(f'GOAL removed from {goal_path}: "{preview(selected)}"')
+
     def run_clear(self, target: str = None):
         """
         Remove every checked (done) goal item from the target's project.
