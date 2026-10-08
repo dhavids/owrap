@@ -278,6 +278,7 @@ class CtxWorkerRunner:
         transcript_path = hook_data.get("transcript_path", "")
         mode = hook_data.get("mode")
         subproject = hook_data.get("subproject")
+        cursor_ceiling_ns = hook_data.get("cursor_ceiling_ns")
 
         if source == "codex":
             owrap_sid = owrap_sid_for_codex_session_id(ccsid)
@@ -308,6 +309,7 @@ class CtxWorkerRunner:
                     do_context=(mode != "updr"), do_protocol=(mode != "ctx"),
                     subproject_override=subproject,
                     source=source,
+                    cursor_ceiling_ns=cursor_ceiling_ns,
                 )
         except Exception:
             if job_dir:
@@ -366,6 +368,8 @@ class CtxWorkerRunner:
             print(f"No transcript found for {source} session {ccsid}")
             sys.exit(1)
         transcript_path = str(transcript)
+        # Bound the dispatch to now, not whenever it clears dispatch.lock.
+        cursor_ceiling_ns = self._latest_event_ns(transcript.read_text().splitlines())
 
         kind = None
         if mode != "ctx":
@@ -413,6 +417,7 @@ class CtxWorkerRunner:
             "subproject": subproject if kind == "project" else None,
             "source": source,
             "job_dir": str(job_dir),
+            "cursor_ceiling_ns": cursor_ceiling_ns,
         }))
 
         log_path = job_dir / "output.log"
@@ -487,7 +492,7 @@ class CtxWorkerRunner:
     def _dispatch_tracked(
         self, owrap_sid, ccsid, transcript_path, config,
         do_context, do_protocol,
-        subproject_override=None, source="claude",
+        subproject_override=None, source="claude", cursor_ceiling_ns=None,
     ) -> int:
         """
         Run `_dispatch` with ctx_status tracking in ctx_state.json: pending
@@ -504,7 +509,7 @@ class CtxWorkerRunner:
                 owrap_sid, ccsid, transcript_path, config,
                 do_context=do_context, do_protocol=do_protocol,
                 subproject_override=subproject_override,
-                source=source,
+                source=source, cursor_ceiling_ns=cursor_ceiling_ns,
             )
         except Exception as e:
             self._set_ctx_dispatch_result(
@@ -520,11 +525,15 @@ class CtxWorkerRunner:
     def _dispatch(
         self, owrap_sid, ccsid, transcript_path, config,
         do_context, do_protocol,
-        subproject_override=None, source="claude",
+        subproject_override=None, source="claude", cursor_ceiling_ns=None,
     ) -> tuple:
         """
         Build the scoped sandbox, dispatch to the model, and apply its
         output back to the session context and explicit memory records.
+
+        cursor_ceiling_ns, if given, bounds the transcript to what existed
+        when the dispatch was triggered, not whatever has accumulated by
+        the time this runs — it may have sat behind dispatch.lock.
 
         Returns (returncode, reason, model) — returncode is 0 if nothing
         needed summarizing or on success; reason explains a failure;
@@ -555,6 +564,10 @@ class CtxWorkerRunner:
             return 1, "transcript path missing", None
 
         transcript_lines = Path(transcript_path).read_text().splitlines()
+        if cursor_ceiling_ns is not None:
+            transcript_lines = self._lines_up_to_ceiling(
+                transcript_lines, cursor_ceiling_ns,
+            )
 
         # Floor at this window's last attach — a window can switch sessions.
         # Timestamp-based, not line-index-based: Claude Code's crash/resume
@@ -993,6 +1006,24 @@ class CtxWorkerRunner:
             if ts is not None:
                 latest = max(latest or ts, ts)
         return latest
+
+    def _lines_up_to_ceiling(self, lines: list, ceiling_ns: int) -> list:
+        """
+        Drop transcript lines timestamped after `ceiling_ns`; keeps lines
+        with no parseable timestamp, since they can't be bounded.
+        """
+        kept = []
+        for line in lines:
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                kept.append(line)
+                continue
+            ts = _ts_ns(entry.get("timestamp"))
+            if ts is not None and ts > ceiling_ns:
+                continue
+            kept.append(line)
+        return kept
 
     @staticmethod
     def _fmt_ts_ns(ns: int) -> str:
@@ -1682,6 +1713,10 @@ class CtxHookRunner:
         ctx_dir.mkdir(parents=True, exist_ok=True)
         job_dir = context_jobs.create(owrap_sid, ccsid, "ctx+updr")
         hook_data["job_dir"] = str(job_dir)
+        if transcript_path and Path(transcript_path).exists():
+            hook_data["cursor_ceiling_ns"] = CtxWorkerRunner()._latest_event_ns(
+                Path(transcript_path).read_text().splitlines(),
+            )
         input_path = job_dir / "hook.json"
         input_path.write_text(json.dumps(hook_data))
 
