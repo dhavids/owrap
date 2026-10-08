@@ -407,6 +407,14 @@ class AttachRunner(BaseRunner):
             for field in ("research", "area", "child"):
                 update_session_field(sid, field, "")
 
+        ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
+        cid = os.environ.get("CODEX_SESSION_ID", "").strip()
+        if ccsid or cid:
+            from ..commands.context_manager import register_ctx_state_window
+            register_ctx_state_window(
+                sid, ccsid or cid, harness="claude" if ccsid else "codex",
+            )
+
         plan_path = get_plan_path(sid)
         input_path = session_input(sid)
         cp = context_path(sid)

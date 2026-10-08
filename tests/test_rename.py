@@ -102,6 +102,53 @@ def test_rename_subproject_also_renames_underlying_file(rename_scope):
     assert record["subprojects"]["renamed-sub"]["file"] == "renamed-sub.md"
 
 
+def test_rename_project_moves_backup_dir(rename_scope, tmp_path, monkeypatch):
+    backups_dir = tmp_path / "backups"
+    monkeypatch.setattr("owrap.commands.rename.BACKUPS_DIR", backups_dir)
+    old_backup = backups_dir / "project" / "demo" / "20260101T000000Z"
+    old_backup.mkdir(parents=True)
+    (old_backup / "main.md").write_text("snapshot")
+
+    RenameRunner().project("demo", "renamed")
+
+    assert not (backups_dir / "project" / "demo").exists()
+    assert (
+        backups_dir / "project" / "renamed" / "20260101T000000Z" / "main.md"
+    ).read_text() == "snapshot"
+
+
+def test_rename_subproject_moves_backup_dir(rename_scope, tmp_path, monkeypatch):
+    backups_dir = tmp_path / "backups"
+    monkeypatch.setattr("owrap.commands.rename.BACKUPS_DIR", backups_dir)
+    old_backup = backups_dir / "project" / "demo" / "worker" / "20260101T000000Z"
+    old_backup.mkdir(parents=True)
+    (old_backup / "worker.md").write_text("snapshot")
+
+    RenameRunner().subproject("demo", "worker", "renamed-sub")
+
+    assert not (backups_dir / "project" / "demo" / "worker").exists()
+    assert (
+        backups_dir / "project" / "demo" / "renamed-sub"
+        / "20260101T000000Z" / "worker.md"
+    ).read_text() == "snapshot"
+
+
+def test_rename_repository_moves_backup_dir(rename_scope, tmp_path, monkeypatch):
+    backups_dir = tmp_path / "backups"
+    monkeypatch.setattr("owrap.commands.rename.BACKUPS_DIR", backups_dir)
+    old_backup = backups_dir / "repository" / "code" / "20260101T000000Z"
+    old_backup.mkdir(parents=True)
+    (old_backup / "memory.md").write_text("snapshot")
+
+    RenameRunner().repository("code", "renamed-repo")
+
+    assert not (backups_dir / "repository" / "code").exists()
+    assert (
+        backups_dir / "repository" / "renamed-repo"
+        / "20260101T000000Z" / "memory.md"
+    ).read_text() == "snapshot"
+
+
 def test_rename_subproject_updates_parent_references(rename_scope):
     root, _ = rename_scope
 
@@ -133,7 +180,7 @@ def test_rename_repository_relinks_projects_and_sessions(rename_scope):
     )
     assert record["repositories"] == ["renamed-repo"]
     assert record["subprojects"]["worker"]["repositories"] == ["renamed-repo"]
-    assert resolver._parse(session_path)["repositories"] == '["code"]'
+    assert resolver._parse(session_path)["repositories"] == '["renamed-repo"]'
 
 
 def test_rename_repository_rejects_existing_new_id(rename_scope):

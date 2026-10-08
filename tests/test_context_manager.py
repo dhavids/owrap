@@ -1210,6 +1210,52 @@ def test_manual_ctx_done_succeeds_after_context_md_edited(
     assert "manual_started_ts" not in state
 
 
+def test_register_ctx_state_window_adds_entry(tmp_path, monkeypatch):
+    from owrap.commands.context_manager import register_ctx_state_window
+    _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
+    owrap_sid = "reg01"
+    ccsid = "claude-reg"
+
+    register_ctx_state_window(owrap_sid, ccsid, harness="claude")
+
+    state = json.loads((sessions_dir / owrap_sid / "ctx_state.json").read_text())
+    assert state["windows"][ccsid]["harness"] == "claude"
+    assert "attached_ts" in state["windows"][ccsid]
+
+
+def test_register_ctx_state_window_keeps_existing_cursor(tmp_path, monkeypatch):
+    from owrap.commands.context_manager import (
+        register_ctx_state_window, CtxWorkerRunner,
+    )
+    _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
+    owrap_sid = "reg02"
+    ccsid = "claude-reg2"
+    CtxWorkerRunner()._write_window_state(
+        owrap_sid, {"transcript_cursor_ns": 42}, ccsid,
+    )
+
+    register_ctx_state_window(owrap_sid, ccsid, harness="claude")
+
+    state = json.loads((sessions_dir / owrap_sid / "ctx_state.json").read_text())
+    assert state["windows"][ccsid]["transcript_cursor_ns"] == 42
+    assert state["windows"][ccsid]["harness"] == "claude"
+
+
+def test_prune_ctx_state_window_removes_entry(tmp_path, monkeypatch):
+    from owrap.commands.context_manager import (
+        register_ctx_state_window, prune_ctx_state_window,
+    )
+    _, sessions_dir = _patch_dirs(monkeypatch, tmp_path)
+    owrap_sid = "reg03"
+    ccsid = "claude-reg3"
+    register_ctx_state_window(owrap_sid, ccsid)
+
+    prune_ctx_state_window(owrap_sid, ccsid)
+
+    state = json.loads((sessions_dir / owrap_sid / "ctx_state.json").read_text())
+    assert ccsid not in state["windows"]
+
+
 def test_run_manual_ctx_queues_background_dispatch(tmp_path, monkeypatch):
     """
     --ctx must be fire-and-forget: validate, queue a detached ctx-worker

@@ -1,8 +1,12 @@
+import json
 import os
 import time
 from pathlib import Path
 
-from ..utils.memory.records import _record, _slug, _write_atomic, _dump_yaml, docs_root
+from ..utils.memory.records import (
+    _record, _slug, _write_atomic, _dump_yaml, docs_root, session_repositories,
+)
+from ..utils.paths import BACKUPS_DIR
 from ..utils.session.resolver import (
     _parse, _write, list_sessions, session_file, session_files,
 )
@@ -72,6 +76,7 @@ class RenameRunner:
         record["last_updated"] = time.time()
         _write_atomic(new_dir / f"{new_id}.yaml", _dump_yaml(record))
         self._rewrite_project_backrefs(new_dir, old_id, new_id)
+        self._rename_backup_dir(f"project/{old_id}", f"project/{new_id}")
         self._update_sessions(
             lambda d: d.get("project_id") == old_id,
             lambda d: d.update(project_id=new_id),
@@ -116,6 +121,9 @@ class RenameRunner:
                 other["parent"] = new_sub
         record["last_updated"] = time.time()
         _write_atomic(yaml_path, _dump_yaml(record))
+        self._rename_backup_dir(
+            f"project/{project_id}/{old_sub}", f"project/{project_id}/{new_sub}",
+        )
         self._update_sessions(
             lambda d: (
                 d.get("project_id") == project_id
@@ -127,7 +135,8 @@ class RenameRunner:
     def repository(self, old_id: str, new_id: str, workspace: str = "") -> None:
         """
         Rename a repository directory, its record, every project's link
-        to it, and every session's `repository_id`.
+        to it, every repository-only session's `repository_id`, and
+        every project session's `repositories` list entry.
         """
         root = docs_root(workspace or _current_workspace())
         old_id = _slug(
@@ -148,9 +157,17 @@ class RenameRunner:
         record["last_updated"] = time.time()
         _write_atomic(new_dir / f"{new_id}.yaml", _dump_yaml(record))
         self._relink_repository(root, old_id, new_id)
+        self._rename_backup_dir(f"repository/{old_id}", f"repository/{new_id}")
         self._update_sessions(
             lambda d: d.get("repository_id") == old_id,
             lambda d: d.update(repository_id=new_id),
+        )
+        self._update_sessions(
+            lambda d: old_id in session_repositories(d),
+            lambda d: d.update(repositories=json.dumps(
+                [new_id if r == old_id else r for r in session_repositories(d)],
+                separators=(",", ":"),
+            )),
         )
 
 
@@ -200,6 +217,19 @@ class RenameRunner:
                 entry["branch_repository"] = new_id
                 changed = True
         return changed
+
+    def _rename_backup_dir(self, old_label: str, new_label: str) -> None:
+        """
+        Move a backup directory (`owrap backup`/`retrieve`) from its old
+        project/<id>[/<subproject_id>] or repository/<id> key to the new
+        one, if any backups exist there. No-op if there's nothing to
+        move, or if something already exists at the new key.
+        """
+        old_dir = BACKUPS_DIR / old_label
+        new_dir = BACKUPS_DIR / new_label
+        if old_dir.is_dir() and not new_dir.exists():
+            new_dir.parent.mkdir(parents=True, exist_ok=True)
+            old_dir.rename(new_dir)
 
     def _update_sessions(self, matches, mutate) -> int:
         count = 0

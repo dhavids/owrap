@@ -84,6 +84,39 @@ def _write_opencode_status(status: str, reason: str = None) -> None:
     }))
 
 
+def register_ctx_state_window(
+    session_id: str, window_id: str, harness: str = "claude",
+) -> None:
+    """
+    Ensure one window has an entry in the session's ctx_state.json, on
+    `owrap attach` -- so the windows map (the source of "all attached
+    windows" for this session) reflects reality from the moment a
+    window attaches, not only once it first dispatches/touches/done()s.
+    Never clobbers an existing entry's cursor/touched state; only adds
+    `harness` and `attached_ts` if the window is new.
+    """
+    if not window_id:
+        return
+    p = session_ctx_state_path(session_id)
+    with file_lock(context_lock_path(session_id)):
+        state = {"windows": {}}
+        if p.exists():
+            try:
+                with open(p) as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    state = loaded
+                    state.setdefault("windows", {})
+            except (json.JSONDecodeError, OSError):
+                pass
+        window = state["windows"].setdefault(window_id, {})
+        window.setdefault("harness", harness)
+        window.setdefault("attached_ts", time.time())
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "w") as f:
+            json.dump(state, f)
+
+
 def prune_ctx_state_window(session_id: str, window_id: str) -> None:
     """
     Remove one window's entry from the session's ctx_state.json, on
