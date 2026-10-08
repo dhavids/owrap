@@ -4,7 +4,7 @@ from .project import ProjectRunner
 from .remove import remove_project, remove_repository, remove_subproject
 from .rename import RenameRunner, _current_workspace
 from .todo import TodoRunner
-from ..utils.actions import Record, NestedRecord, SectionEntry
+from ..utils.actions import Entity, Record, NestedRecord, SectionEntry
 from ..utils.memory.records import add_repository
 
 
@@ -142,6 +142,30 @@ class Todo(SectionEntry):
         self._todo.run_done(target, selector)
 
 
+class Daemon(Entity):
+    """
+    The background dispatch daemon: no stored record, just a process
+    to start/stop/restart.
+    """
+
+    kind = "daemon"
+
+    def start(self) -> str:
+        from ..utils.dispatch.pool import _ensure_daemon
+        started = _ensure_daemon()
+        return "daemon: started" if started else "daemon: already running"
+
+    def stop(self) -> str:
+        from ..utils.dispatch.pool import _stop_daemon
+        stopped = _stop_daemon()
+        return "daemon: stopped" if stopped else "daemon: not running"
+
+    def restart(self) -> str:
+        from ..utils.dispatch.pool import _restart_daemon
+        _restart_daemon()
+        return "daemon: restarted"
+
+
 class Decision(SectionEntry):
     """
     A timestamped decision line-item under a project/subproject's
@@ -173,4 +197,5 @@ KIND_REGISTRY = {
     "branch": Branch,
     "todo": Todo,
     "decision": Decision,
+    "daemon": Daemon,
 }

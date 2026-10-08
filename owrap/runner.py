@@ -16,7 +16,7 @@ from .commands import (
 from .commands.sync import SyncRunner
 from .commands.daemon import DaemonRunner
 from .commands.kinds import KIND_REGISTRY
-from .utils.actions import dispatch
+from .utils.actions import dispatch, dispatch_kw
 from .manager import Manager
 from .utils.paths import _read_config, get_workspace_config
 from .utils.arg_parser import OwrapArgumentParser
@@ -30,8 +30,7 @@ _UNLOGGED_CMDS = {"stat", "get", "permit", "subs", "wait", "set"}
 
 def _cmd_start(args, manager, logger, allow_all):
     if args.project_name == "daemon":
-        from .utils.dispatch.pool import _ensure_daemon
-        print("daemon: started" if _ensure_daemon() else "daemon: already running")
+        print(dispatch_kw(KIND_REGISTRY, "daemon", "start", args))
         return
     StartRunner(manager, logger, allow_all=allow_all).run(
         shell_pid=args.shell_pid,
@@ -55,8 +54,7 @@ def _cmd_stop(args, manager, logger, allow_all):
         or getattr(args, 'target', None)
     )
     if target == "daemon":
-        from .utils.dispatch.pool import _stop_daemon
-        print("daemon: stopped" if _stop_daemon() else "daemon: not running")
+        print(dispatch_kw(KIND_REGISTRY, "daemon", "stop", args))
         return
     StopRunner(manager, logger, allow_all=allow_all).run(
         session_file=args.session_file,
@@ -202,9 +200,7 @@ def _cmd_branch(args, manager, logger, allow_all):
 
 def _cmd_restart(args, manager, logger, allow_all):
     if args.project_name == "daemon":
-        from .utils.dispatch.pool import _restart_daemon
-        _restart_daemon()
-        print("daemon: restarted")
+        print(dispatch_kw(KIND_REGISTRY, "daemon", "restart", args))
         return
     RestartRunner(manager, logger, allow_all=allow_all).run(
         shell_pid=args.shell_pid,

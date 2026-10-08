@@ -1,7 +1,9 @@
 import pytest
 
+from argparse import Namespace
+
 from owrap.commands.kinds import KIND_REGISTRY
-from owrap.utils.actions import dispatch
+from owrap.utils.actions import dispatch, dispatch_kw
 from owrap.utils.session import resolver
 
 
@@ -65,6 +67,18 @@ def kinds_scope(tmp_path, monkeypatch):
         lambda _: {"docs_root": str(root)},
     )
     return root
+
+
+def test_dispatch_kw_matches_by_parameter_name(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "owrap.utils.dispatch.pool._ensure_daemon",
+        lambda: calls.append(True) or True,
+    )
+    namespace = Namespace(project_name="daemon", extra="ignored")
+    message = dispatch_kw(KIND_REGISTRY, "daemon", "start", namespace)
+    assert message == "daemon: started"
+    assert calls == [True]
 
 
 def test_dispatch_update_project(kinds_scope):

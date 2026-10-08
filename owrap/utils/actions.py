@@ -1,11 +1,17 @@
+import inspect
+
 from .memory.records import normalize_identity_kind
 
 
 class Actions:
     """
-    Base for a managed kind: declares the five dispatchable actions,
-    each refusing by default. A kind overrides only the ones it
-    actually supports.
+    Base for a managed kind: declares every dispatchable action, each
+    refusing by default. A kind overrides only the ones it actually
+    supports. add/remove/update/clear/done are the record-editing
+    verbs; start/stop/restart/attach/detach/refresh are the
+    live-session/process verbs a Entity kind uses instead (or
+    alongside -- nothing stops a Record kind from also overriding
+    attach/detach, as Repository does for repo-link).
     """
 
     kind = ""
@@ -24,6 +30,24 @@ class Actions:
 
     def done(self, *args):
         raise ValueError(f"{self.kind} does not support done")
+
+    def start(self, *args):
+        raise ValueError(f"{self.kind} does not support start")
+
+    def stop(self, *args):
+        raise ValueError(f"{self.kind} does not support stop")
+
+    def restart(self, *args):
+        raise ValueError(f"{self.kind} does not support restart")
+
+    def attach(self, *args):
+        raise ValueError(f"{self.kind} does not support attach")
+
+    def detach(self, *args):
+        raise ValueError(f"{self.kind} does not support detach")
+
+    def refresh(self, *args):
+        raise ValueError(f"{self.kind} does not support refresh")
 
 
 class Record(Actions):
@@ -49,6 +73,15 @@ class SectionEntry(Actions):
     """
 
 
+class Entity(Actions):
+    """
+    A kind with no stored record of its own -- calling one of its
+    verbs triggers or mutates live session/process state instead of
+    editing a yaml/markdown field (today: daemon, ctx, updr,
+    worktree, spawn, temp).
+    """
+
+
 def dispatch(registry: dict, kind: str, action: str, *args) -> str:
     """
     Normalize `kind`, look it up in `registry`, and call its `action`
@@ -60,3 +93,24 @@ def dispatch(registry: dict, kind: str, action: str, *args) -> str:
     if cls is None:
         raise ValueError(f"no such kind '{kind}'")
     return getattr(cls(), action)(*args)
+
+
+def dispatch_kw(registry: dict, kind: str, action: str, namespace) -> str:
+    """
+    Like `dispatch`, but for an action whose kinds take differently-
+    shaped parameters (start/stop/restart/attach/detach/refresh):
+    call `action` with keyword arguments pulled from `namespace` by
+    matching each of the method's own parameter names, rather than a
+    fixed positional shape -- the method signature is the contract.
+    """
+    kind = normalize_identity_kind(kind)
+    cls = registry.get(kind)
+    if cls is None:
+        raise ValueError(f"no such kind '{kind}'")
+    method = getattr(cls(), action)
+    params = inspect.signature(method).parameters
+    kwargs = {
+        name: getattr(namespace, name) for name in params
+        if hasattr(namespace, name)
+    }
+    return method(**kwargs)
