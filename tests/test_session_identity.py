@@ -243,6 +243,7 @@ def test_refresh_with_bare_name_redirects_to_project(
     assert data["project_id"] == "owrap"
     assert data.get("research") == ""
     assert (root / "projects" / "owrap" / "owrap.yaml").exists()
+    assert mock_manager.context_path.exists()
 
 
 def test_refresh_repository_session_rejects_research(
