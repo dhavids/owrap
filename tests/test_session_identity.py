@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from owrap.session.start import StartRunner
+from owrap.session.start import start
 from owrap.utils.session import resolver
 
 
@@ -67,13 +67,9 @@ def test_repository_only_start_clears_research_and_area(
          patch("owrap.utils.dispatch.pool._pool_active", return_value=True), \
          patch("owrap.utils.dispatch.pool.ensure_min_servers"), \
          patch("owrap.utils.dispatch.pool._ensure_daemon"):
-        with pytest.raises(SystemExit) as exc:
-            StartRunner(mock_manager).run(
-                session_id="repo001", repository_id="owrap-dev",
-            )
+        start(mock_manager, session_id="repo001", repository_id="owrap-dev")
 
     data = resolver._parse(session_path)
-    assert exc.value.code == 0
     assert data["target_kind"] == "repository"
     assert data["repository_id"] == "owrap-dev"
     assert data.get("research") == ""
@@ -113,12 +109,8 @@ def test_start_with_bare_name_resolves_to_project(
          patch("owrap.utils.dispatch.pool._pool_active", return_value=True), \
          patch("owrap.utils.dispatch.pool.ensure_min_servers"), \
          patch("owrap.utils.dispatch.pool._ensure_daemon"):
-        with pytest.raises(SystemExit) as exc:
-            StartRunner(mock_manager).run(
-                session_id="legacy", project_name="owrap",
-            )
+        start(mock_manager, session_id="legacy", project_name="owrap")
 
-    assert exc.value.code == 0
     data = resolver._parse(session_path)
     assert data["target_kind"] == "project"
     assert data["project_id"] == "owrap"
@@ -161,13 +153,11 @@ def test_start_with_bare_name_and_area_resolves_to_subproject(
          patch("owrap.utils.dispatch.pool._pool_active", return_value=True), \
          patch("owrap.utils.dispatch.pool.ensure_min_servers"), \
          patch("owrap.utils.dispatch.pool._ensure_daemon"):
-        with pytest.raises(SystemExit) as exc:
-            StartRunner(mock_manager).run(
-                session_id="legacy", project_name="scratchproj",
-                subproject_name="feature",
-            )
+        start(
+            mock_manager, session_id="legacy", project_name="scratchproj",
+            subproject_name="feature",
+        )
 
-    assert exc.value.code == 0
     data = resolver._parse(session_path)
     assert data["target_kind"] == "project"
     assert data["project_id"] == "scratchproj"
@@ -209,7 +199,7 @@ def test_refresh_with_bare_name_redirects_to_project(
     'owrap refresh <name>' on a session with no project target redirects
     it to that project id, creating the project if it doesn't exist yet.
     """
-    from owrap.session.start import RefreshRunner
+    from owrap.session.start import refresh
 
     session_path = tmp_path / "sessions" / "abc123.session"
     session_path.parent.mkdir(parents=True, exist_ok=True)
@@ -234,10 +224,8 @@ def test_refresh_with_bare_name_redirects_to_project(
          patch("owrap.utils.dispatch.pool.ensure_min_servers"), \
          patch("owrap.utils.dispatch.pool._ensure_daemon"), \
          patch.object(mock_manager, "_housekeeping"):
-        with pytest.raises(SystemExit) as exc:
-            RefreshRunner(mock_manager).run(session_id="abc123", project_name="owrap")
+        refresh(mock_manager, session_id="abc123", project_name="owrap")
 
-    assert exc.value.code == 0
     data = resolver._parse(session_path)
     assert data["target_kind"] == "project"
     assert data["project_id"] == "owrap"
@@ -249,7 +237,7 @@ def test_refresh_with_bare_name_redirects_to_project(
 def test_refresh_repository_session_rejects_research(
     mock_manager, monkeypatch, tmp_path,
 ):
-    from owrap.session.start import RefreshRunner
+    from owrap.session.start import refresh
 
     session_path = tmp_path / "sessions" / "abc123.session"
     session_path.parent.mkdir(parents=True, exist_ok=True)
@@ -268,7 +256,7 @@ def test_refresh_repository_session_rejects_research(
          patch("owrap.utils.dispatch.pool._ensure_daemon"), \
          patch.object(mock_manager, "_housekeeping"):
         with pytest.raises(SystemExit) as exc:
-            RefreshRunner(mock_manager).run(session_id="abc123", project_name="owrap")
+            refresh(mock_manager, session_id="abc123", project_name="owrap")
 
     assert exc.value.code == 2
     data = resolver._parse(session_path)
@@ -277,18 +265,14 @@ def test_refresh_repository_session_rejects_research(
 
 def test_start_bare_name_with_explicit_project_is_ambiguous(mock_manager, capsys):
     with pytest.raises(SystemExit) as exc:
-        StartRunner(mock_manager).run(
-            project_name="bare", project_id="explicit",
-        )
+        start(mock_manager, project_name="bare", project_id="explicit")
     assert exc.value.code == 2
     assert "conflicts" in capsys.readouterr().err
 
 
 def test_start_bare_name_with_explicit_repository_is_ambiguous(mock_manager, capsys):
     with pytest.raises(SystemExit) as exc:
-        StartRunner(mock_manager).run(
-            project_name="bare", repository_id="myrepo",
-        )
+        start(mock_manager, project_name="bare", repository_id="myrepo")
     assert exc.value.code == 2
     assert "conflicts" in capsys.readouterr().err
 
@@ -319,10 +303,8 @@ def test_start_with_zero_args_creates_anonymous_session_without_legacy_file(
          patch("owrap.utils.dispatch.pool._pool_active", return_value=True), \
          patch("owrap.utils.dispatch.pool.ensure_min_servers"), \
          patch("owrap.utils.dispatch.pool._ensure_daemon"):
-        with pytest.raises(SystemExit) as exc:
-            StartRunner(mock_manager).run(session_id="anon123")
+        start(mock_manager, session_id="anon123")
 
-    assert exc.value.code == 0
     data = resolver._parse(session_path)
     assert not data.get("target_kind")
     assert not data.get("area")

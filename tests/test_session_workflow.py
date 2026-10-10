@@ -1,7 +1,6 @@
 import json
 import subprocess
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -29,6 +28,22 @@ def workflow_home(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(
         "owrap.utils.session.resolver.BY_CODEX_SESSION_ID_DIR",
+        sessions / "by_codex_session_id",
+    )
+    # `owrap.session.resolver` is a separate copy (see arc.md's Directory
+    # layout note on the deliberate owrap/session/ vs owrap/utils/session/
+    # duplication) that `SessionWorkflow`/new kinds actually use -- it
+    # needs the same isolation or it falls through to the real SESSIONS_DIR.
+    monkeypatch.setattr("owrap.session.resolver.SESSIONS_DIR", sessions)
+    monkeypatch.setattr(
+        "owrap.session.resolver.BY_CCSID_DIR", sessions / "by_ccsid",
+    )
+    monkeypatch.setattr(
+        "owrap.session.resolver.BY_OPENCODE_RUN_ID_DIR",
+        sessions / "by_opencode_run_id",
+    )
+    monkeypatch.setattr(
+        "owrap.session.resolver.BY_CODEX_SESSION_ID_DIR",
         sessions / "by_codex_session_id",
     )
     monkeypatch.setattr("owrap.utils.paths.SESSION_DIR", tmp_path)
@@ -119,15 +134,15 @@ def test_temp_has_no_parent_or_project_and_creates_no_checkout(workflow_home):
 
 
 def test_stat_identifies_temp_session(workflow_home, monkeypatch, capsys):
-    from owrap.session.stat import StatRunner
+    from owrap.kind.op.stat import Stat
 
     sessions, _ = workflow_home
     _parent(sessions)
     temp = SessionWorkflow().create("temp")
-    monkeypatch.setattr("owrap.session.stat.SESSIONS_DIR", sessions)
-    monkeypatch.setattr("owrap.utils.dispatch.pool.get_pool", lambda: [])
+    monkeypatch.setattr("owrap.kind.op.stat.SESSIONS_DIR", sessions)
+    monkeypatch.setattr("owrap.kind.op.stat.get_pool", lambda: [])
 
-    StatRunner(None).run(SimpleNamespace(filter=None))
+    Stat().do()
     output = capsys.readouterr().out
     assert f"  {temp['session_id']}\n    type:     temp" in output
     assert "  parent\n    type:     normal" in output

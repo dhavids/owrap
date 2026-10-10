@@ -1,8 +1,25 @@
-from owrap.utils.parser.text import preview, extract_useful_lines
+from owrap.utils.parser.text import extract_useful_lines, oneline, preview
 
 
 def test_preview_short_text_unchanged():
     assert preview("one two three") == "one two three"
+
+
+def test_oneline_collapses_whitespace_and_newlines():
+    assert oneline("line one\n  line   two\n") == "line one line two"
+
+
+def test_oneline_short_text_unchanged():
+    assert oneline("short") == "short"
+
+
+def test_oneline_truncates_with_ellipsis():
+    result = oneline("x" * 200, limit=10)
+    assert result == "x" * 10 + "…"
+
+
+def test_oneline_accepts_non_string_values():
+    assert oneline(ValueError("boom")) == "boom"
 
 
 def test_preview_cuts_long_text():

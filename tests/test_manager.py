@@ -6,7 +6,7 @@ import pytest
 
 
 def _make_manager():
-    from owrap.manager import Manager
+    from owrap.dispatch.manager import Manager
     manager = Manager.__new__(Manager)
     manager.session_id = ""
     manager.research = ""
@@ -148,14 +148,14 @@ def test_cleanup_compat_with_old_string_format(tmp_path):
 
 def test_legacy_dirs_not_created_with_session(monkeypatch, isolate_owrap_dirs):
     monkeypatch.setenv("OWRAP_SESSION", "testsid")
-    from owrap.manager import Manager
+    from owrap.dispatch.manager import Manager
     Manager()
     assert not isolate_owrap_dirs["TASKS_DIR"].exists()
 
 
 def test_legacy_dirs_created_without_session(monkeypatch, isolate_owrap_dirs):
     monkeypatch.delenv("OWRAP_SESSION", raising=False)
-    from owrap.manager import Manager
+    from owrap.dispatch.manager import Manager
     Manager()
     assert isolate_owrap_dirs["TASKS_DIR"].exists()
 
@@ -164,8 +164,8 @@ def test_start_resolves_pid_from_marker(tmp_path, monkeypatch):
     manager = _make_manager()
     manager._state_file = str(tmp_path / "state.json")
     manager._logger = None
-    monkeypatch.setattr("owrap.manager.SESSION_DIR", tmp_path)
-    monkeypatch.setattr("owrap.manager.SERVER_LOGS_DIR", tmp_path / "logs")
+    monkeypatch.setattr("owrap.dispatch.manager.SESSION_DIR", tmp_path)
+    monkeypatch.setattr("owrap.dispatch.manager.SERVER_LOGS_DIR", tmp_path / "logs")
     (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
 
     def fake_popen(*args, **kwargs):
@@ -194,8 +194,8 @@ def test_start_falls_back_to_popen_pid_without_marker(tmp_path, monkeypatch):
     manager = _make_manager()
     manager._state_file = str(tmp_path / "state.json")
     manager._logger = None
-    monkeypatch.setattr("owrap.manager.SESSION_DIR", tmp_path)
-    monkeypatch.setattr("owrap.manager.SERVER_LOGS_DIR", tmp_path / "logs")
+    monkeypatch.setattr("owrap.dispatch.manager.SESSION_DIR", tmp_path)
+    monkeypatch.setattr("owrap.dispatch.manager.SERVER_LOGS_DIR", tmp_path / "logs")
     (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
 
     def fake_popen(*args, **kwargs):
@@ -232,7 +232,7 @@ def test_create_context_fresh_file_has_no_phase_or_research_root(monkeypatch):
     manager = _make_manager()
     manager.session_id = "sid01"
     monkeypatch.setattr(
-        "owrap.manager._read_config",
+        "owrap.dispatch.manager._read_config",
         lambda: {"docs_root": "/docs/root", "venv": "~/e-swarm"},
     )
 
@@ -257,7 +257,7 @@ def test_create_context_strips_server_and_plan_once_runner_disabled(
         "\n## Focus\n\nkeep this\n"
     )
     monkeypatch.setattr(
-        "owrap.manager._read_config",
+        "owrap.dispatch.manager._read_config",
         lambda: {"docs_root": "/docs/root", "owrap_runner_enabled": False},
     )
 
@@ -281,7 +281,7 @@ def test_create_context_refreshes_docs_root_and_venv_on_existing_file(
         "\n## Focus\n\nkeep this\n"
     )
     monkeypatch.setattr(
-        "owrap.manager._read_config",
+        "owrap.dispatch.manager._read_config",
         lambda: {"docs_root": "/new/root", "venv": "/new/venv"},
     )
 
@@ -301,7 +301,7 @@ def test_create_context_mirrors_ctx_status_from_ctx_state(monkeypatch):
     manager = _make_manager()
     manager.session_id = "sid03"
     monkeypatch.setattr(
-        "owrap.manager._read_config", lambda: {"docs_root": "/docs/root"},
+        "owrap.dispatch.manager._read_config", lambda: {"docs_root": "/docs/root"},
     )
     state_path = session_ctx_state_path("sid03")
     state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -317,45 +317,7 @@ def test_create_context_mirrors_ctx_status_from_ctx_state(monkeypatch):
     assert text.count("ctx_status:") == 1
 
 
-def _make_runner(manager):
-    from owrap.base import BaseRunner
-
-    class _Runner(BaseRunner):
-        def run(self, args):
-            return 0
-
-    return _Runner(manager)
-
-
-def test_write_sentinel_registers_running_task(tmp_path):
-    import json as _json
-    from owrap.utils.paths import session_ctx_state_path
-    manager = _make_manager()
-    manager.session_id = "sid10"
-    manager.get_server_url = lambda: ""
-    runner = _make_runner(manager)
-
-    sentinel_path = runner._write_sentinel("42", "Do the thing", kind="task")
-
-    state = _json.loads(session_ctx_state_path("sid10").read_text())
-    entry = state["running"][sentinel_path.name]
-    assert entry["title"] == "Do the thing"
-    assert entry["kind"] == "task"
-
-
-def test_complete_sentinel_clears_running_task(tmp_path):
-    import json as _json
-    from owrap.utils.paths import session_ctx_state_path
-    manager = _make_manager()
-    manager.session_id = "sid11"
-    manager.get_server_url = lambda: ""
-    runner = _make_runner(manager)
-
-    sentinel_path = runner._write_sentinel("43", "Do another thing", kind="task")
-    state = _json.loads(session_ctx_state_path("sid11").read_text())
-    assert sentinel_path.name in state["running"]
-
-    runner._complete_sentinel(sentinel_path, rc=0)
-
-    state = _json.loads(session_ctx_state_path("sid11").read_text())
-    assert state["running"] == {}
+#  `BaseRunner`-based sentinel-lifecycle tests moved to
+#  tests_old/test_manager_baserunner.py -- that class now lives in
+#  owrap_old (reference-only); the new, self-contained port is
+#  owrap/dispatch/work.py, covered by its own tests.

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from owrap.manager import Manager
+from owrap.dispatch.manager import Manager
 
 pytestmark = pytest.mark.runner
 
@@ -33,7 +33,7 @@ def test_ensure_daemon_starts_current_checkout(tmp_path):
 
     command = popen.call_args.args[0]
     assert command[0] == sys.executable
-    assert command[1:] == ["-m", "owrap.runner", "daemon"]
+    assert command[1:] == ["-m", "owrap.kind.run.daemon"]
     assert popen.call_args.kwargs["cwd"] == str(root)
     assert pid_file.read_text() == "3210"
 
@@ -135,7 +135,7 @@ def test_dev_port_range_does_not_use_live_port():
 def test_single_server_uses_configured_port():
     manager = Manager.__new__(Manager)
     with (
-        patch("owrap.manager._read_config", return_value={"server_port_base": 5096}),
+        patch("owrap.dispatch.manager._read_config", return_value={"server_port_base": 5096}),
         patch.object(
             manager, "_kill_port_occupant", side_effect=RuntimeError("stopped"),
         ) as kill,

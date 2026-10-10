@@ -4,21 +4,13 @@
       "rules": [
         "Bash(owrap*)",
         "Bash(~/bin/owrap*)",
-        "Bash(orun*)",
-        "Bash(~/bin/orun*)",
-        "Bash(oexec*)",
-        "Bash(~/bin/oexec*)",
-        "Bash(oagent*)",
-        "Bash(~/bin/oagent*)",
-        "Bash(owait*)",
-        "Bash(~/bin/owait*)",
         "Bash(~/bin/nbread *)",
         "Bash(wait)",
         "Bash(cd *)",
         "Bash(diff *)"
       ],
       "condition": null,
-      "display": {"section": "commands", "text": "`owrap*`, `orun*`, `oexec*`, `oagent*`, `owait*`, `nbread *` (and `~/bin/` variants), `wait`, `cd *`, `diff *`"}
+      "display": {"section": "commands", "text": "`owrap*` (and `~/bin/` variant), `nbread *`, `wait`, `cd *`, `diff *`"}
     },
     {
       "rules": [
@@ -35,9 +27,7 @@
     {
       "rules": [
         "Bash(opencode run *)",
-        "Bash(opencode --help)",
-        "Bash(oread*)",
-        "Bash(~/bin/oread*)"
+        "Bash(opencode --help)"
       ],
       "condition": null,
       "display": null
@@ -45,7 +35,7 @@
     {
       "rules": [],
       "condition": "OREAD",
-      "display": {"section": "commands", "text": "`oread*` (and `~/bin/` variant)"}
+      "display": {"section": "commands", "text": "`owrap read*` (and `~/bin/owrap read*` variant)"}
     },
     {
       "rules": [

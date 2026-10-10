@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from owrap.manager import Manager
+from owrap.dispatch.manager import Manager
 from owrap.utils.session.donow import check_donow
 
 

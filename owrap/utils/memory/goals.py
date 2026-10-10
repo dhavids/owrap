@@ -3,7 +3,7 @@ import re
 import tempfile
 from pathlib import Path
 
-from ..filelock import file_lock
+from ..io.filelock import file_lock
 
 _GOAL_RE = re.compile(r"^(?:- |\d+\. )\[([ xX])\] (.*)$")
 _GOALS_HEADING = re.compile(r"(?m)^## Goals\s*$")

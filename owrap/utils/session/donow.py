@@ -1,5 +1,5 @@
 from ..paths import context_path
-from ...constants import NO_CONTEXT_MSG
+from ..constants import NO_CONTEXT_MSG
 
 
 def check_donow(session_id: str) -> str | None:

@@ -47,7 +47,7 @@ test_research.mkdir(parents=True)
 (test_research / "self.md").write_text("# Test research\n")
 
 import owrap
-from owrap.manager import Manager
+from owrap.dispatch.manager import Manager
 
 if not Path(owrap.__file__).resolve().is_relative_to(DEV_ROOT):
     raise RuntimeError("pytest imported owrap from outside the dev checkout")
@@ -133,55 +133,15 @@ def isolate_owrap_dirs(tmp_path, monkeypatch):
             d.mkdir(parents=True, exist_ok=True)
 
     patches = [patch(f"owrap.utils.paths.{k}", v) for k, v in dirs.items()]
-    patches.append(patch("owrap.manager.Manager._kill_port_occupant"))
+    patches.append(patch("owrap.dispatch.manager.Manager._kill_port_occupant"))
     patches += [
-        patch("owrap.manager.RUN_LOG", dirs["RUN_LOG"]),
-        patch("owrap.manager.EXEC_LOG", dirs["EXEC_LOG"]),
-        patch("owrap.manager.READ_LOG", dirs["READ_LOG"]),
-        patch("owrap.manager.TASKS_DIR", dirs["TASKS_DIR"]),
-        patch("owrap.manager.Manager.TASKS_DIR", dirs["TASKS_DIR"]),
+        patch("owrap.dispatch.manager.RUN_LOG", dirs["RUN_LOG"]),
+        patch("owrap.dispatch.manager.EXEC_LOG", dirs["EXEC_LOG"]),
+        patch("owrap.dispatch.manager.READ_LOG", dirs["READ_LOG"]),
+        patch("owrap.dispatch.manager.TASKS_DIR", dirs["TASKS_DIR"]),
+        patch("owrap.dispatch.manager.Manager.TASKS_DIR", dirs["TASKS_DIR"]),
     ]
     patches += [
-        patch("owrap.commands.fallback.FALLBACK_EXEC_OUTPUT",
-              dirs["FALLBACK_EXEC_OUTPUT"]),
-        patch("owrap.commands.fallback.FALLBACK_EXEC_LOG",
-              dirs["FALLBACK_EXEC_LOG"]),
-        patch("owrap.commands.fallback.FALLBACK_EXEC_STATUS",
-              dirs["FALLBACK_EXEC_STATUS"]),
-        patch("owrap.commands.fallback.FALLBACK_TASK_OUTPUT",
-              dirs["FALLBACK_TASK_OUTPUT"]),
-        patch("owrap.commands.fallback.FALLBACK_TASK_LOG",
-              dirs["FALLBACK_TASK_LOG"]),
-        patch("owrap.commands.fallback.FALLBACK_TASK_STATUS",
-              dirs["FALLBACK_TASK_STATUS"]),
-        patch("owrap.commands.fallback.FallbackRunner.EXEC_OUTPUT",
-              dirs["FALLBACK_EXEC_OUTPUT"]),
-        patch("owrap.commands.fallback.FallbackRunner.EXEC_LOG",
-              dirs["FALLBACK_EXEC_LOG"]),
-        patch("owrap.commands.fallback.FallbackRunner.EXEC_STATUS",
-              dirs["FALLBACK_EXEC_STATUS"]),
-        patch("owrap.commands.fallback.FallbackRunner.TASK_OUTPUT",
-              dirs["FALLBACK_TASK_OUTPUT"]),
-        patch("owrap.commands.fallback.FallbackRunner.TASK_LOG",
-              dirs["FALLBACK_TASK_LOG"]),
-        patch("owrap.commands.fallback.FallbackRunner.TASK_STATUS",
-              dirs["FALLBACK_TASK_STATUS"]),
-        patch("owrap.commands.run.FALLBACK_TASK",
-              dirs["FALLBACK_TASK"]),
-        patch("owrap.commands.run.RunRunner.FALLBACK_TASK",
-              dirs["FALLBACK_TASK"]),
-        patch("owrap.commands.read.FALLBACK_TASK",
-              dirs["FALLBACK_TASK"]),
-        patch("owrap.commands.read.ReadRunner.FALLBACK_TASK",
-              dirs["FALLBACK_TASK"]),
-        patch("owrap.commands.get.FALLBACK_PLAN",
-              dirs["FALLBACK_PLAN"]),
-        patch("owrap.commands.get.FALLBACK_TASK",
-              dirs["FALLBACK_TASK"]),
-        patch("owrap.commands.get.FALLBACK_EXEC_OUTPUT",
-              dirs["FALLBACK_EXEC_OUTPUT"]),
-        patch("owrap.commands.get.FALLBACK_TASK_OUTPUT",
-              dirs["FALLBACK_TASK_OUTPUT"]),
         patch("owrap.utils.session.resolver.SESSIONS_DIR",
               dirs["SESSIONS_DIR"]),
         patch("owrap.utils.session.resolver.BY_CCSID_DIR",

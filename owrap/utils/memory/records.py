@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..filelock import file_lock
+from ..io.filelock import file_lock
 from ..parser.sections import extract_section, replace_section
 from ..paths import _read_config, get_workspace_config
 

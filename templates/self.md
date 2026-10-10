@@ -48,7 +48,7 @@ Read [Context](self/context.md#context-file) for session context sections.
 
 ## Update Context
 
-Read [Context](self/context.md#update-context) for `owrap ctx` and automatic
+Read [Context](self/context.md#update-context) for `owrap ctx start` and automatic
 context updates.
 
 

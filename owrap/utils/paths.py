@@ -485,7 +485,7 @@ def format_failure_pointer(failure_code: str, session_id: str | None = None) -> 
     """
     Format #DO NOW failure message with resolved instruction path and section.
     """
-    from ..constants import FAILURE_POINTERS
+    from .constants import FAILURE_POINTERS
     target, section = FAILURE_POINTERS.get(failure_code, ("self", "Update Context"))
     if target == "self":
         path = get_self_path()

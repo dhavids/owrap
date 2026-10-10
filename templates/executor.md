@@ -20,8 +20,8 @@ flags and the CLI commands they relate to. Follow this manual for execution.
 | `--executor` (default) | Execute the active plan from `{{OWRAP_HOME}}/sessions/<session_id>/exec/plan.md` |
 | `--exec [path]` | Execute plan from path (fallback: `{{OWRAP_HOME}}/sessions/f/exec/plan.md`) |
 | `--task <path>` | Read task from path, implement, write output to `## Output` in task file |
-| `--taskf [path]` | Direct opencode task; `owrap f` tees output to `output.log` and logs completion to `log.md` automatically — do not add output/log write instructions to the task file |
-| `--execf [path]` | Direct opencode plan; `owrap f` tees output to `output.log` and logs completion to `log.md` automatically — do not add output/log write instructions to the plan file |
+| `--taskf [path]` | Direct opencode task; `owrap fallback start` tees output to `output.log` and logs completion to `log.md` automatically — do not add output/log write instructions to the task file |
+| `--execf [path]` | Direct opencode plan; `owrap fallback start` tees output to `output.log` and logs completion to `log.md` automatically — do not add output/log write instructions to the plan file |
 | `--msg` | Execute the message directly and as quickly as possible; no plan file, no step marking |
 
 
@@ -33,7 +33,7 @@ flags and the CLI commands they relate to. Follow this manual for execution.
 | `--task <path>` | Task file with `## Do` section | Read file, execute `## Do`. |
 | `--execf <path>` | Plan file | Read file, execute `[ACTIVE]` steps, mark `[x]`. |
 | `--taskf <path>` | Task file | Read file, execute `## Do`. |
-| oread prompt | File read request | Answer the read; no step marking. |
+| `owrap read` prompt | File read request | Answer the read; no step marking. |
 
 
 ## First Action Every Turn

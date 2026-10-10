@@ -19,35 +19,35 @@ architecture belong in their canonical record files.
 
 ## Update Context
 
-`{{BIN_DIR}}/owrap ctx` queues a context update for the current window. The
+`{{BIN_DIR}}/owrap ctx start` queues a context update for the current window. The
 context worker reads the new transcript excerpt, reports new facts, and owrap
 merges them into `context.md`. The daemon also checks attached windows on its
 configured interval. A precompaction hook may trigger the same update when
 that integration is available for the agent host.
 
-Use `owrap touched <path> [<path> ...] [--note <text>]` when an important file
-change should be included in the next context pass. `owrap refresh` and
+Use `owrap ctx add <path> [<path> ...] [--note <text>]` when an important
+file change should be included in the next context pass. `owrap refresh` and
 `owrap attach` show the last context update status.
 
-If `ctx_status` isn't `ok`, check `owrap get opencode`. `owrap get opencode
-reason` gives `<code>: <detail>` — `no_output: ...` (nothing responded),
-`subscription_required: <model> — <error>` (plan restriction on that model),
-or `model_error: <model> — <output>` (an unclassified failure). If status
-reports `down`, run `owrap ctx-template [subproject]`, update the listed
-files yourself following its instructions, then run `owrap ctx done`
+If `ctx_status` isn't `ok`, check `owrap self get opencode`. `owrap self get
+opencode reason` gives `<code>: <detail>` — `no_output: ...` (nothing
+responded), `subscription_required: <model> — <error>` (plan restriction on
+that model), or `model_error: <model> — <output>` (an unclassified failure).
+If status reports `down`, run `owrap ctx template [subproject]`, update the
+listed files yourself following its instructions, then run `owrap ctx done`
 (`owrap updr done` is equivalent — both finalize the same session; pass
 `--error "<reason>"` instead if the manual attempt itself failed).
 
 
 ## Update records
 
-`owrap updr` updates durable records associated with the current session.
+`owrap updr start` updates durable records associated with the current session.
 For a project target, goals, status, and decisions belong in its project or
 subproject Markdown file. Shared architecture belongs in each associated
 repository's `memory.md`. An update must preserve user-owned `## Notes`, must
 not infer an association from a name alone, and must follow the
 [top-level reference](../self.md#formatting)'s section-spacing rule.
 
-`owrap updr --ctx` requests a record and context update from one transcript
+`owrap updr start --ctx` requests a record and context update from one transcript
 excerpt. Existing research and area routing remains during migration; use the
 new project, subproject, and repository identity fields for new sessions.

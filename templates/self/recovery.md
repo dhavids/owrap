@@ -34,10 +34,12 @@ section in this reference and perform that action. Session counters live under
 
 ## Fallback dispatch
 
-If the server-backed runner is unavailable, `owrap f <path>` runs a task or
-plan file directly. A filename containing `task` selects task mode; other
-filenames select plan mode. The fallback writes output and status under
-`{{OWRAP_HOME}}/docs/f/<task|exec>/`. The input file must already exist.
+If the server-backed runner is unavailable, `owrap fallback start <path>`
+runs a task or plan file directly. A filename containing `task` selects task
+mode; other filenames select plan mode. The fallback writes output and
+status under `{{OWRAP_HOME}}/docs/f/<task|exec>/`. The input file must
+already exist.
 
-Use `owrap f tstop` or `owrap f estop` to stop the corresponding fallback.
-Check its `status.json` for `running`, `stalled`, `done`, or `crashed` state.
+Use `owrap fallback done task` or `owrap fallback done exec` to stop the
+corresponding fallback. `owrap fallback get task` / `get exec` reports its
+`status.json` state: `running`, `stalled`, `done`, or `crashed`.

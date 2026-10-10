@@ -137,14 +137,14 @@ def test_format_failure_pointer_instruction_target(tmp_path):
 
 
 def test_all_failure_pointers_have_sections():
-    from owrap.constants import FAILURE_POINTERS
+    from owrap.utils.constants import FAILURE_POINTERS
     for code, (target, section) in FAILURE_POINTERS.items():
         assert target in ("self", "instruction")
         assert isinstance(section, str) and len(section) > 0
 
 
 def test_format_failure_pointer_returns_donow_for_all_codes():
-    from owrap.constants import FAILURE_POINTERS
+    from owrap.utils.constants import FAILURE_POINTERS
     from owrap.utils.paths import format_failure_pointer
     for code in FAILURE_POINTERS:
         with patch("owrap.utils.paths.get_self_path", return_value=Path("/tmp/fake_self.md")):

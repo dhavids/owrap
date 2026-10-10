@@ -55,6 +55,18 @@ def validate_source(source: Path) -> str:
         raise RuntimeError(
             f"release exclusions missing: {', '.join(missing)}"
         )
+    build_script = source / "templates" / "build.py"
+    if build_script.is_file():
+        build = subprocess.run(
+            [sys.executable, str(build_script), "--check"],
+            cwd=str(source), capture_output=True, text=True,
+        )
+        if build.returncode:
+            raise RuntimeError(
+                f"stale command examples in templates/ -- run "
+                f"`python3 templates/build.py` and commit the result:\n"
+                f"{build.stdout}{build.stderr}"
+            )
     return git(source, "rev-parse", "HEAD")
 
 

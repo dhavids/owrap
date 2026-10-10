@@ -5,7 +5,7 @@ import time
 import threading
 from pathlib import Path
 
-from ...constants import (
+from ..constants import (
     STALL_NOTIFY_S, WATCHDOG_POLL_S, SCRIPT_STALL_MULTIPLIER,
     WATCHDOG_UNRESPONSIVE_MSG, WATCHDOG_RETRY_HINT_FILE_TASK,
     WATCHDOG_RETRY_HINT_OWRAP_F, WATCHDOG_UNRESPONSIVE_EVICT_SUFFIX,

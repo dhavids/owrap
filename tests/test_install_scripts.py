@@ -89,9 +89,9 @@ def test_install_rejects_missing_template_before_writing(tmp_path):
     home = tmp_path / "home"
     root.parent.mkdir()
     _templates(root)
-    (root / "bin" / "oagent").unlink()
+    (root / "bin" / SHIMS[0]).unlink()
 
-    with pytest.raises(FileNotFoundError, match="oagent"):
+    with pytest.raises(FileNotFoundError, match=SHIMS[0]):
         install_shims(root, "/tmp/python", home)
 
     assert not (root / "files" / "bin").exists()
