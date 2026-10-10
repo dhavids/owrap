@@ -75,7 +75,7 @@ def print_orientation(
         else:
             print(f"  repository: {target.repository_ids[0]}")
     if ctx_status in ("pending", "failed"):
-        from ..commands.context_manager import read_opencode_status_detail
+        from ..ctx.dispatch import read_opencode_status_detail
         detail = read_opencode_status_detail()
         if detail["status"] == "down":
             reason = f" ({detail['reason']})" if detail["reason"] else ""

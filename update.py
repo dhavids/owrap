@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 
-SHIMS = ("owrap", "orun", "oexec", "oread", "owait", "oagent")
+SHIMS = ("owrap",)
 
 
 def is_development(root: Path) -> bool:

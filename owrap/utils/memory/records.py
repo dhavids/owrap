@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..filelock import file_lock
+from ..io.filelock import file_lock
 from ..parser.sections import extract_section, replace_section
 from ..paths import _read_config, get_workspace_config
 
@@ -337,6 +337,36 @@ def _repo_id_for_root(root: Path) -> str:
     return slug or "repo"
 
 
+def _write_repository_stub(
+    directory: Path, repo_id: str, checkout: str = None,
+) -> None:
+    """
+    Write a new repository's `<id>.yaml` + `memory.md` stub. Caller
+    holds the yaml's file lock and has already confirmed it's new.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    record = {
+        "schema_version": 1, "kind": "repository", "id": repo_id,
+        "title": repo_id.replace("-", " ").title(), "main": "memory.md",
+    }
+    if checkout:
+        record["checkout"] = checkout
+        remote = _git_remote(Path(checkout))
+        if remote:
+            record["remote"] = remote
+    record["last_updated"] = time.time()
+    _write_atomic(directory / f"{repo_id}.yaml", _dump_yaml(record))
+    _write_atomic(
+        directory / "memory.md",
+        f"# {repo_id}\n\n"
+        "## Architecture\n\n\n"
+        "## Components\n\n\n"
+        "## Interfaces\n\n\n"
+        "## Environment\n\n\n"
+        "## Notes\n",
+    )
+
+
 def _register_repository(root: Path, git_root: Path) -> str | None:
     """
     Create a repository record for git_root if one doesn't exist yet, or
@@ -354,26 +384,24 @@ def _register_repository(root: Path, git_root: Path) -> str | None:
             if not checkout_value or Path(checkout_value).resolve() != git_root:
                 return None
             return repo_id
-        directory.mkdir(parents=True, exist_ok=True)
-        record = {
-            "schema_version": 1, "kind": "repository", "id": repo_id,
-            "title": repo_id.replace("-", " ").title(),
-            "main": "memory.md", "checkout": str(git_root),
-        }
-        remote = _git_remote(git_root)
-        if remote:
-            record["remote"] = remote
-        record["last_updated"] = time.time()
-        _write_atomic(yaml_path, _dump_yaml(record))
-        _write_atomic(
-            directory / "memory.md",
-            f"# {repo_id}\n\n"
-            "## Architecture\n\n\n"
-            "## Components\n\n\n"
-            "## Interfaces\n\n\n"
-            "## Environment\n\n\n"
-            "## Notes\n",
-        )
+        _write_repository_stub(directory, repo_id, str(git_root))
+    return repo_id
+
+
+def add_repository(repo_id: str, checkout: str = None, workspace: str = "") -> str:
+    """
+    Create a repository record directly, by explicit id, instead of
+    waiting for a touched file inside it to trigger auto-discovery.
+    Raises FileExistsError if the id is already taken.
+    """
+    repo_id = _slug(repo_id, "repository")
+    root = docs_root(workspace)
+    directory = root / "repositories" / repo_id
+    yaml_path = directory / f"{repo_id}.yaml"
+    with file_lock(yaml_path.with_suffix(".yaml.lock")):
+        if yaml_path.exists():
+            raise FileExistsError(f"repository already exists: {repo_id}")
+        _write_repository_stub(directory, repo_id, checkout)
     return repo_id
 
 
@@ -478,6 +506,52 @@ def add_decision(path: Path, text: str) -> str:
         content = replace_section(content, "## Decisions", new_block)
         _write_atomic(path, content)
     return line
+
+
+def remove_decision(path: Path, position: int) -> str:
+    """
+    Remove the decision at an arbitrary 1-indexed position (0 or -1
+    for first/last), returning the removed line's text.
+    """
+    with file_lock(path.with_suffix(path.suffix + ".lock")):
+        content = path.read_text()
+        existing = extract_section(content, "## Decisions")
+        lines = [
+            line for line in (existing.splitlines()[1:] if existing else [])
+            if line.strip()
+        ]
+        if not lines:
+            raise ValueError("no decision at that position")
+        if position == 0:
+            index = 0
+        elif position == -1:
+            index = len(lines) - 1
+        else:
+            index = position - 1
+        if not 0 <= index < len(lines):
+            raise ValueError("position out of range")
+        removed = lines.pop(index)
+        new_block = "\n".join(["## Decisions", ""] + lines)
+        content = replace_section(content, "## Decisions", new_block)
+        _write_atomic(path, content)
+    return removed.removeprefix("- ").strip()
+
+
+def clear_decisions(path: Path) -> int:
+    """
+    Remove every decision from a project/subproject's Decisions
+    section, returning the number removed.
+    """
+    with file_lock(path.with_suffix(path.suffix + ".lock")):
+        content = path.read_text()
+        existing = extract_section(content, "## Decisions")
+        lines = [
+            line for line in (existing.splitlines()[1:] if existing else [])
+            if line.strip()
+        ]
+        content = replace_section(content, "## Decisions", "## Decisions\n")
+        _write_atomic(path, content)
+    return len(lines)
 
 
 def register_discovered_repositories(

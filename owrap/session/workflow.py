@@ -5,14 +5,14 @@ import tempfile
 import time
 from pathlib import Path
 
-from ..utils.filelock import file_lock
+from .resolver import (
+    _parse, _write, attach, mint_session_id, resolve, session_file,
+)
+from ..utils.io.filelock import file_lock
 from ..utils.checkout import is_development, live_checkout
 from ..utils.memory.records import _record, docs_root, session_repositories
 from ..utils.parser.sections import extract_section, merge_log_entries
 from ..utils.paths import OWRAP_ROOT, context_path, get_workspace_config, _read_config
-from ..utils.session.resolver import (
-    _parse, _write, attach, mint_session_id, resolve, session_file,
-)
 
 
 def _git(checkout: Path, *args: str) -> str:
@@ -78,14 +78,8 @@ def _write_atomic(path: Path, content: str):
 
 
 def _create_context(sid: str, mode: str, name: str):
-    path = context_path(sid)
-    content = (
-        f"## Session\n\nsession: {sid}\nmode: {mode}\nname: {name}\n\n"
-        "## Focus\n\n## Active Plan\n\n## Key Locations\n\n"
-        "## Decisions\n\n## Environment\n\n## How To\n\n"
-        "## Frequent Files\n\n## Recent\n"
-    )
-    _write_atomic(path, content)
+    from ..ctx.context import ensure
+    ensure(context_path(sid), {"session": sid, "mode": mode, "name": name})
 
 
 class SessionWorkflow:

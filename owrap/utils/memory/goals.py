@@ -3,7 +3,7 @@ import re
 import tempfile
 from pathlib import Path
 
-from ..filelock import file_lock
+from ..io.filelock import file_lock
 
 _GOAL_RE = re.compile(r"^(?:- |\d+\. )\[([ xX])\] (.*)$")
 _GOALS_HEADING = re.compile(r"(?m)^## Goals\s*$")
@@ -98,6 +98,20 @@ def edit_goals(
             if not 0 <= index < len(items):
                 raise ValueError("position out of range")
             items[index] = (items[index][0], text)
+            changed = 1
+        elif action == "remove":
+            if not items:
+                raise ValueError("no goal at that position")
+            if position == 0:
+                index = 0
+            elif position == -1:
+                index = len(items) - 1
+            else:
+                index = position - 1
+            if not 0 <= index < len(items):
+                raise ValueError("position out of range")
+            selected = items[index][1]
+            del items[index]
             changed = 1
         elif action == "clear":
             remaining = [item for item in items if not item[0]]

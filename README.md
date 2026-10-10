@@ -11,9 +11,9 @@ Codex) working in a workspace:
    planner can do the update itself via `owrap ctx-template`/`ctx done`.
    Runs regardless of whether the role below is enabled.
 2. **Opencode wrapper** — dispatches planner work to an opencode-backed
-   executor (`orun`/`oexec`/`oagent`/`owrap f`), with session isolation, a
-   server pool, and watchdog-based stall/failure handling. Toggled off
-   independently via `owrap_runner_enabled: false`.
+   executor (`owrap read`/`exec`/`agent`/`task`, or `owrap f`), with session
+   isolation, a server pool, and watchdog-based stall/failure handling.
+   Toggled off independently via `owrap_runner_enabled: false`.
 
 Full reference docs — session lifecycle, every command, config keys,
 timeouts, troubleshooting — live under `templates/self/*.md` and are staged
@@ -33,12 +33,12 @@ file covers only install.
 git clone <repo_url>
 cd owrap
 python3 -m pip install PyYAML
-python3 setup.py     # installs launchers for this checkout
+python3 setup.py     # installs the owrap launcher for this checkout
 ```
 
-This installs launchers to `~/bin`. After a code update, run `python3
-update.py` to refresh all six launchers, and restart any running owrap
-processes to load the changed code.
+This installs the `owrap` launcher to `~/bin`. After a code update, run
+`python3 update.py` to refresh it, and restart any running owrap processes
+to load the changed code.
 
 For a new workspace, run `owrap setup <workspace_path> --planner claude
 --executor opencode` first — it writes the workspace config and stages

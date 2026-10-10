@@ -1,6 +1,7 @@
 """
 Generic text-formatting helpers shared across commands.
 """
+import time
 
 USEFUL_LINE_KEYWORDS = (
     "error", "exception", "traceback", "fail", "warn", "denied", "refused",
@@ -18,6 +19,40 @@ def preview(text: str, words: int = 5) -> str:
     if len(parts) <= words * 2:
         return text
     return " ".join(parts[:words]) + " ... " + " ".join(parts[-words:])
+
+
+def oneline(text, limit: int = 150) -> str:
+    """
+    Collapse `text` to a single line (whitespace/newlines squashed),
+    truncated to `limit` chars with a trailing ellipsis if cut.
+    """
+    flat = " ".join(str(text).split())
+    return flat if len(flat) <= limit else flat[:limit] + "…"
+
+
+def preview_lines(text: str, max_lines: int = 12) -> str:
+    """
+    Return a text's first `max_lines` lines, with a trailing marker
+    if more remains -- unlike `preview`, which trims a short single
+    item, this previews a whole file/document.
+    """
+    lines = text.splitlines()
+    if len(lines) <= max_lines:
+        return text
+    return "\n".join(lines[:max_lines]) + "\n..."
+
+
+def age_str(mtime: float) -> str:
+    """
+    Format a Unix timestamp as a short age relative to now
+    ("5s"/"3m"/"2h 15m").
+    """
+    age = time.time() - mtime
+    if age < 60:
+        return f"{int(age)}s"
+    if age < 3600:
+        return f"{int(age / 60)}m"
+    return f"{int(age / 3600)}h {int((age % 3600) / 60)}m"
 
 
 def extract_useful_lines(text: str, max_chars: int = 100) -> str:

@@ -9,8 +9,8 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
-from ...constants import RECENT_TASK_RETENTION_S
-from ..filelock import file_lock
+from ..constants import RECENT_TASK_RETENTION_S
+from ..io.filelock import file_lock
 from .. import paths
 from . import rtlog
 
@@ -111,6 +111,16 @@ def _load_all(session_id: str | None) -> list[dict]:
         except (OSError, ValueError):
             continue
     return jobs
+
+
+def get(job_id: str) -> dict | None:
+    """
+    Find one job's status record by id, regardless of session.
+    """
+    for job in _load_all(None):
+        if job.get("job_id") == job_id:
+            return job
+    return None
 
 
 def recent(session_id: str | None = None, limit: int = 8) -> list[dict]:

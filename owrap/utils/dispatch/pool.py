@@ -15,9 +15,9 @@ from ..paths import (
     DAEMON_LOCK_FILE, DAEMON_PID_FILE, OWRAP_ROOT, POOL_FILE,
     POOL_LOCK_FILE, SERVER_LOGS_DIR,
 )
-from ..filelock import file_lock
+from ..io.filelock import file_lock
 from ..log import rtlog
-from ..process import is_alive as _is_alive
+from ...dispatch.process import is_alive as _is_alive
 
 MIN_SERVERS = 2
 
@@ -88,7 +88,7 @@ def _is_responsive(url) -> bool:
 
 
 def _start_server(port: int) -> dict:
-    from ...manager import Manager
+    from ...dispatch.manager import Manager
     m = Manager(port=port)
     url = m.start(port=port)
     state = m._read_state() or {}
@@ -375,7 +375,7 @@ def record_unresponsive(url: str, threshold: int | None = None) -> bool:
     isn't cut off. Returns True if the server was newly marked
     draining, False otherwise.
     """
-    from ...constants import UNRESPONSIVE_KILL_THRESHOLD
+    from ..constants import UNRESPONSIVE_KILL_THRESHOLD
     if threshold is None:
         threshold = int(
             _read_config().get("unresponsive_kill_threshold", UNRESPONSIVE_KILL_THRESHOLD)
@@ -545,7 +545,7 @@ def _estimate_remaining(url: str, now: float | None = None) -> float:
     """
     if now is None:
         now = time.time()
-    from ...constants import EXPECTED_DURATION_S
+    from ..constants import EXPECTED_DURATION_S
     from ..paths import _read_config as _rc
     total = 0.0
     if not RUNNING_DIR.exists():
@@ -581,7 +581,7 @@ def _spawn_daemon():
     Unconditionally start a new daemon process and record its pid.
     """
     proc = subprocess.Popen(
-        [sys.executable, "-m", "owrap.runner", "daemon"],
+        [sys.executable, "-m", "owrap.kind.run.daemon"],
         start_new_session=True,
         cwd=str(OWRAP_ROOT),
         stdout=subprocess.DEVNULL,

@@ -8,6 +8,7 @@ if [ -z "$OWRAP_HOME" ]; then
 fi
 mkdir -p "$OWRAP_HOME/sessions/_index/claude"
 mkdir -p "$OWRAP_HOME/sessions/_index/opencode"
+mkdir -p "$OWRAP_HOME/sessions/_index/codex"
 
 _resolve_owrap_session() {
   local SID="${SESSION_ID:-}"
@@ -16,13 +17,23 @@ _resolve_owrap_session() {
   if [ -z "$SID" ] && [ -n "$CCSID" ] && [ -f "$PTR" ]; then
     SID=$(cat "$PTR")
   fi
+  local CID="${CODEX_SESSION_ID:-}"
+  local CID_PTR="$OWRAP_HOME/sessions/_index/codex/${CID}"
+  if [ -z "$SID" ] && [ -n "$CID" ] && [ -f "$CID_PTR" ]; then
+    SID=$(cat "$CID_PTR")
+  fi
   local OID="${OPENCODE_RUN_ID:-}"
   local OID_PTR="$OWRAP_HOME/sessions/_index/opencode/${OID}"
   if [ -z "$SID" ] && [ -n "$OID" ] && [ -f "$OID_PTR" ]; then
     SID=$(cat "$OID_PTR")
   fi
   export SESSION_ID="$SID"
+  # Current layout is one directory per session; fall back to the
+  # legacy flat <sid>.session file for older, not-yet-migrated sessions.
   local SF="$OWRAP_HOME/sessions/${SID}/.session"
+  if [ ! -f "$SF" ]; then
+    SF="$OWRAP_HOME/sessions/${SID}.session"
+  fi
   if [ -f "$SF" ]; then
     export OWRAP_SESSION=$(grep "^session_id=" "$SF" | cut -d= -f2)
     export OWRAP_RESEARCH=$(grep "^research=" "$SF" | cut -d= -f2)
@@ -31,38 +42,12 @@ _resolve_owrap_session() {
 }
 _resolve_owrap_session
 
-_run_with_session_export() {
-  local include_shell_pid="$1"
-  local tmpout new_sid exit_code
-  shift
-  tmpout=$(mktemp)
-  if [ "$include_shell_pid" = "yes" ]; then
-    (cd "<OWRAP_ROOT>" && <PYTHON> -m owrap.runner "$@" --shell-pid "$PPID") 2>&1 | tee "$tmpout"
-    exit_code=${PIPESTATUS[0]}
-  else
-    (cd "<OWRAP_ROOT>" && <PYTHON> -m owrap.runner "$@") 2>&1 | tee "$tmpout"
-    exit_code=${PIPESTATUS[0]}
-  fi
-  new_sid=$(grep "^__OWRAP_EXPORT__ SESSION_ID=" "$tmpout" | tail -n1 | sed 's|^__OWRAP_EXPORT__ SESSION_ID=||')
-  rm -f "$tmpout"
-  if [ -n "$new_sid" ]; then
-    export SESSION_ID="$new_sid"
-  fi
-  return "$exit_code"
-}
-
-case "$1" in
-  start|refresh|attach)
-    _run_with_session_export yes "$@"
-    ;;
-  spawn|branch|temp|collapse)
-    _run_with_session_export no "$@"
-    ;;
-  stop)
-    cd "<OWRAP_ROOT>" && <PYTHON> -m owrap.runner stop "${@:2}"
-    ;;
-  end)
-    cd "<OWRAP_ROOT>" && <PYTHON> -m owrap.runner end "${@:2}" ;;
-  *)
-    cd "<OWRAP_ROOT>" && <PYTHON> -m owrap.runner "$@" ;;
-esac
+tmpout=$(mktemp)
+(cd "<OWRAP_ROOT>" && <PYTHON> -m owrap.cli "$@") 2>&1 | tee "$tmpout"
+exit_code=${PIPESTATUS[0]}
+new_sid=$(grep "^__OWRAP_EXPORT__ SESSION_ID=" "$tmpout" | tail -n1 | sed 's|^__OWRAP_EXPORT__ SESSION_ID=||')
+rm -f "$tmpout"
+if [ -n "$new_sid" ]; then
+  export SESSION_ID="$new_sid"
+fi
+exit "$exit_code"

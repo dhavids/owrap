@@ -4,14 +4,6 @@
       "rules": [
         "Bash(owrap*)",
         "Bash(~/bin/owrap*)",
-        "Bash(orun*)",
-        "Bash(~/bin/orun*)",
-        "Bash(oexec*)",
-        "Bash(~/bin/oexec*)",
-        "Bash(oagent*)",
-        "Bash(~/bin/oagent*)",
-        "Bash(owait*)",
-        "Bash(~/bin/owait*)",
         "Bash(~/bin/nbread *)",
         "Bash(wait)",
         "Bash(cd *)",
@@ -33,9 +25,7 @@
     {
       "rules": [
         "Bash(opencode run *)",
-        "Bash(opencode --help)",
-        "Bash(oread*)",
-        "Bash(~/bin/oread*)"
+        "Bash(opencode --help)"
       ],
       "condition": null
     },
