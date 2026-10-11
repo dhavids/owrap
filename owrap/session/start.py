@@ -196,11 +196,13 @@ def start(
         for field in ("research", "area", "child"):
             update_session_field(session_id, field, "")
 
-    from ..utils.dispatch.pool import _pool_active, ensure_min_servers
-    if _pool_active():
-        ensure_min_servers()
-    else:
-        manager.ensure_running()
+    runner_enabled = _read_config().get("owrap_runner_enabled", True)
+    if runner_enabled:
+        from ..utils.dispatch.pool import _pool_active, ensure_min_servers
+        if _pool_active():
+            ensure_min_servers()
+        else:
+            manager.ensure_running()
 
     if workspace_name:
         update_session_field(session_id, "workspace", workspace_name)
@@ -224,7 +226,6 @@ def start(
 
     plan_path = get_plan_path(session_id)
     input_path = session_input(session_id)
-    runner_enabled = _read_config().get("owrap_runner_enabled", True)
 
     manager.session_id = session_id
     manager.create_context()
@@ -287,18 +288,20 @@ def refresh(
     if project_name is None:
         project_name = existing_project_name
 
-    from ..utils.dispatch.pool import _pool_active, ensure_min_servers
-    if _pool_active():
-        ensure_min_servers()
-    else:
-        url = manager.ensure_running()
-        if url is None:
-            if data.get("session_mode") == "temp":
-                print("ERROR: cannot start a server for this temp session.")
-                sys.exit(2)
-            os.environ["SESSION_ID"] = session_id
-            start(manager, logger=logger, shell_pid=shell_pid, project_name=project_name)
-            return
+    runner_enabled = _read_config().get("owrap_runner_enabled", True)
+    if runner_enabled:
+        from ..utils.dispatch.pool import _pool_active, ensure_min_servers
+        if _pool_active():
+            ensure_min_servers()
+        else:
+            url = manager.ensure_running()
+            if url is None:
+                if data.get("session_mode") == "temp":
+                    print("ERROR: cannot start a server for this temp session.")
+                    sys.exit(2)
+                os.environ["SESSION_ID"] = session_id
+                start(manager, logger=logger, shell_pid=shell_pid, project_name=project_name)
+                return
 
     if project_name is not None and project_name != existing_project_name:
         if data.get("target_kind") == "repository":
@@ -350,7 +353,7 @@ def refresh(
     print_orientation(
         session_id, plan_path=plan_path,
         input_path=input_path, context_path=cp,
-        runner_enabled=_read_config().get("owrap_runner_enabled", True),
+        runner_enabled=runner_enabled,
         target=_orientation_target(session_id),
     )
     update_session_field(
