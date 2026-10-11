@@ -10,6 +10,8 @@ from .utils.parser.text import oneline
 GLOBAL_BOOL_FLAGS = ("-a", "--allow-all")
 GLOBAL_VALUE_FLAGS = ("--shell-pid",)
 HELP_FLAGS = ("-h", "--help")
+# High-frequency polling commands that would otherwise drown out rtlog.
+UNLOGGED_CMDS = ("stat do", "permit do")
 
 
 def _strip_global_flags(argv):
@@ -68,7 +70,8 @@ def main(argv=None):
     [args...]`, falling back to the shim's action-first shape via
     `_resolve_kind_first`. A bare `-h`/`--help` anywhere prints the
     resolved kind's (or action's) usage instead of dispatching. Logs
-    every resolved invocation to rtlog as `cmd.start`/`cmd.end`.
+    every resolved invocation to rtlog as `cmd.start`/`cmd.end`,
+    except `UNLOGGED_CMDS`.
     """
     raw_argv = sys.argv[1:] if argv is None else argv
     argv = _strip_global_flags(raw_argv)
@@ -106,21 +109,25 @@ def main(argv=None):
             instance._usage(action)
 
     cmd = f"{kind} {action}"
+    log_this = cmd not in UNLOGGED_CMDS
     started = time.time()
-    rtlog.log("cmd.start", cmd=cmd, argv=" ".join(raw_argv)[:300])
+    if log_this:
+        rtlog.log("cmd.start", cmd=cmd, argv=" ".join(raw_argv)[:300])
     try:
         message = dispatch(KIND_REGISTRY, kind, action, *args)
     except (OSError, ValueError, FileExistsError, FileNotFoundError) as exc:
-        rtlog.log(
-            "cmd.end", cmd=cmd, rc=2, dur_s=round(time.time() - started, 2),
-            error=oneline(exc),
-        )
+        if log_this:
+            rtlog.log(
+                "cmd.end", cmd=cmd, rc=2, dur_s=round(time.time() - started, 2),
+                error=oneline(exc),
+            )
         print(f"ERROR: {exc}")
         sys.exit(2)
-    fields = {"result": oneline(message)} if message else {}
-    rtlog.log(
-        "cmd.end", cmd=cmd, rc=0, dur_s=round(time.time() - started, 2), **fields,
-    )
+    if log_this:
+        fields = {"result": oneline(message)} if message else {}
+        rtlog.log(
+            "cmd.end", cmd=cmd, rc=0, dur_s=round(time.time() - started, 2), **fields,
+        )
     if message:
         print(message)
 

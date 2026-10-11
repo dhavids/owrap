@@ -199,3 +199,27 @@ def test_help_flag_works_regardless_of_position(capsys, toy_registry):
         main(["--help", "model", "set"])
     assert exc.value.code == 2
     assert "Usage: owrap model set" in capsys.readouterr().out
+
+
+def test_unlogged_cmd_skips_rtlog_entirely(monkeypatch, capsys, toy_registry):
+    monkeypatch.setattr(cli_module, "UNLOGGED_CMDS", ("sync do",))
+    logged = []
+    monkeypatch.setattr(
+        cli_module.rtlog, "log", lambda event, **fields: logged.append(event),
+    )
+
+    main(["sync"])
+
+    assert capsys.readouterr().out.strip() == "did the one thing"
+    assert logged == []
+
+
+def test_logged_cmd_still_reaches_rtlog(monkeypatch, capsys, toy_registry):
+    logged = []
+    monkeypatch.setattr(
+        cli_module.rtlog, "log", lambda event, **fields: logged.append(event),
+    )
+
+    main(["sync"])
+
+    assert logged == ["cmd.start", "cmd.end"]
