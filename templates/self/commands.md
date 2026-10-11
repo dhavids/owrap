@@ -103,6 +103,7 @@ Check `owrap self get config` for live values.
 | `idle_shutdown_s` | float | `300` | Idle seconds before server shutdown. |
 | `daemon_interval_s` | float | `10` | Seconds between daemon pool-lifecycle checks. |
 | `ctx_check_interval_s` | float | `900` | Seconds between the daemon's background checks for an attached window's unprocessed transcript diff -- an auto-dispatch still only fires once the excerpt clears `CTX_MIN_CHARS` (5k) and this window's own 5-min cooldown, and otherwise follows a 15m/1h/2h schedule that cycles back to 15m after repeated opencode-down failures. |
+| `stale_detach_check_interval_s` | float | `86400` | Seconds between the daemon's sweeps for an attached window gone stale -- idle, or transcript-less, for `STALE_WINDOW_DAYS` (7 days). Only detaches the pointer; the session itself re-attaches normally later. |
 | `runner_model` | string | — | Model for regular runner dispatch (`owrap task start`/`owrap exec start`). |
 | `context_manager_model` | string | — | Model for context-manager tasks (Update Context/Update Protocol dispatch). |
 | `context_fallback_model` | string | — | Fallback model when `context_manager_model` isn't set. |

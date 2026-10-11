@@ -549,6 +549,30 @@ def detach() -> str | None:
     return sid
 
 
+def detach_window(window_id: str, owrap_sid: str, source: str = "claude") -> None:
+    """
+    Release one known (ccsid or codex session id, owrap session)
+    attachment: unlink its pointer and clear it from the session's
+    current-window field if it was the one recorded there.
+    """
+    ptr = (
+        ccsid_pointer(window_id) if source == "claude"
+        else codex_session_id_pointer(window_id)
+    )
+    ptr.unlink(missing_ok=True)
+
+    sf = session_file(owrap_sid)
+    if not sf.exists():
+        return
+    d = _parse(sf)
+    if source == "claude" and d.get("claude_session_id") == window_id:
+        remaining = [c for c in attached_ccsids(owrap_sid) if c != window_id]
+        d["claude_session_id"] = remaining[-1] if remaining else ""
+    elif source == "codex" and d.get("codex_session_id") == window_id:
+        d["codex_session_id"] = ""
+    _write(sf, d)
+
+
 def update_session_field(session_id: str, key: str, value: str):
     """
     Set/update a single field in a session file.

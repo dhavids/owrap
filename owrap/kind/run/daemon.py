@@ -200,6 +200,10 @@ class Daemon(Run):
             "ctx", "owrap_context_manager_enabled", "ctx_check_interval_s",
             600.0, "_check_ctx",
         ),
+        (
+            "stale_detach", "owrap_context_manager_enabled",
+            "stale_detach_check_interval_s", 86400.0, "_check_stale_attachments",
+        ),
     )
 
 
@@ -451,6 +455,14 @@ class Daemon(Run):
         """
         from ...ctx.dispatch import check_all_attached
         check_all_attached()
+
+    def _check_stale_attachments(self) -> None:
+        """
+        Detach every attached window whose transcript is stale or
+        missing.
+        """
+        from ...ctx.dispatch import detach_stale_attached
+        detach_stale_attached()
 
     def _kill_running_tasks(self, session_id: str = None) -> tuple:
         killed, pids = 0, []
