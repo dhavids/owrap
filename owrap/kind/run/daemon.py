@@ -13,6 +13,7 @@ from ...session.resolver import _parse as _parse_session, session_files
 from ...utils.dispatch.pool import (
     _active_load, _read_pool, ensure_min_servers, get_pool, shutdown_idle,
 )
+from ...utils.io.atomic import write_atomic
 from ...utils.io.filelock import file_lock
 from ...utils.log import rtlog
 from ...utils.paths import (
@@ -59,7 +60,7 @@ def _read_registry() -> dict:
 
 def _write_registry(data: dict) -> None:
     DAEMON_REGISTRY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    DAEMON_REGISTRY_FILE.write_text(json.dumps(data))
+    write_atomic(DAEMON_REGISTRY_FILE, json.dumps(data))
 
 
 def _register_daemon(pid: int) -> None:
@@ -219,7 +220,7 @@ class Daemon(Run):
             existing_pid = Daemon._read_pid()
             if existing_pid is not None and existing_pid != my_pid:
                 return
-            DAEMON_PID_FILE.write_text(str(my_pid))
+            write_atomic(DAEMON_PID_FILE, str(my_pid))
         _register_daemon(my_pid)
 
         daemon_start_file = DAEMON_STATE_FILE.with_name("daemon.start")
@@ -639,7 +640,7 @@ class Daemon(Run):
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            DAEMON_PID_FILE.write_text(str(proc.pid))
+            write_atomic(DAEMON_PID_FILE, str(proc.pid))
             return True
 
 
