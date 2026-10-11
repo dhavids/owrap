@@ -2,7 +2,6 @@ import difflib
 import json
 import os
 import secrets
-import shutil
 import sys
 import time
 from pathlib import Path
@@ -33,74 +32,14 @@ def _write(path: Path, data: dict):
 
 
 def session_file(session_id: str) -> Path:
-    current = SESSIONS_DIR / session_id / ".session"
-    legacy = SESSIONS_DIR / f"{session_id}.session"
-    return legacy if not current.exists() and legacy.exists() else current
+    return SESSIONS_DIR / session_id / ".session"
 
 
 def session_files() -> list[Path]:
     """
-    Return all current and legacy session metadata files.
+    Return every current session's metadata file.
     """
-    migrate_session_storage()
     return sorted(SESSIONS_DIR.glob("*/.session"))
-
-
-def migrate_session_storage() -> int:
-    """
-    Move flat session metadata, counters, and indexes into grouped paths.
-    """
-    if not SESSIONS_DIR.exists():
-        return 0
-    moved = 0
-    for source in list(SESSIONS_DIR.glob("*.session")):
-        data = _parse(source)
-        sid = data.get("session_id") or source.stem
-        target = SESSIONS_DIR / sid / ".session"
-        moved += _move_legacy_file(source, target)
-
-    for source in list(SESSIONS_DIR.glob("*.counters.json")):
-        name = source.name.removesuffix(".counters.json")
-        sid, separator, harness_id = name.partition(".")
-        if separator:
-            target = (
-                SESSIONS_DIR / sid / "ctx" / "windows" / harness_id
-                / "counters.json"
-            )
-        else:
-            target = SESSIONS_DIR / sid / "ctx" / "counters.json"
-        moved += _move_legacy_file(source, target)
-
-    index_dirs = (
-        (BY_CCSID_DIR, SESSIONS_DIR / "by_ccsid"),
-        (BY_OPENCODE_RUN_ID_DIR, SESSIONS_DIR / "by_opencode_run_id"),
-        (BY_CODEX_SESSION_ID_DIR, SESSIONS_DIR / "by_codex_session_id"),
-    )
-    for target, source in index_dirs:
-        if target == source:
-            continue
-        if not source.is_dir():
-            continue
-        target.mkdir(parents=True, exist_ok=True)
-        for pointer in source.iterdir():
-            if pointer.is_file():
-                moved += _move_legacy_file(pointer, target / pointer.name)
-        try:
-            source.rmdir()
-        except OSError:
-            pass
-    return moved
-
-
-def _move_legacy_file(source: Path, target: Path) -> int:
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists():
-        if target.read_bytes() == source.read_bytes():
-            source.unlink()
-            return 1
-        return 0
-    shutil.move(str(source), str(target))
-    return 1
 
 
 def ccsid_pointer(ccsid: str) -> Path:
@@ -116,17 +55,7 @@ def codex_session_id_pointer(cid: str) -> Path:
 
 
 def _pointer(directory: Path, name: str) -> Path:
-    current = directory / name
-    legacy_names = {
-        "claude": "by_ccsid",
-        "opencode": "by_opencode_run_id",
-        "codex": "by_codex_session_id",
-    }
-    legacy_name = legacy_names.get(directory.name)
-    if legacy_name is None:
-        return current
-    legacy = SESSIONS_DIR / legacy_name / name
-    return legacy if not current.exists() and legacy.exists() else current
+    return directory / name
 
 
 def owrap_sid_for_codex_session_id(cid: str) -> str | None:
@@ -181,11 +110,21 @@ def list_sessions() -> list:
     return out
 
 
+def _rebind_stale_anchor(sid: str, token: str, pointer_dir: Path, pointer_fn) -> None:
+    """
+    Point `token`'s anchor at `sid` if it doesn't already.
+    """
+    ptr = pointer_fn(token)
+    current = ptr.read_text().strip() if ptr.exists() else None
+    if current != sid:
+        pointer_dir.mkdir(parents=True, exist_ok=True)
+        ptr.write_text(sid)
+
+
 def resolve(mode: str) -> tuple:
     """
     Resolve the current owrap session, minting one in start mode.
     """
-    migrate_session_storage()
     env_sid = os.environ.get("SESSION_ID", "").strip()
     ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
     cid = os.environ.get("CODEX_SESSION_ID", "").strip()
@@ -193,6 +132,13 @@ def resolve(mode: str) -> tuple:
     if env_sid:
         sf = session_file(env_sid)
         if sf.exists():
+            # Keep the ccsid/codex anchor from going stale behind SESSION_ID.
+            if ccsid:
+                _rebind_stale_anchor(env_sid, ccsid, BY_CCSID_DIR, ccsid_pointer)
+            if cid:
+                _rebind_stale_anchor(
+                    env_sid, cid, BY_CODEX_SESSION_ID_DIR, codex_session_id_pointer,
+                )
             return env_sid, sf, "env"
 
     if ccsid:
@@ -674,41 +620,3 @@ def remove_session(session_id: str):
             for ptr in pointer_dir.iterdir():
                 if ptr.is_file() and ptr.read_text().strip() == session_id:
                     ptr.unlink(missing_ok=True)
-
-
-def migrate_legacy_files():
-    """
-    Detect and convert legacy CCSID-named session files.
-
-    Detect ~/.owrap/sessions/<CCSID-format>.session files
-    (UUID-style names) and convert.
-
-    Old format: file named after CCSID (UUID-ish: 8-4-4-4-12),
-    contains session_id=<hex>.
-    New format: file named after session_id (6 hex), has
-    claude_session_id=<CCSID> field, plus by_ccsid/<CCSID> pointer.
-    """
-    import re as _re
-    uuid_re = _re.compile(
-        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-    )
-    if not SESSIONS_DIR.exists():
-        return 0
-    BY_CCSID_DIR.mkdir(parents=True, exist_ok=True)
-    converted = 0
-    for sf in session_files():
-        stem = sf.stem
-        if not uuid_re.match(stem):
-            continue
-        d = _parse(sf)
-        sid = d.get("session_id")
-        if not sid:
-            continue
-        d["claude_session_id"] = stem
-        new_sf = session_file(sid)
-        if not new_sf.exists():
-            _write(new_sf, d)
-        ccsid_pointer(stem).write_text(sid)
-        sf.unlink(missing_ok=True)
-        converted += 1
-    return converted

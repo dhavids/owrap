@@ -20,14 +20,6 @@ def move_to_trash(session_id: str) -> Path:
     trash_dir.mkdir(parents=True, exist_ok=True)
 
     sdir = session_dir(session_id)
-    current_metadata = sdir / ".session"
-    legacy_metadata = SESSIONS_DIR / f"{session_id}.session"
-    metadata = (
-        legacy_metadata if not current_metadata.exists()
-        and legacy_metadata.exists() else current_metadata
-    )
-    if metadata.exists() and metadata.parent != sdir:
-        shutil.move(str(metadata), str(trash_dir / "session"))
     if sdir.exists():
         shutil.move(str(sdir), str(trash_dir / "docs_sessions"))
 

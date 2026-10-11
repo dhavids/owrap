@@ -74,6 +74,12 @@ def print_orientation(
             print(f"  project: {target.project_id}   subproject: {scope}")
         else:
             print(f"  repository: {target.repository_ids[0]}")
+        if target.high_risk:
+            print(
+                "  ⚠ this target is marked high-risk — context auto-dispatch "
+                "is disabled; run `owrap ctx get template`, update the files "
+                "by hand, then `owrap ctx done`",
+            )
     if ctx_status in ("pending", "failed"):
         from ..ctx.dispatch import read_opencode_status_detail
         detail = read_opencode_status_detail()

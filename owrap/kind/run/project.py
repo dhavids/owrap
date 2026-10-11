@@ -66,6 +66,31 @@ def _project_session() -> tuple:
     return session_id, data
 
 
+def _set_target_risk(value: str) -> dict:
+    """
+    Set the risk level on the active session's project, or its
+    currently selected subproject.
+    """
+    _, data = _project_session()
+    project_id = data["project_id"]
+    subproject_id = data.get("subproject_id", "")
+    directory = docs_root(data.get("workspace", "")) / "projects" / project_id
+    yaml_path = directory / f"{project_id}.yaml"
+    with file_lock(yaml_path.with_suffix(".yaml.lock")):
+        record = _record(yaml_path, "project", project_id)
+        if subproject_id:
+            subprojects = record.get("subprojects", {})
+            entry = subprojects.get(subproject_id)
+            if not isinstance(entry, dict):
+                raise ValueError(f"unknown subproject: {project_id}/{subproject_id}")
+            entry["risk"] = value
+        else:
+            record["risk"] = value
+        record["last_updated"] = time.time()
+        _write_atomic(yaml_path, _dump_yaml(record))
+    return {"project_id": project_id, "name": subproject_id or "main"}
+
+
 def _select_subproject(session_id: str, data: dict, subproject_id: str) -> None:
     """
     Point the attached session at `subproject_id` (or main, if
@@ -211,26 +236,29 @@ class Project(Session):
             "group": "session",
         },
         "set": {
-            "usage": "[<name>]",
+            "usage": "[<name>|risk <low|high>]",
             "args": [
                 ("name", "existing subproject to select; omit to "
                          "select main"),
+                ("risk", "set the active target's (project, or its "
+                         "selected subproject) risk level"),
             ],
-            "examples": ["", "docs"],
-            "purpose": "Return the current project session to main, or "
-                   "select an existing subproject",
+            "examples": ["", "docs", "risk high", "risk low"],
+            "purpose": "Return the current project session to main, "
+                   "select an existing subproject, or set its risk level",
             "group": "session",
         },
         "get": {
-            "usage": "[main|subs|sub <name>|name|path]",
+            "usage": "[main|subs|sub <name>|name|path|risk]",
             "args": [
                 ("main", "the project's own Goals/Decisions (default)"),
                 ("subs", "list the project's subprojects"),
                 ("sub", "a named subproject's Goals/Decisions"),
                 ("name", "report the active project/subproject id"),
                 ("path", "report the active record's file path"),
+                ("risk", "report the active target's risk level"),
             ],
-            "examples": ["", "main", "subs", "sub docs", "name", "path"],
+            "examples": ["", "main", "subs", "sub docs", "name", "path", "risk"],
             "purpose": "Read project/subproject goals and decisions, or "
                    "report identity",
             "group": "record",
@@ -241,6 +269,7 @@ class Project(Session):
         "update": "Renamed project {old_id} -> {new_id}",
         "add": "{action}: {project_id}/{name}",
         "set": "Selected: {project_id}/{name}",
+        "risk": "{project_id}/{name}: risk set to {value}",
         "name": "{name}",
         "path": "{path}",
     }
@@ -272,11 +301,19 @@ class Project(Session):
         _, data = _project_session()
         self._ok("add", action=action, project_id=data["project_id"], name=name)
 
-    def set(self, name: str = None) -> None:
+    def set(self, name: str = None, value: str = None) -> None:
         """
         Select an existing subproject (or main, if `name` is
         omitted) without creating one -- fails if it doesn't exist.
+        `set risk <low|high>` instead sets the active target's risk
+        level.
         """
+        if name == "risk":
+            if value not in ("low", "high"):
+                self._usage("set")
+            result = self._edit(_set_target_risk, value)
+            self._ok("risk", **result, value=value)
+            return
         session_id, data = self._edit(_project_session)
         self._edit(_select_subproject, session_id, data, name or "")
         self._ok("set", project_id=data["project_id"], name=name or "main")
@@ -311,6 +348,9 @@ class Project(Session):
             self._ok("name", name=f"{data['project_id']}/{subproject}")
         elif facet == "path":
             self._ok("path", path=resolve_memory_target(data).project_path)
+        elif facet == "risk":
+            risk = "high" if resolve_memory_target(data).high_risk else "low"
+            self._ok("name", name=risk)
         else:
             self._usage("get")
 

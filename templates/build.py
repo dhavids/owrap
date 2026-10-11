@@ -8,10 +8,11 @@ kind/action resolver -- catches a doc describing a command that quietly
 stopped existing (renamed kind, renamed action, retired verb) instead of
 letting it sit stale until someone trips over it by hand.
 
-`generate()` rewrites both "GENERATED" blocks in `self/commands.md` --
-the workflow-grouped tables and the full per-kind reference -- built
-straight from each kind's own `usage` dict, so neither can fall out of
-sync with what a kind actually supports.
+`generate()` rewrites the "GENERATED" blocks in `self/commands.md` --
+the workflow-grouped tables and full per-kind reference built from
+each kind's own `usage` dict, and the config table built from
+`config.json`/code constants -- so none of them can fall out of sync
+with what the CLI actually does.
 
 Run directly (`python3 templates/build.py`) to regenerate, or via
 `deploy.py --check` (verify-only, no write) before promoting dev to
@@ -19,6 +20,7 @@ live.
 """
 import contextlib
 import io
+import json
 import re
 import sys
 from pathlib import Path
@@ -29,11 +31,15 @@ if str(ROOT) not in sys.path:
 
 from owrap.actions import usage_prefix  # noqa: E402
 from owrap.cli import _resolve_kind_first  # noqa: E402
+from owrap.ctx.dispatch import (  # noqa: E402
+    AUTO_CTX_BACKOFF_SCHEDULE_S, CTX_MIN_CHARS, CTX_MIN_INTERVAL_S,
+)
 from owrap.kind import KIND_ALIASES, KIND_REGISTRY  # noqa: E402
 from owrap.kind.dispatch import Dispatch  # noqa: E402
 
 TEMPLATES_DIR = Path(__file__).resolve().parent
 COMMANDS_MD = TEMPLATES_DIR / "self" / "commands.md"
+CONFIG_JSON = TEMPLATES_DIR / "config.json"
 
 PREFIXES = ("owrap", "~/bin/owrap", "{{BIN_DIR}}/owrap")
 # A span may wrap across one prose line break (plain `\n`), but never a
@@ -49,6 +55,72 @@ GENERATED_END = "<!-- END GENERATED: full command reference -->"
 
 WORKFLOW_START = "<!-- BEGIN GENERATED: workflow tables (templates/build.py) -->"
 WORKFLOW_END = "<!-- END GENERATED: workflow tables -->"
+
+CONFIG_START = "<!-- BEGIN GENERATED: config table (templates/build.py) -->"
+CONFIG_END = "<!-- END GENERATED: config table -->"
+
+# (key(s), type, description) for every documented config.json entry.
+# A tuple of keys shares one row (e.g. the three kill timeouts); their
+# defaults are pulled from config.json in the same order, joined by "/".
+# `string`-typed keys keep a "—" default -- config.json's value there is
+# an example, not a shipped default worth advertising.
+CONFIG_ROWS = (
+    (("owrap_runner_enabled",), "bool",
+     "Runner on/off switch. When `false`, dispatch tooling (`owrap "
+     "read`/`exec`/`agent`/`task`, or `owrap fallback start`) is "
+     "disabled and planner works directly."),
+    (("owrap_context_manager_enabled",), "bool",
+     "Gates the context-manager pipeline (Update Context/Update "
+     "Protocol dispatch, including PreCompact), independent of the "
+     "runner switch above."),
+    (("permit_bypass_all",), "bool",
+     "When `true`, `owrap p` auto-approves every Bash/Write/Edit call "
+     "with no rule matching. Explicit opt-in only -- never implied by "
+     "the runner switch."),
+    (("runner_allow_all",), "bool",
+     "Always pass `--dangerously-skip-permissions` to opencode "
+     "dispatches."),
+    (("runner_use_oread",), "bool",
+     "Require file reads through `owrap read` (enables Read in "
+     "permission matcher)."),
+    (("context_injection_enabled",), "bool",
+     "Inject session context file into task/msg prompts."),
+    (("default_research",), "string",
+     "Default target for legacy positional `start`."),
+    (("workspace",), "string", "Path to the project root."),
+    (("docs_root",), "string",
+     "Root for projects, repositories, and the user-owned "
+     "`instruction.md`."),
+    (("research_root",), "string", "Legacy alias read during migration."),
+    (("use_multiple_servers",), "bool", "Enable server pool mode."),
+    (("max_servers",), "int", "Maximum concurrent opencode servers."),
+    (("min_servers",), "int",
+     "Minimum live servers the daemon maintains."),
+    (("max_requests_per_server",), "int",
+     "Request quota per server before graceful eviction."),
+    (("idle_shutdown_s",), "float", "Idle seconds before server shutdown."),
+    (("daemon_interval_s",), "float",
+     "Seconds between daemon pool-lifecycle checks."),
+    (("ctx_check_interval_s",), "float", None),  # built from code constants below
+    (("runner_model",), "string",
+     "Model for regular runner dispatch (`owrap task start`/`owrap "
+     "exec start`)."),
+    (("context_manager_model",), "string",
+     "Model for context-manager tasks (Update Context/Update Protocol "
+     "dispatch)."),
+    (("context_fallback_model",), "string",
+     "Fallback model when `context_manager_model` isn't set."),
+    (("daemon_default_model",), "string",
+     "Reserved for the daemon; not currently consumed (the daemon is "
+     "pure lifecycle management, no model calls)."),
+    (("msg_kill_s", "task_kill_s", "exec_kill_s"), "int",
+     "No output kill timeouts for msg, task, exec jobs."),
+    (("stall_notify_s",), "int",
+     "Seconds before notification for a stalled job."),
+    (("watchdog_poll_s",), "int", "Watchdog polling interval."),
+    (("expected_duration_*",), "int",
+     "Expected duration thresholds for msg/read/task/exec."),
+)
 
 # Display order and heading for each `usage[action]["group"]` value.
 GROUP_TITLES = {
@@ -225,6 +297,60 @@ def generate_workflow_tables() -> str:
     return f"{WORKFLOW_START}\n{body}\n{WORKFLOW_END}"
 
 
+def _format_duration(seconds: int) -> str:
+    """Render a seconds count as `Xm`/`Xh` for prose use."""
+    if seconds % 3600 == 0:
+        return f"{seconds // 3600}h"
+    return f"{seconds // 60}m"
+
+
+def _config_default(keys: tuple, config: dict) -> str:
+    """
+    Render a row's Default cell from `config.json`'s real values --
+    `—` for a key that isn't in config.json, a wildcard key, or a
+    string-typed key (those are example values, not shipped defaults).
+    """
+    if keys[0].endswith("*"):
+        return "varies"
+    cells = []
+    for key in keys:
+        if key not in config or isinstance(config[key], str):
+            return "—"
+        value = config[key]
+        cells.append("true" if value is True else "false" if value is False else str(value))
+    return "/".join(f"`{cell}`" for cell in cells)
+
+
+def generate_config_table() -> str:
+    """
+    Build the config-key reference table straight from `config.json`'s
+    real values and, for the one row whose prose cites the auto-ctx
+    cooldown/backoff numbers, the live code constants that drive them.
+    """
+    config = json.loads(CONFIG_JSON.read_text())
+    ctx_desc = (
+        "Seconds between the daemon's background checks for an "
+        "attached window's unprocessed transcript diff -- an "
+        f"auto-dispatch still only fires once the excerpt clears "
+        f"`CTX_MIN_CHARS` ({CTX_MIN_CHARS // 1000}k) and this window's "
+        f"own {CTX_MIN_INTERVAL_S // 60}-min cooldown, and "
+        "otherwise follows a "
+        f"{'/'.join(_format_duration(s) for s in AUTO_CTX_BACKOFF_SCHEDULE_S)}"
+        f" schedule that cycles back to "
+        f"{_format_duration(AUTO_CTX_BACKOFF_SCHEDULE_S[0])} after "
+        "repeated opencode-down failures."
+    )
+    lines = ["| Key | Type | Default | Description |", "|---|---|---|---|"]
+    for keys, type_, description in CONFIG_ROWS:
+        if description is None:
+            description = ctx_desc
+        key_cell = " / ".join(f"`{key}`" for key in keys)
+        default = _config_default(keys, config)
+        lines.append(f"| {key_cell} | {type_} | {default} | {description} |")
+    body = "\n".join(lines)
+    return f"{CONFIG_START}\n{body}\n{CONFIG_END}"
+
+
 def _replace_block(text: str, start: str, end: str, block: str) -> str:
     """
     Replace the `start`..`end` marked block in `text` with `block`,
@@ -238,9 +364,9 @@ def _replace_block(text: str, start: str, end: str, block: str) -> str:
 
 def generate() -> None:
     """
-    Replace the GENERATED blocks in `self/commands.md` with a fresh
-    workflow grouping and full command reference, both built straight
-    from `KIND_REGISTRY`'s `usage` dicts.
+    Replace the GENERATED blocks in `self/commands.md`: workflow
+    grouping and full command reference from `KIND_REGISTRY`'s `usage`
+    dicts, and the config table from `config.json`/code constants.
     """
     text = COMMANDS_MD.read_text()
     text = _replace_block(
@@ -248,6 +374,9 @@ def generate() -> None:
     )
     text = _replace_block(
         text, GENERATED_START, GENERATED_END, generate_commands_reference(),
+    )
+    text = _replace_block(
+        text, CONFIG_START, CONFIG_END, generate_config_table(),
     )
     COMMANDS_MD.write_text(text)
 

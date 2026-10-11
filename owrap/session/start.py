@@ -15,7 +15,7 @@ from ..utils.paths import (
     session_task_output_dir,
 )
 from ..utils.session.resolver import (
-    resolve, update_session_field, migrate_legacy_files,
+    resolve, update_session_field,
     session_file as _sf, ccsid_pointer, _write as _sr_write,
     BY_CCSID_DIR, BY_OPENCODE_RUN_ID_DIR,
     BY_CODEX_SESSION_ID_DIR, codex_session_id_pointer,
@@ -109,7 +109,6 @@ def start(
             "--repository", file=sys.stderr,
         )
         sys.exit(2)
-    migrate_legacy_files()
 
     if session_id is not None:
         sf_path = _sf(session_id)
