@@ -2,20 +2,14 @@ import fcntl
 import json
 import os
 import re
-import signal
-import subprocess
-import sys
 import tempfile
 import time
 from contextlib import contextmanager
-from pathlib import Path
 
 from ..paths import (
     _read_config, SERVERS_DIR, RUNNING_DIR,
-    DAEMON_LOCK_FILE, DAEMON_PID_FILE, OWRAP_ROOT, POOL_FILE,
-    POOL_LOCK_FILE, SERVER_LOGS_DIR,
+    POOL_FILE, POOL_LOCK_FILE, SERVER_LOGS_DIR,
 )
-from ..io.filelock import file_lock
 from ..log import rtlog
 from ...dispatch.process import is_alive as _is_alive
 
@@ -200,7 +194,6 @@ def pick_server(call_type: str) -> str:
     """
     if not _pool_active():
         raise RuntimeError("pool is not active")
-    _ensure_daemon()  # self-heals daemon on every pooled dispatch
     ensure_min_servers()
     with _pool_lock():
         pool = _read_pool()
@@ -214,9 +207,7 @@ def pick_server(call_type: str) -> str:
         max_servers = int(config.get("max_servers", 5))
         max_req = int(config.get("max_requests", 0))
 
-        # Mark any server that has hit its request quota as draining: stop routing new
-        # work to it, but let in-flight requests finish rather than killing it outright
-        # (killing only when idle avoids cutting off a live request).
+        # Drain quota-exhausted servers: stop routing new work, finish in-flight requests.
         if max_req > 0:
             for e in live:
                 if e.get("request_count", 0) >= max_req:
@@ -246,9 +237,7 @@ def pick_server(call_type: str) -> str:
         live = [e for e in live if e not in exhausted]
 
         if not live:
-            # Entries here failed the liveness/responsiveness check above but may still be
-            # actually running (hung, not dead) — force-kill them so they don't leak as
-            # untracked orphans once the pool below is overwritten.
+            # Force-kill any hung-but-not-dead entries before the pool gets overwritten.
             for stale in pool:
                 pid = stale.get("pid")
                 if not pid or not _is_alive(pid):
@@ -279,13 +268,10 @@ def pick_server(call_type: str) -> str:
             _write_pool([entry])
             return entry["url"]
 
-        # Draining servers stay tracked in the pool (so they can still be reaped once
-        # idle) but are never selected for new work.
+        # Draining servers stay tracked (so they can be reaped) but are never selected.
         selectable = [e for e in live if not e.get("draining")]
         if not selectable:
-            # Every live server is draining (still finishing in-flight work) — start a
-            # fresh one so new work has somewhere to go, even if this briefly exceeds
-            # max_servers; the draining entries will be reaped as they go idle.
+            # All live servers are draining -- start a fresh one even past max_servers.
             port = _next_port(live)
             entry = _start_server(port)
             _wait_responsive(entry["url"])
@@ -437,11 +423,7 @@ def shutdown_idle(idle_s: float | None = None, min_n: int | None = None):
             and _is_responsive(entry.get("url", ""))
         ]
         now = time.time()
-        # Heal stale reservations: reserved > 0 but no active tasks
-        # means a crash leaked the counter. Only heal if the reservation
-        # is older than a small grace period, avoiding the race window
-        # where reserved was just incremented but the sentinel file
-        # hasn't been written yet.
+        # Heal a stale reservation (crash leaked the counter) past a grace period.
         _RESERVED_HEAL_GRACE = 5.0
         for entry in live:
             if (entry.get("reserved", 0) > 0
@@ -576,76 +558,3 @@ def _estimate_remaining(url: str, now: float | None = None) -> float:
     return total
 
 
-def _spawn_daemon():
-    """
-    Unconditionally start a new daemon process and record its pid.
-    """
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "owrap.kind.run.daemon"],
-        start_new_session=True,
-        cwd=str(OWRAP_ROOT),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    DAEMON_PID_FILE.write_text(str(proc.pid))
-
-
-def _ensure_daemon() -> bool:
-    """
-    Start this checkout's daemon when it is not already running. Returns
-    whether a new daemon was actually spawned.
-    """
-    with file_lock(DAEMON_LOCK_FILE):
-        if DAEMON_PID_FILE.exists():
-            try:
-                pid = int(DAEMON_PID_FILE.read_text().strip())
-                os.kill(pid, 0)
-                return False
-            except (ValueError, OSError):
-                DAEMON_PID_FILE.unlink(missing_ok=True)
-        _spawn_daemon()
-        return True
-
-
-def _stop_daemon(timeout: float = 3.0) -> bool:
-    """
-    Stop the running daemon, if any. Returns whether a process was
-    actually signaled (False if nothing was running).
-    """
-    with file_lock(DAEMON_LOCK_FILE):
-        if not DAEMON_PID_FILE.exists():
-            return False
-        try:
-            pid = int(DAEMON_PID_FILE.read_text().strip())
-        except ValueError:
-            DAEMON_PID_FILE.unlink(missing_ok=True)
-            return False
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except OSError:
-            DAEMON_PID_FILE.unlink(missing_ok=True)
-            return False
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            try:
-                os.kill(pid, 0)
-            except OSError:
-                break
-            time.sleep(0.1)
-        else:
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except OSError:
-                pass
-        DAEMON_PID_FILE.unlink(missing_ok=True)
-        return True
-
-
-def _restart_daemon():
-    """
-    Stop the running daemon (if any) and start a fresh one, so it
-    picks up code changes since it was first spawned.
-    """
-    _stop_daemon()
-    with file_lock(DAEMON_LOCK_FILE):
-        _spawn_daemon()

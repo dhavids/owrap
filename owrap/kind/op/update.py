@@ -7,11 +7,9 @@ from datetime import datetime
 from pathlib import Path
 
 from . import Op
-from ..run.daemon import Daemon, _kill_pid, _wait_dead
-from ...dispatch.process import is_alive
+from ..run.daemon import Daemon
 from ...utils.paths import (
-    CONFIGS_DIR, DAEMON_PID_FILE, OWRAP_HOME, OWRAP_HOME_POINTER_FILE, OWRAP_ROOT,
-    _read_config,
+    CONFIGS_DIR, OWRAP_HOME, OWRAP_HOME_POINTER_FILE, OWRAP_ROOT, _read_config,
 )
 
 
@@ -104,7 +102,6 @@ class Update(Op):
         print(f"Backup created: {backup_path}")
         print("Stopping server pool and running tasks...")
         Daemon()._on_kill()
-        self._stop_daemon()
 
         try:
             self._move(current_home, target)
@@ -219,17 +216,6 @@ class Update(Op):
         with tarfile.open(backup_path, "w:gz") as tar:
             tar.add(str(current_home), arcname=current_home.name)
         return backup_path
-
-    def _stop_daemon(self) -> None:
-        if not DAEMON_PID_FILE.exists():
-            return
-        try:
-            pid = int(DAEMON_PID_FILE.read_text().strip())
-            if is_alive(pid):
-                _kill_pid(pid)
-                _wait_dead([pid])
-        except (ValueError, OSError):
-            pass
 
     def _same_filesystem(self, a: Path, b: Path) -> bool:
         try:

@@ -197,10 +197,9 @@ def start(
         for field in ("research", "area", "child"):
             update_session_field(session_id, field, "")
 
-    from ..utils.dispatch.pool import _pool_active, ensure_min_servers, _ensure_daemon
+    from ..utils.dispatch.pool import _pool_active, ensure_min_servers
     if _pool_active():
         ensure_min_servers()
-        _ensure_daemon()
     else:
         manager.ensure_running()
 
@@ -289,10 +288,9 @@ def refresh(
     if project_name is None:
         project_name = existing_project_name
 
-    from ..utils.dispatch.pool import _pool_active, ensure_min_servers, _ensure_daemon
+    from ..utils.dispatch.pool import _pool_active, ensure_min_servers
     if _pool_active():
         ensure_min_servers()
-        _ensure_daemon()
     else:
         url = manager.ensure_running()
         if url is None:
