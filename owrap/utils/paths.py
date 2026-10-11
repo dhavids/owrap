@@ -234,30 +234,30 @@ def session_agent_full_log_dir(session_id: str) -> Path:
     return session_agents_dir(session_id) / "output"
 
 
-def _read_config() -> dict:
+def _read_config(workspace_name: str = None) -> dict:
     """
-    Read base config merged with the default workspace config.
-
-    Base keys are overridden by workspace keys.
+    Read base config merged with a workspace config: `workspace_name`
+    if given, else base's own `default_workspace`. Base keys are
+    overridden by workspace keys.
     """
     global _config_cache, _config_cache_stat
-    if BASE_CONFIG_FILE.exists():
-        st = os.stat(BASE_CONFIG_FILE)
-        stat_tuple = (st.st_mtime, st.st_size)
-        if _config_cache is not None and _config_cache_stat == stat_tuple:
-            return _config_cache
-        with open(BASE_CONFIG_FILE) as f:
-            base = json.load(f)
-        ws_name = base.get("default_workspace", "")
-        if ws_name:
-            ws_cfg = get_workspace_config(ws_name)
-            merged = {**base, **ws_cfg}
-        else:
-            merged = base
+    if not BASE_CONFIG_FILE.exists():
+        return {}
+    use_cache = workspace_name is None
+    st = os.stat(BASE_CONFIG_FILE)
+    stat_tuple = (st.st_mtime, st.st_size)
+    # Only the no-arg result is cached -- the cache key is the base
+    # file alone, which can't distinguish between workspace_name values.
+    if use_cache and _config_cache is not None and _config_cache_stat == stat_tuple:
+        return _config_cache
+    with open(BASE_CONFIG_FILE) as f:
+        base = json.load(f)
+    ws_name = base.get("default_workspace", "") if use_cache else workspace_name
+    merged = {**base, **get_workspace_config(ws_name)} if ws_name else base
+    if use_cache:
         _config_cache = merged
         _config_cache_stat = stat_tuple
-        return _config_cache
-    return {}
+    return merged
 
 
 def get_workspace_config(workspace_name: str) -> dict:

@@ -14,7 +14,7 @@
     "min_servers": 1,
     "idle_shutdown_s": 300,
     "daemon_interval_s": 10,
-    "ctx_check_interval_s": 600,
+    "ctx_check_interval_s": 1800,
     "daemon_default_model": "opencode/deepseek-v4-flash-free",
     "runner_model": "opencode/deepseek-v4-flash-free",
     "context_manager_model": "opencode/deepseek-v4-flash-free",

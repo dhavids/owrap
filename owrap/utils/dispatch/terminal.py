@@ -135,6 +135,7 @@ class Terminal:
         cwd=None,
         use_pty=False,
         idle_timeout=None,
+        idle_timeout_after=None,
     ):
         """
         Execute a command in the managed subprocess.
@@ -144,6 +145,10 @@ class Terminal:
         fail fast on a stuck process instead of waiting out the full
         hard timeout. Only applies in the streamed (print_output and
         capture_output) path of the non-interactive, non-detached run.
+
+        idle_timeout_after: (marker, extended_timeout) -- each time
+        `marker` appears in a new chunk of output, `idle_timeout`
+        resets to `extended_timeout` from that point.
         """
         if silent:
             print_output = False
@@ -161,6 +166,7 @@ class Terminal:
                 return self._run_standard(
                     command, stdin, capture_output, print_output, silent, timeout,
                     tee_file, cwd=cwd, use_pty=use_pty, idle_timeout=idle_timeout,
+                    idle_timeout_after=idle_timeout_after,
                 )
         finally:
             if register_signals and not detached:
@@ -318,6 +324,7 @@ class Terminal:
     def _run_standard(
         self, command, stdin, capture_output, print_output, silent, timeout,
         tee_file=None, cwd=None, use_pty=False, idle_timeout=None,
+        idle_timeout_after=None,
     ):
         import time
         if self.verbose and not silent:
@@ -377,19 +384,20 @@ class Terminal:
             timed_out = False
             idled_out = False
             pty_closed = False
+            active_idle_timeout = idle_timeout
             while proc.poll() is None:
                 now = time.time()
                 if deadline and now >= deadline:
                     timed_out = True
                     break
-                if idle_timeout and now - last_data_time >= idle_timeout:
+                if active_idle_timeout and now - last_data_time >= active_idle_timeout:
                     idled_out = True
                     break
                 wait = 0.1
                 if deadline:
                     wait = min(wait, deadline - now)
-                if idle_timeout:
-                    wait = min(wait, last_data_time + idle_timeout - now)
+                if active_idle_timeout:
+                    wait = min(wait, last_data_time + active_idle_timeout - now)
                 wait = max(wait, 0)
                 if use_pty:
                     if pty_closed:
@@ -407,6 +415,8 @@ class Terminal:
                             line = data.decode(errors="ignore")
                             stdout_lines.append(line)
                             self._partial_stdout += line
+                            if idle_timeout_after and idle_timeout_after[0] in line:
+                                active_idle_timeout = idle_timeout_after[1]
                             clean = parser.feed(line)
                             if not any(line.startswith(p) for p in _MUTE_LINE_PREFIXES):
                                 print(clean, end="", flush=True)
@@ -426,6 +436,8 @@ class Terminal:
                                 last_data_time = time.time()
                                 stdout_lines.append(line)
                                 self._partial_stdout += line
+                                if idle_timeout_after and idle_timeout_after[0] in line:
+                                    active_idle_timeout = idle_timeout_after[1]
                                 clean = parser.feed(line)
                                 if not any(
                                     line.startswith(p) for p in _MUTE_LINE_PREFIXES

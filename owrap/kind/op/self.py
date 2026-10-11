@@ -6,9 +6,9 @@ from ..record.identity import current_workspace
 from ...ctx.dispatch import read_opencode_status_detail
 from ...utils.parser.text import preview_lines
 from ...utils.paths import (
-    OWRAP_HOME, RUNTIME_LOG, get_plan_path, get_self_path, get_workspace_config,
-    session_agent_log_path, session_exec_output_path, session_input,
-    session_msg_output_dir, session_task_output_dir,
+    OWRAP_HOME, RUNTIME_LOG, _read_config, get_plan_path, get_self_path,
+    get_workspace_config, session_agent_log_path, session_exec_output_path,
+    session_input, session_msg_output_dir, session_task_output_dir,
 )
 
 
@@ -25,15 +25,17 @@ class Self(Op):
     usage = {
         "get": {
             "usage": (
-                "[home|opencode [reason]|config|plan|input|output <kind>"
-                "|runtime [history]|history] [--count <n>] [--tail <n>] "
-                "[-g <pattern>] [--sid <id>]"
+                "[home|opencode [reason]|config [workspace]|plan|input"
+                "|output <kind>|runtime [history]|history] [--count <n>] "
+                "[--tail <n>] [-g <pattern>] [--sid <id>]"
             ),
             "args": [
                 ("home", "print the resolved OWRAP_HOME path"),
                 ("opencode", "print the shared opencode health flag "
                              "(up/down); add 'reason' for why"),
-                ("config", "print the attached session's workspace config"),
+                ("config", "print the attached session's effective config "
+                           "(base merged with workspace); add 'workspace' "
+                           "for just that workspace's own override file"),
                 ("plan", "print the attached session's active plan"),
                 ("input", "print the attached session's queued input"),
                 ("output", "print the latest msg/task/agent/exec output "
@@ -46,9 +48,9 @@ class Self(Op):
                             "completed commands, paired with their argv"),
             ],
             "examples": [
-                "", "home", "opencode", "opencode reason", "config", "plan",
-                "output task", "runtime", "runtime -g server.spawn",
-                "history", "history --count 10",
+                "", "home", "opencode", "opencode reason", "config",
+                "config workspace", "plan", "output task", "runtime",
+                "runtime -g server.spawn", "history", "history --count 10",
             ],
         },
     }
@@ -78,7 +80,7 @@ class Self(Op):
         elif what == "opencode":
             self._ok("get", text=self._opencode_status(detail))
         elif what == "config":
-            self._ok("get", text=self._config_dump())
+            self._ok("get", text=self._config_dump(detail))
         elif what == "plan":
             self._ok("get", text=self._session_file_preview(get_plan_path, "plan"))
         elif what == "input":
@@ -109,11 +111,21 @@ class Self(Op):
             return info["reason"] or "(none)"
         return info["status"]
 
-    def _config_dump(self) -> str:
+    def _config_dump(self, detail: str = None) -> str:
+        """
+        Report the attached session's effective config (base
+        defaults merged with its workspace's overrides), or --
+        with `detail == "workspace"` -- just that workspace's own
+        unmerged override file.
+        """
         self._attached_sid()
-        config = get_workspace_config(current_workspace())
+        workspace = current_workspace()
+        if detail == "workspace":
+            config = get_workspace_config(workspace)
+        else:
+            config = _read_config(workspace)
         if not config:
-            self._fail("no workspace config for the attached session")
+            self._fail("no config found for the attached session's workspace")
         return json.dumps(config, indent=2, sort_keys=True)
 
     def _session_file_preview(self, path_fn, noun: str) -> str:

@@ -31,8 +31,9 @@ from .excerpt import (
 )
 from .records import apply_record_output, validate_output
 from .templates import (
-    CTX_CONTEXT_BLOCK, CTX_IDLE_TIMEOUT_S, CTX_PROJECT_BLOCK,
-    CTX_REPOSITORY_BLOCK, CTX_SCOPED_TASK_TEMPLATE,
+    CTX_CONTEXT_BLOCK, CTX_IDLE_TIMEOUT_AFTER_READ_S, CTX_IDLE_TIMEOUT_S,
+    CTX_PROJECT_BLOCK, CTX_READ_MARKER, CTX_REPOSITORY_BLOCK,
+    CTX_SCOPED_TASK_TEMPLATE,
 )
 from ..utils.constants import ANTI_SUMMARY_SUFFIX
 from ..utils.dispatch.terminal import Terminal
@@ -59,11 +60,11 @@ MAX_EXCERPT_CHARS = 40000
 MAX_CODEX_EXCERPT_CHARS = 40000
 
 # Applies everywhere; a real model call needs both, not either.
-CTX_MIN_INTERVAL_S = 300  # 5 min since this window's last real attempt
-CTX_MIN_CHARS = 4000  # excerpt must also clear this
+CTX_MIN_INTERVAL_S = 900  # 15 min since this window's last real attempt
+CTX_MIN_CHARS = 5000  # excerpt must also clear this
 AUTO_CTX_STATE_FILE = RUNTIME_DIR / "auto_ctx_backoff.json"
 AUTO_CTX_FAILS_BEFORE_BACKOFF = 3
-AUTO_CTX_BACKOFF_SCHEDULE_S = (1800, 3600, 7200, 18000)  # 30m, 1h, 2h, 5h cap
+AUTO_CTX_BACKOFF_SCHEDULE_S = (1800, 3600, 7200)  # 30m, 1h, 2h, then back to 30m
 
 
 def read_opencode_status_detail() -> dict:
@@ -121,29 +122,27 @@ def _write_auto_ctx_backoff(data: dict) -> None:
 
 def _auto_ctx_due(now: float) -> bool:
     """
-    Whether the daemon's background ctx check should run at all right
-    now -- false while backing off from repeated opencode-down
-    failures (see `_record_auto_ctx_outcome`). A manual `--ctx`/
-    `--updr` dispatch and the PreCompact hook ignore this entirely.
+    Whether the daemon's background ctx check should run at all
+    right now, per the base cadence or the current backoff step. A
+    manual `--ctx`/`--updr` dispatch and the PreCompact hook ignore
+    this entirely.
     """
     backoff = _read_auto_ctx_backoff()
     if backoff.get("consecutive_fails", 0) < AUTO_CTX_FAILS_BEFORE_BACKOFF:
-        return True
-    last_index = len(AUTO_CTX_BACKOFF_SCHEDULE_S) - 1
-    index = min(max(backoff.get("backoff_index", 0), 0), last_index)
-    interval = AUTO_CTX_BACKOFF_SCHEDULE_S[index]
+        interval = AUTO_CTX_BACKOFF_SCHEDULE_S[0]
+    else:
+        index = max(backoff.get("backoff_index", 0), 0) % len(AUTO_CTX_BACKOFF_SCHEDULE_S)
+        interval = AUTO_CTX_BACKOFF_SCHEDULE_S[index]
     return now - backoff.get("last_attempt_ts", 0) >= interval
 
 
 def _record_auto_ctx_outcome(success: bool, now: float) -> None:
     """
     Update the background-ctx backoff state after a real dispatch
-    attempt (not a skip for being too soon/too small). Any success --
-    background, manual, or PreCompact -- clears the backoff entirely,
-    since it proves opencode is back up. A background failure only
-    advances the schedule (30m, 1h, 2h, capped at 5h) once three
-    consecutive background failures have accumulated; no direct retry
-    is attempted in between -- the next try waits for the schedule.
+    attempt (not a skip for being too soon/too small). A success
+    clears the backoff entirely; a failure advances the schedule
+    once `AUTO_CTX_FAILS_BEFORE_BACKOFF` consecutive failures have
+    accumulated.
     """
     if success:
         _write_auto_ctx_backoff(
@@ -154,7 +153,7 @@ def _record_auto_ctx_outcome(success: bool, now: float) -> None:
     fails = backoff.get("consecutive_fails", 0) + 1
     index = backoff.get("backoff_index", -1)
     if fails >= AUTO_CTX_FAILS_BEFORE_BACKOFF:
-        index = min(index + 1, len(AUTO_CTX_BACKOFF_SCHEDULE_S) - 1)
+        index = (index + 1) % len(AUTO_CTX_BACKOFF_SCHEDULE_S)
     _write_auto_ctx_backoff(
         {"consecutive_fails": fails, "backoff_index": index, "last_attempt_ts": now},
     )
@@ -369,7 +368,7 @@ def run_manual(mode: str = None, subproject: str = None) -> None:
     log_fd = open(str(log_path), "a")
     try:
         process = subprocess.Popen(
-            [sys.executable, "-m", "owrap.kind.run.ctx",
+            [sys.executable, "-m", "owrap.kind.dispatch.ctx",
              "--input", str(payload_path)],
             stdout=log_fd, stderr=log_fd,
             start_new_session=True, close_fds=True,
@@ -861,6 +860,9 @@ def _run_dispatch_attempt(ctx_dir: Path, output_path: Path, model: str) -> tuple
         cmd_str, capture_output=True, print_output=True,
         use_pty=True, cwd=str(ctx_dir), timeout=180,
         idle_timeout=CTX_IDLE_TIMEOUT_S,
+        idle_timeout_after=(
+            CTX_READ_MARKER, CTX_IDLE_TIMEOUT_AFTER_READ_S,
+        ),
     )
     rc = result.get("returncode", 1)
     print(f"ctx-worker: opencode rc={rc}", flush=True)
@@ -956,7 +958,7 @@ def hook_run() -> None:
     log_fd = open(str(log_path), "a")
     try:
         process = subprocess.Popen(
-            [sys.executable, "-m", "owrap.kind.run.ctx",
+            [sys.executable, "-m", "owrap.kind.dispatch.ctx",
              "--input", str(input_path)],
             stdout=log_fd,
             stderr=log_fd,
