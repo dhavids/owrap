@@ -35,7 +35,7 @@ def _print_context_jobs(jobs, show_session: bool = True) -> None:
         if status == "succeeded":
             status = "done(ok)"
         elif status == "failed":
-            status = f"done(rc={job.get('rc', '?')})"
+            status = f"failed(rc={job.get('rc', '?')})"
         started = job.get("started") or job.get("queued") or time.time()
         ended = job.get("finished") or time.time()
         elapsed = max(0, ended - started)
@@ -91,13 +91,9 @@ class Stat(Op):
     pool, every running/recently-done task, context jobs, and every
     known session's identity -- the `owrap stat` command. No stored
     identity or live process of its own, acting on one implicit
-    target (the whole dispatch system), the same shape `Op` already
-    covers -- `do` is the full report, `get` narrows it to one
-    session's tasks and queue. Thinner than the old `StatRunner` by
-    design: every per-task status line goes through
-    `work.format_task_status`, the same formatter `Dispatch.get`/
-    `Task.get` use, rather than its own copy of
-    `_print_running`/`_print_done`.
+    target (the whole dispatch system): `do` is the full report, `get`
+    narrows it to one session's tasks and queue. Every per-task status
+    line goes through `work.format_task_status`.
     """
 
     kind = "stat"

@@ -30,10 +30,7 @@ def workflow_home(tmp_path, monkeypatch):
         "owrap.utils.session.resolver.BY_CODEX_SESSION_ID_DIR",
         sessions / "by_codex_session_id",
     )
-    # `owrap.session.resolver` is a separate copy (see arc.md's Directory
-    # layout note on the deliberate owrap/session/ vs owrap/utils/session/
-    # duplication) that `SessionWorkflow`/new kinds actually use -- it
-    # needs the same isolation or it falls through to the real SESSIONS_DIR.
+    # owrap.session.resolver is a separate copy; it needs the same isolation.
     monkeypatch.setattr("owrap.session.resolver.SESSIONS_DIR", sessions)
     monkeypatch.setattr(
         "owrap.session.resolver.BY_CCSID_DIR", sessions / "by_ccsid",

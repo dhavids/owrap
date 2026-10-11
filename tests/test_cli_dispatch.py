@@ -31,6 +31,7 @@ class _ToyDispatch(Dispatch):
 
 class _ToyWithDo(Actions):
     kind = "sync"
+    usage = {"do": {"usage": "", "args": [], "examples": []}}
     messages = {"do": "did the one thing"}
 
     def do(self):
@@ -163,3 +164,38 @@ def test_non_dispatch_kind_unrecognized_action_still_errors(capsys, toy_registry
         main(["sync", "bogus"])
     assert exc.value.code == 2
     assert "does not support bogus" in capsys.readouterr().out
+
+
+def test_bare_help_flag_prints_global_usage_and_exits_0(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["-h"])
+    assert exc.value.code == 0
+    assert "Usage: owrap <kind> <action>" in capsys.readouterr().out
+
+
+def test_kind_with_help_flag_prints_help_not_do(capsys, toy_registry):
+    """
+    `-h` after a kind must show usage even for a kind with its own
+    `do` -- a bare kind alone would dispatch straight to `do` instead.
+    """
+    with pytest.raises(SystemExit) as exc:
+        main(["sync", "-h"])
+    assert exc.value.code == 2
+    assert "Usage: owrap sync do" in capsys.readouterr().out
+    assert "did the one thing" not in capsys.readouterr().out
+
+
+def test_action_with_help_flag_prints_only_that_actions_usage(capsys, toy_registry):
+    with pytest.raises(SystemExit) as exc:
+        main(["model", "set", "-h"])
+    assert exc.value.code == 2
+    out = capsys.readouterr().out
+    assert "Usage: owrap model set <slot> <query>" in out
+    assert "set runner=haiku" not in out
+
+
+def test_help_flag_works_regardless_of_position(capsys, toy_registry):
+    with pytest.raises(SystemExit) as exc:
+        main(["--help", "model", "set"])
+    assert exc.value.code == 2
+    assert "Usage: owrap model set" in capsys.readouterr().out
