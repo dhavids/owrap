@@ -81,7 +81,7 @@ def print_orientation(
             reason = f" ({detail['reason']})" if detail["reason"] else ""
             print(
                 f"  ⚠ last context-manager dispatch: {ctx_status} — "
-                f"opencode is down{reason}; run `owrap ctx-template`, "
+                f"opencode is down{reason}; run `owrap ctx get template`, "
                 f"update the files by hand, then `owrap ctx done`",
             )
         else:

@@ -906,35 +906,40 @@ def _classify_opencode_failure(attempt_metas) -> str:
 
 def hook_run() -> None:
     """
-    Receive Claude Code's PreCompact hook data (on stdin) and spawn a
-    background context-manager worker for the firing window (ccsid).
+    Receive Claude/Codex's PreCompact hook data (on stdin) and spawn
+    a background context-manager worker for the firing window
+    (ccsid), if there's enough new content to justify one.
     """
     try:
         hook_data = json.load(sys.stdin)
     except (json.JSONDecodeError, EOFError):
-        print("{}")
-        sys.exit(0)
+        return
 
     config = _read_config()
     if not config.get("owrap_context_manager_enabled", True):
-        print("{}")
-        sys.exit(0)
+        return
 
     ccsid = hook_data.get("session_id", "")
     transcript_path = hook_data.get("transcript_path", "")
-    cwd = hook_data.get("cwd", "")
-
-    _ = (transcript_path, cwd)
 
     owrap_sid = owrap_sid_for_ccsid(ccsid) if ccsid else None
+    source = "claude"
     if not owrap_sid and ccsid:
         owrap_sid = owrap_sid_for_codex_session_id(ccsid)
         if owrap_sid:
             hook_data["source"] = "codex"
+            source = "codex"
 
     if not owrap_sid:
-        print("{}")
-        sys.exit(0)
+        return
+
+    # Same floor as every other caller -- skip outright rather than
+    # spawn a subprocess _dispatch would immediately reject anyway.
+    now = time.time()
+    if _ctx_window_recently_attempted(owrap_sid, ccsid, now):
+        return
+    if _pending_excerpt_len(owrap_sid, ccsid, transcript_path, source) < CTX_MIN_CHARS:
+        return
 
     ctx_dir = session_ctx_dir(owrap_sid, ccsid)
     ctx_dir.mkdir(parents=True, exist_ok=True)
@@ -966,6 +971,3 @@ def hook_run() -> None:
         log_fd.close()
     if isinstance(process.pid, int):
         context_jobs.update(job_dir, pid=process.pid)
-
-    print("{}")
-    sys.exit(0)

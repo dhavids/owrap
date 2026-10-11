@@ -114,7 +114,7 @@ def is_context_update_request(text: str) -> bool:
 
 def is_context_update_command(command: str) -> bool:
     return bool(re.search(
-        r"(?:^|[/\s])owrap\s+(?:ctx|updr|ctx-hook|ctx-worker)\b",
+        r"(?:^|[/\s])owrap\s+(?:ctx|updr|ctx-worker)\b",
         command,
     ))
 

@@ -21,7 +21,7 @@ def _owrap_hook(hook: dict) -> bool:
     return (
         len(parts) >= 2
         and Path(parts[0]).name == "owrap"
-        and parts[1] in {"p", "ctx-hook"}
+        and (parts[1] == "p" or parts[1:4] == ["ctx", "get", "hook"])
     )
 
 

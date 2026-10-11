@@ -315,7 +315,7 @@ def stage_claude(
     bin_dir = values.get("BIN_DIR", str(Path.home() / "bin"))
     executable = _executable(bin_dir, "owrap")
     values["PERMIT_COMMAND"] = f"{executable} p"
-    values["CTX_COMMAND"] = f"{executable} ctx-hook"
+    values["CTX_COMMAND"] = f"{executable} ctx get hook"
     _stage_harness("claude", out_dir, flags, values)
 
 
@@ -331,7 +331,7 @@ def stage_codex(
     values["PERMIT_COMMAND"] = (
         f"{executable} p --workspace {shlex.quote(workspace_name)}"
     )
-    values["CTX_COMMAND"] = f"{executable} ctx-hook"
+    values["CTX_COMMAND"] = f"{executable} ctx get hook"
     _stage_harness("codex", out_dir, flags, values)
 
 
