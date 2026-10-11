@@ -12,7 +12,7 @@ pytestmark = pytest.mark.runner
 
 
 def test_ensure_daemon_starts_current_checkout(tmp_path):
-    from owrap.utils.dispatch.pool import _ensure_daemon
+    from owrap.kind.run.daemon import Daemon
 
     pid_file = tmp_path / "daemon.pid"
     lock_file = tmp_path / "daemon.lock"
@@ -21,15 +21,15 @@ def test_ensure_daemon_starts_current_checkout(tmp_path):
     process = MagicMock(pid=3210)
 
     with (
-        patch("owrap.utils.dispatch.pool.DAEMON_PID_FILE", pid_file),
-        patch("owrap.utils.dispatch.pool.DAEMON_LOCK_FILE", lock_file),
-        patch("owrap.utils.dispatch.pool.OWRAP_ROOT", root),
+        patch("owrap.kind.run.daemon.DAEMON_PID_FILE", pid_file),
+        patch("owrap.kind.run.daemon.DAEMON_LOCK_FILE", lock_file),
+        patch("owrap.kind.run.daemon.OWRAP_ROOT", root),
         patch(
-            "owrap.utils.dispatch.pool.subprocess.Popen",
+            "owrap.kind.run.daemon.subprocess.Popen",
             return_value=process,
         ) as popen,
     ):
-        _ensure_daemon()
+        Daemon.ensure_daemon()
 
     command = popen.call_args.args[0]
     assert command[0] == sys.executable
@@ -39,60 +39,67 @@ def test_ensure_daemon_starts_current_checkout(tmp_path):
 
 
 def test_ensure_daemon_keeps_running_process(tmp_path):
-    from owrap.utils.dispatch.pool import _ensure_daemon
+    from owrap.kind.run.daemon import Daemon
 
     pid_file = tmp_path / "daemon.pid"
     pid_file.write_text(str(os.getpid()))
 
     with (
-        patch("owrap.utils.dispatch.pool.DAEMON_PID_FILE", pid_file),
+        patch("owrap.kind.run.daemon.DAEMON_PID_FILE", pid_file),
         patch(
-            "owrap.utils.dispatch.pool.DAEMON_LOCK_FILE",
+            "owrap.kind.run.daemon.DAEMON_LOCK_FILE",
             tmp_path / "daemon.lock",
         ),
-        patch("owrap.utils.dispatch.pool.subprocess.Popen") as popen,
+        patch("owrap.kind.run.daemon.subprocess.Popen") as popen,
     ):
-        _ensure_daemon()
+        Daemon.ensure_daemon()
 
     popen.assert_not_called()
 
 
-def test_stop_daemon_signals_and_clears_pid_file(tmp_path):
-    from owrap.utils.dispatch.pool import _stop_daemon
+def test_stop_process_signals_and_clears_pid_file(tmp_path):
+    from owrap.kind.run.daemon import Daemon
 
     pid_file = tmp_path / "daemon.pid"
     pid_file.write_text("4321")
 
+    # First kill(pid, 0) is _read_pid's own liveness probe (still alive);
+    # the next kill(pid, 0) is the post-SIGTERM poll (now dead).
+    calls = []
+
     def _fake_kill(pid, sig):
-        if sig == 0:
+        calls.append(sig)
+        if sig == 0 and len(calls) > 1:
             raise OSError("no such process")
 
     with (
-        patch("owrap.utils.dispatch.pool.DAEMON_PID_FILE", pid_file),
+        patch("owrap.kind.run.daemon.DAEMON_PID_FILE", pid_file),
         patch(
-            "owrap.utils.dispatch.pool.DAEMON_LOCK_FILE",
+            "owrap.kind.run.daemon.DAEMON_LOCK_FILE",
             tmp_path / "daemon.lock",
         ),
-        patch("owrap.utils.dispatch.pool.os.kill", side_effect=_fake_kill) as kill,
+        patch("owrap.kind.run.daemon.os.kill", side_effect=_fake_kill),
     ):
-        stopped = _stop_daemon()
+        stopped = Daemon()._stop_process()
 
     assert stopped is True
-    assert kill.call_args_list[0].args == (4321, 15)
+    assert calls[:2] == [0, 15]
     assert not pid_file.exists()
 
 
-def test_stop_daemon_noop_when_not_running(tmp_path):
-    from owrap.utils.dispatch.pool import _stop_daemon
+def test_stop_process_noop_when_not_running(tmp_path):
+    from owrap.kind.run.daemon import Daemon
 
     with patch(
-        "owrap.utils.dispatch.pool.DAEMON_PID_FILE", tmp_path / "daemon.pid",
+        "owrap.kind.run.daemon.DAEMON_PID_FILE", tmp_path / "daemon.pid",
+    ), patch(
+        "owrap.kind.run.daemon.DAEMON_LOCK_FILE", tmp_path / "daemon.lock",
     ):
-        assert _stop_daemon() is False
+        assert Daemon()._stop_process() is False
 
 
 def test_restart_daemon_stops_then_spawns(tmp_path):
-    from owrap.utils.dispatch.pool import _restart_daemon
+    from owrap.kind.run.daemon import Daemon
 
     pid_file = tmp_path / "daemon.pid"
     pid_file.write_text("4321")
@@ -100,24 +107,28 @@ def test_restart_daemon_stops_then_spawns(tmp_path):
     root.mkdir()
     process = MagicMock(pid=9999)
 
+    calls = []
+
     def _fake_kill(pid, sig):
-        if sig == 0:
+        calls.append(sig)
+        if sig == 0 and len(calls) > 1:
             raise OSError("no such process")
 
     with (
-        patch("owrap.utils.dispatch.pool.DAEMON_PID_FILE", pid_file),
+        patch("owrap.kind.run.daemon.DAEMON_PID_FILE", pid_file),
         patch(
-            "owrap.utils.dispatch.pool.DAEMON_LOCK_FILE",
+            "owrap.kind.run.daemon.DAEMON_LOCK_FILE",
             tmp_path / "daemon.lock",
         ),
-        patch("owrap.utils.dispatch.pool.OWRAP_ROOT", root),
-        patch("owrap.utils.dispatch.pool.os.kill", side_effect=_fake_kill),
+        patch("owrap.kind.run.daemon.OWRAP_ROOT", root),
+        patch("owrap.kind.run.daemon.os.kill", side_effect=_fake_kill),
+        patch("owrap.kind.run.daemon._kill_other_daemons", return_value=0),
         patch(
-            "owrap.utils.dispatch.pool.subprocess.Popen",
+            "owrap.kind.run.daemon.subprocess.Popen",
             return_value=process,
         ) as popen,
     ):
-        _restart_daemon()
+        Daemon()._on_restart()
 
     popen.assert_called_once()
     assert pid_file.read_text() == "9999"
@@ -366,7 +377,6 @@ def test_pick_server_force_kills_stale_hung_entry(tmp_path):
     with patch("owrap.utils.dispatch.pool.POOL_FILE", fake_pool), \
          patch("owrap.utils.dispatch.pool.POOL_LOCK_FILE", fake_lock), \
          patch("owrap.utils.dispatch.pool._pool_active", return_value=True), \
-         patch("owrap.utils.dispatch.pool._ensure_daemon"), \
          patch("owrap.utils.dispatch.pool.ensure_min_servers"), \
          patch("owrap.utils.dispatch.pool._is_alive", side_effect=[True, True, False, False]), \
          patch("owrap.utils.dispatch.pool._is_responsive", return_value=False), \
@@ -409,7 +419,6 @@ def test_pick_server_escalates_to_sigkill_if_stale_wont_die(tmp_path):
     with patch("owrap.utils.dispatch.pool.POOL_FILE", fake_pool), \
          patch("owrap.utils.dispatch.pool.POOL_LOCK_FILE", fake_lock), \
          patch("owrap.utils.dispatch.pool._pool_active", return_value=True), \
-         patch("owrap.utils.dispatch.pool._ensure_daemon"), \
          patch("owrap.utils.dispatch.pool.ensure_min_servers"), \
          patch("owrap.utils.dispatch.pool._is_alive", return_value=True), \
          patch("owrap.utils.dispatch.pool._is_responsive", return_value=False), \

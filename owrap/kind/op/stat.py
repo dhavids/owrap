@@ -5,7 +5,9 @@ import time
 from . import Op
 from ...dispatch import work
 from ...dispatch.process import is_alive
-from ...session.resolver import _parse as _parse_session, session_files
+from ...session.resolver import (
+    _parse as _parse_session, session_files, session_label,
+)
 from ...utils.dispatch.pool import _active_load, get_pool
 from ...utils.log import context_jobs
 from ...utils.paths import (
@@ -42,7 +44,7 @@ def _print_context_jobs(jobs, show_session: bool = True) -> None:
         kind = job.get("kind", "ctx")
         sid = job.get("session_id", "?")
         job_id = job.get("job_id", "?")
-        session = f"[{sid}]  " if show_session else ""
+        session = f"[{session_label(sid)}]  " if show_session else ""
         age = f"  {age_str(job['finished'])} ago" if job.get("finished") else ""
         print(f"  {kind}  {session}{job_id}  {status}{age}  {elapsed:.0f}s")
         log_path = job.get("log_path", "")
@@ -314,7 +316,7 @@ class Stat(Op):
         all_sids = {t.get("session_id") for t in running + done if t.get("session_id")}
         all_sids.add(session_id)
 
-        print(f"tasks [{session_id}]:")
+        print(f"tasks [{session_label(session_id)}]:")
         if not running and not done and not ctx_jobs:
             print("  (no running or recently-done tasks)")
         else:

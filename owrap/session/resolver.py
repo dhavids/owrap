@@ -42,6 +42,19 @@ def session_files() -> list[Path]:
     return sorted(SESSIONS_DIR.glob("*/.session"))
 
 
+def session_label(session_id: str) -> str:
+    """
+    Return a session's project (subproject-qualified if set) for
+    display, falling back to the raw session id when it has neither.
+    """
+    data = _parse(session_file(session_id))
+    project = data.get("project_id")
+    if not project:
+        return session_id
+    subproject = data.get("subproject_id")
+    return f"{project}/{subproject}" if subproject else project
+
+
 def ccsid_pointer(ccsid: str) -> Path:
     return _pointer(BY_CCSID_DIR, ccsid)
 

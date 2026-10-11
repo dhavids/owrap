@@ -22,6 +22,7 @@ from datetime import datetime
 
 from .process import is_alive
 from ..ctx.state import clear_running_task, register_running_task
+from ..session.resolver import session_label
 from ..utils.constants import RECENT_TASK_RETENTION_S
 from ..utils.io.atomic import write_atomic
 from ..utils.io.filelock import file_lock
@@ -382,7 +383,8 @@ def format_task_status(data: dict, show_session: bool = False) -> str:
     """
     kind = data.get("kind", "task")
     label = f"{kind}{data.get('task_id', '?')}"
-    sess = f"  [{data.get('session_id', '?')}]" if show_session else ""
+    sid = data.get("session_id", "?")
+    sess = f"  [{session_label(sid)}]" if show_session else ""
     out = data.get("output_path", "")
     out_str = f"  {out}" if out else ""
 
