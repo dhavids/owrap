@@ -148,7 +148,7 @@ def done(error: str = None) -> None:
     given to report the manual attempt itself failed) and advance
     this window's transcript cursor to now, the same bookkeeping a
     successful automatic dispatch leaves. Refuses to mark `ok` if
-    none of the target files changed since `ctx-template` ran --
+    none of the target files changed since `owrap ctx get template` ran --
     catches the planner running `done` without actually having
     edited anything.
     """
@@ -202,10 +202,10 @@ def done(error: str = None) -> None:
 
 def _check_manual_update_happened(owrap_sid: str) -> None:
     """
-    Refuse with an error (exit 2) if `ctx-template` was run for this
+    Refuse with an error (exit 2) if `owrap ctx get template` was run for this
     session and none of its listed target files have changed since —
     the planner either hasn't edited them yet or ran `done`
-    against the wrong session. No-op if `ctx-template` was never run
+    against the wrong session. No-op if `owrap ctx get template` was never run
     (nothing to compare against) or has already been cleared.
     """
     ctx_state_data = state.read_ctx_state(owrap_sid)
@@ -230,7 +230,7 @@ def _check_manual_update_happened(owrap_sid: str) -> None:
     )
     if not changed:
         print(
-            "ERROR: none of the target files `ctx-template` listed have "
+            "ERROR: none of the target files `owrap ctx get template` listed have "
             "changed since it ran — nothing looks actually updated. Edit "
             "the files, or pass --error \"<reason>\" if the manual "
             "update itself failed."

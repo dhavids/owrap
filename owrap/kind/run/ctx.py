@@ -5,7 +5,7 @@ from pathlib import Path
 
 from . import Run
 from ...ctx import manual
-from ...ctx.dispatch import run, run_manual, wait_for_job
+from ...ctx.dispatch import hook_run, run, run_manual, wait_for_job
 from ...ctx.state import (
     ctx_dispatch_status, format_last_dispatch, queue_touched_paths,
 )
@@ -45,6 +45,16 @@ class Ctx(Run):
                                "the session's current target"),
             ],
             "examples": ["", "docs"],
+        },
+        "get": {
+            "usage": "[template [subproject]|hook]",
+            "args": [
+                ("template", "same as `owrap ctx template` -- the manual "
+                             "opencode-down fallback instructions"),
+                ("hook", "Harness's PreCompact hook entry point -- "
+                         "reads hook payload JSON from stdin, plumbing only"),
+            ],
+            "examples": ["", "template", "template docs"],
         },
         "done": {
             "usage": "[--error <reason>]",
@@ -112,8 +122,35 @@ class Ctx(Run):
         count = self._edit(queue_touched_paths, paths, note=note)
         self._ok("add", count=count, plural="s" if count != 1 else "")
 
+    def get(self, what: str = None, *args) -> None:
+        """
+        Run a plumbing facet by name: `template` (the manual
+        opencode-down fallback instructions, forwarding any
+        subproject arg) or `hook` (Claude/Codex's PreCompact entry
+        point). A bare `owrap ctx get` reaches `_default_get` instead
+        (dispatch's own no-args fallback), never this method.
+        """
+        if what == "template":
+            self.template(*args)
+        elif what == "hook":
+            self._hook()
+        else:
+            self._usage("get")
+
 
     # Private Methods
+
+    def _hook(self) -> None:
+        """
+        Always prints "{}" and never lets an exception escape --
+        compaction must never be blocked by this, regardless of what
+        happens inside `hook_run`.
+        """
+        try:
+            hook_run()
+        except Exception:
+            pass
+        print("{}")
 
     def _default_get(self) -> None:
         """
