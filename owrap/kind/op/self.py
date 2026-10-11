@@ -19,9 +19,6 @@ class Self(Op):
 
     kind = "self"
 
-    # Bare verbs the resolver may reroute here -- a reviewed list, not just anything.
-    BARE_ACTIONS = ("get",)
-
     usage = {
         "get": {
             "usage": (

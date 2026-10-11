@@ -42,9 +42,7 @@ def _resolve_kind_first(argv):
     """
     token = argv[0]
     kinds = ACTION_REGISTRY.get(token, [])
-    # Checked before the kind-name match below -- `token` can be both an
-    # action and a standalone kind name (e.g. `update`), and a second
-    # token naming one of its owning kinds settles that unambiguously.
+    # A second token naming an owning kind settles token being both (e.g. update).
     if len(argv) > 1:
         next_kind = KIND_ALIASES.get(argv[1], argv[1])
         if next_kind in kinds:
@@ -52,13 +50,13 @@ def _resolve_kind_first(argv):
     if (KIND_ALIASES.get(token, token)) in KIND_REGISTRY:
         return argv
     if not kinds:
-        # Verbs with no owning kind (e.g. get) fall back to Self.BARE_ACTIONS.
-        if token in KIND_REGISTRY["self"].BARE_ACTIONS:
-            return ["self", token] + argv[1:]
         return None
     # Lifecycle verbs (start/stop/restart) default to session when ambiguous.
     if "session" in kinds:
         return ["session", token] + argv[1:]
+    # Verbs ambiguous among many kinds default to Self (e.g. get's own facets).
+    if "self" in kinds:
+        return ["self", token] + argv[1:]
     if len(kinds) == 1:
         return [kinds[0], token] + argv[1:]
     print(

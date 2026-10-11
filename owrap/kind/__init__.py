@@ -72,9 +72,8 @@ def _build_action_registry() -> dict:
             base = Run if action in RUN_VERBS else Modify
             if supports(cls, action, base):
                 registry.setdefault(action, []).append(kind_name)
-        # `get` resolves through Self.BARE_ACTIONS instead.
         for action in getattr(cls, "usage", {}):
-            if action not in MODIFY_VERBS | RUN_VERBS and action != "get":
+            if action not in MODIFY_VERBS | RUN_VERBS:
                 registry.setdefault(action, []).append(kind_name)
     return registry
 
