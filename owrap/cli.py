@@ -9,6 +9,7 @@ from .utils.parser.text import oneline
 
 GLOBAL_BOOL_FLAGS = ("-a", "--allow-all")
 GLOBAL_VALUE_FLAGS = ("--shell-pid",)
+HELP_FLAGS = ("-h", "--help")
 
 
 def _strip_global_flags(argv):
@@ -65,14 +66,17 @@ def main(argv=None):
     """
     Entry point for the kind-first CLI: `owrap <kind> <action>
     [args...]`, falling back to the shim's action-first shape via
-    `_resolve_kind_first`. Logs every resolved invocation to rtlog as
-    `cmd.start`/`cmd.end`.
+    `_resolve_kind_first`. A bare `-h`/`--help` anywhere prints the
+    resolved kind's (or action's) usage instead of dispatching. Logs
+    every resolved invocation to rtlog as `cmd.start`/`cmd.end`.
     """
     raw_argv = sys.argv[1:] if argv is None else argv
     argv = _strip_global_flags(raw_argv)
+    help_requested = any(token in HELP_FLAGS for token in argv)
+    argv = [token for token in argv if token not in HELP_FLAGS]
     if not argv:
         print("Usage: owrap <kind> <action> [args...]")
-        sys.exit(2)
+        sys.exit(0 if help_requested else 2)
 
     token = argv[0]
     argv = _resolve_kind_first(argv)
@@ -90,7 +94,7 @@ def main(argv=None):
     instance = cls()
     if len(argv) < 2:
         # help() exits on its own; a kind with no do() never reaches dispatch.
-        if type(instance).do is Actions.do:
+        if help_requested or type(instance).do is Actions.do:
             instance.help()
         action, args = "do", ()
     else:
@@ -98,6 +102,8 @@ def main(argv=None):
         if issubclass(cls, Dispatch) and getattr(instance, action, None) is None:
             # Unrecognized action on a Dispatch kind is start's own first argument.
             action, args = "start", [action] + args
+        if help_requested:
+            instance._usage(action)
 
     cmd = f"{kind} {action}"
     started = time.time()

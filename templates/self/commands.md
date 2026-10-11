@@ -101,7 +101,7 @@ Check `owrap self get config` for live values.
 | `max_requests_per_server` | int | `10` | Request quota per server before graceful eviction. |
 | `idle_shutdown_s` | float | `300` | Idle seconds before server shutdown. |
 | `daemon_interval_s` | float | `10` | Seconds between daemon pool-lifecycle checks. |
-| `ctx_check_interval_s` | float | `300` | Seconds between the daemon's background checks for an attached window's unprocessed transcript diff — dispatches an Update Context/Update Protocol pass automatically when one exists. |
+| `ctx_check_interval_s` | float | `600` | Seconds between the daemon's background checks for an attached window's unprocessed transcript diff -- an auto-dispatch still only fires once the excerpt clears `AUTO_CTX_MIN_CHARS` and this window's own 5-min cooldown, and backs off further (30m/1h/2h/5h) after repeated opencode-down failures. |
 | `runner_model` | string | — | Model for regular runner dispatch (`owrap task start`/`owrap exec start`). |
 | `context_manager_model` | string | — | Model for context-manager tasks (Update Context/Update Protocol dispatch). |
 | `context_fallback_model` | string | — | Fallback model when `context_manager_model` isn't set. |

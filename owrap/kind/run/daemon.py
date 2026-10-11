@@ -57,17 +57,16 @@ def main():
 class Daemon(Run):
     """
     The background dispatch daemon: no stored record, just a process
-    to start/stop/restart. Fully self-contained -- owns its own
-    process management (PID file, lock, spawn/signal) directly,
-    rather than calling into utils.dispatch.pool. `ensure_daemon` is
-    the one static entry point for anything that needs to check/start
-    the daemon without going through verb dispatch -- including the
-    CLI's own watchdog tick (see `owrap/cli.py`), which calls it on
-    every command so a daemon that died non-gracefully gets noticed
-    and restarted on the next `owrap` invocation instead of staying
-    dead indefinitely. `run` is the actual persistent loop body the
-    spawned process executes -- pool lifecycle maintenance, plus
-    each registered `WORKERS` entry's periodic check.
+    to start/stop/restart, fully self-contained -- owns its own
+    process management (PID file, lock, spawn/signal) directly.
+    `ensure_daemon` is the one static entry point for anything that
+    needs to check/start the daemon without going through verb
+    dispatch, including the CLI's own watchdog tick on every command,
+    so a daemon that died non-gracefully gets restarted on the next
+    `owrap` invocation instead of staying dead indefinitely. `run` is
+    the persistent loop body the spawned process executes -- pool
+    lifecycle maintenance, plus each registered `WORKERS` entry's
+    periodic check.
     """
 
     kind = "daemon"
@@ -129,7 +128,7 @@ class Daemon(Run):
     WORKERS = (
         (
             "ctx", "owrap_context_manager_enabled", "ctx_check_interval_s",
-            300.0, "_check_ctx",
+            600.0, "_check_ctx",
         ),
     )
 
@@ -227,8 +226,7 @@ class Daemon(Run):
     def _on_kill(self, session_id: str = None) -> dict:
         """
         Kill every running task/server/daemon process (optionally
-        scoped to `session_id`), and reset the dispatch stats file --
-        ported from the old `KillServersRunner`.
+        scoped to `session_id`), and reset the dispatch stats file.
         """
         killed_tasks, task_pids = self._kill_running_tasks(session_id)
         if task_pids:
@@ -258,7 +256,7 @@ class Daemon(Run):
         """
         Remove stale session files, orphaned context, and dead
         server/manager state (optionally scoped to `session_id`'s
-        prefix) -- ported from the old `CleanupRunner`.
+        prefix).
         """
         manager = Manager()
         state = manager._read_state()

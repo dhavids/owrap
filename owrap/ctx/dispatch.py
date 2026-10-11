@@ -12,6 +12,7 @@ Three entry points share the same `_dispatch` core:
 - `check_all_attached()` — background trigger check from the daemon's
   loop; dispatches both halves for every window with a non-empty diff.
 """
+import contextlib
 import json
 import os
 import re
@@ -37,16 +38,16 @@ from ..utils.constants import ANTI_SUMMARY_SUFFIX
 from ..utils.dispatch.terminal import Terminal
 from ..utils.dispatch.watchdog import strip_boilerplate
 from ..utils.io.filelock import file_lock
-from ..utils.log import context_jobs
+from ..utils.log import context_jobs, rtlog
 from ..utils.memory.records import (
     register_discovered_repositories, resolve_memory_target,
     touched_repository_paths,
 )
 from ..utils.parser.output import OutputParser
 from ..utils.paths import (
-    OPENCODE_STATUS_FILE, claude_transcript_path, codex_transcript_path,
-    context_path, get_model_chain, get_workspace_path, session_ctx_dir,
-    session_ctx_transcript_path, _read_config,
+    OPENCODE_STATUS_FILE, RUNTIME_DIR, claude_transcript_path,
+    codex_transcript_path, context_path, get_model_chain, get_workspace_path,
+    session_ctx_dir, session_ctx_transcript_path, _read_config,
 )
 from ..session.resolver import (
     _parse, all_attached_ccsid_pairs, all_attached_codex_session_id_pairs,
@@ -55,6 +56,13 @@ from ..session.resolver import (
 
 MAX_EXCERPT_CHARS = 40000
 MAX_CODEX_EXCERPT_CHARS = 40000
+
+# Applies everywhere; a real model call needs both, not either.
+CTX_MIN_INTERVAL_S = 300  # 5 min since this window's last real attempt
+CTX_MIN_CHARS = 4000  # excerpt must also clear this
+AUTO_CTX_STATE_FILE = RUNTIME_DIR / "auto_ctx_backoff.json"
+AUTO_CTX_FAILS_BEFORE_BACKOFF = 3
+AUTO_CTX_BACKOFF_SCHEDULE_S = (1800, 3600, 7200, 18000)  # 30m, 1h, 2h, 5h cap
 
 
 def read_opencode_status_detail() -> dict:
@@ -96,6 +104,71 @@ def _write_opencode_status(status: str, reason: str = None) -> None:
         "status": status, "reason": reason,
         "since": datetime.now(timezone.utc).isoformat(),
     }))
+
+
+def _read_auto_ctx_backoff() -> dict:
+    try:
+        return json.loads(AUTO_CTX_STATE_FILE.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {"consecutive_fails": 0, "backoff_index": -1, "last_attempt_ts": 0.0}
+
+
+def _write_auto_ctx_backoff(data: dict) -> None:
+    AUTO_CTX_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    AUTO_CTX_STATE_FILE.write_text(json.dumps(data))
+
+
+def _auto_ctx_due(now: float) -> bool:
+    """
+    Whether the daemon's background ctx check should run at all right
+    now -- false while backing off from repeated opencode-down
+    failures (see `_record_auto_ctx_outcome`). A manual `--ctx`/
+    `--updr` dispatch and the PreCompact hook ignore this entirely.
+    """
+    backoff = _read_auto_ctx_backoff()
+    if backoff.get("consecutive_fails", 0) < AUTO_CTX_FAILS_BEFORE_BACKOFF:
+        return True
+    last_index = len(AUTO_CTX_BACKOFF_SCHEDULE_S) - 1
+    index = min(max(backoff.get("backoff_index", 0), 0), last_index)
+    interval = AUTO_CTX_BACKOFF_SCHEDULE_S[index]
+    return now - backoff.get("last_attempt_ts", 0) >= interval
+
+
+def _record_auto_ctx_outcome(success: bool, now: float) -> None:
+    """
+    Update the background-ctx backoff state after a real dispatch
+    attempt (not a skip for being too soon/too small). Any success --
+    background, manual, or PreCompact -- clears the backoff entirely,
+    since it proves opencode is back up. A background failure only
+    advances the schedule (30m, 1h, 2h, capped at 5h) once three
+    consecutive background failures have accumulated; no direct retry
+    is attempted in between -- the next try waits for the schedule.
+    """
+    if success:
+        _write_auto_ctx_backoff(
+            {"consecutive_fails": 0, "backoff_index": -1, "last_attempt_ts": now},
+        )
+        return
+    backoff = _read_auto_ctx_backoff()
+    fails = backoff.get("consecutive_fails", 0) + 1
+    index = backoff.get("backoff_index", -1)
+    if fails >= AUTO_CTX_FAILS_BEFORE_BACKOFF:
+        index = min(index + 1, len(AUTO_CTX_BACKOFF_SCHEDULE_S) - 1)
+    _write_auto_ctx_backoff(
+        {"consecutive_fails": fails, "backoff_index": index, "last_attempt_ts": now},
+    )
+
+
+def _ctx_window_recently_attempted(owrap_sid: str, ccsid: str, now: float) -> bool:
+    """
+    Cheap read-only check so the background loop skips creating a job
+    for a window `_dispatch` would immediately gate anyway -- purely
+    an optimization. `_dispatch` itself is the authoritative,
+    universal check (it also applies to manual/PreCompact dispatches,
+    which never go through `check_all_attached` at all).
+    """
+    counters = state.read_window_state(owrap_sid, ccsid)
+    return now - counters.get("last_ctx_attempt_ts", 0) < CTX_MIN_INTERVAL_S
 
 
 def run(input_path: Path = None) -> int:
@@ -306,17 +379,14 @@ def wait_for_job(job_id: str, timeout: int = None) -> dict:
     raise ValueError(f"timed out waiting for ctx job {job_id}")
 
 
-def _dispatch_and_track(owrap_sid, ccsid, transcript_path, config, source="claude"):
+def _dispatch_and_track(
+    owrap_sid, ccsid, transcript_path, config, source="claude", is_auto=False,
+):
     """
-    Create a job, run `_dispatch_tracked` under it with the same
-    create/running/finish bookkeeping `run()` already gives a manual
-    `--ctx`/`--uall` dispatch, and finish the job no matter what --
-    the one difference from `run()` is that `check_all_attached` has
-    no external caller waiting on a job id, so it creates its own
-    instead of being handed one. Previously `check_all_attached`
-    called `_dispatch_tracked` with no job at all, so a background
-    dispatch never reached `context_jobs`/rtlog/`owrap stat` (see
-    arc.md's Known Gaps).
+    Create a job, run `_dispatch_tracked` under it with full
+    create/running/finish bookkeeping, and finish the job no matter
+    what. Runs in-process, so its own print()s are explicitly
+    redirected into the job's output.log for the duration.
     """
     job_dir = context_jobs.create(owrap_sid, ccsid, "auto")
     context_jobs.update(
@@ -326,12 +396,14 @@ def _dispatch_and_track(owrap_sid, ccsid, transcript_path, config, source="claud
     rc = 1
     try:
         ctx_dir = session_ctx_dir(owrap_sid, ccsid)
-        with file_lock(ctx_dir / "dispatch.lock"):
-            rc = _dispatch_tracked(
-                owrap_sid, ccsid, transcript_path, config,
-                do_context=True, do_protocol=True, source=source,
-                job_dir=job_dir,
-            )
+        with (job_dir / "output.log").open("a") as log_fd:
+            with contextlib.redirect_stdout(log_fd), contextlib.redirect_stderr(log_fd):
+                with file_lock(ctx_dir / "dispatch.lock"):
+                    rc = _dispatch_tracked(
+                        owrap_sid, ccsid, transcript_path, config,
+                        do_context=True, do_protocol=True, source=source,
+                        job_dir=job_dir, is_auto=is_auto,
+                    )
     finally:
         context_jobs.finish(job_dir, rc)
 
@@ -345,50 +417,86 @@ def check_all_attached() -> None:
     when a window's excerpt since its checkpoint is empty, so a window
     with nothing new costs only a transcript line-count check.
 
+    Gated two ways before anything else runs: `_auto_ctx_due` holds
+    off entirely while backing off from repeated opencode-down
+    failures, and `_ctx_window_recently_attempted` skips creating a
+    job for a window `_dispatch` would immediately gate anyway (that
+    gate -- `CTX_MIN_INTERVAL_S` and `CTX_MIN_CHARS`, both required --
+    is universal and lives in `_dispatch` itself, applying equally to
+    manual and PreCompact dispatches, which never reach this function).
+
     Called from the daemon loop; never raises — one window's failure
     is logged and skipped rather than blocking every other window.
+    Always logs one `ctx.check` summary event, even when every window
+    is skipped, so every tick is visible in rtlog.
     """
     config = _read_config()
     if not config.get("owrap_context_manager_enabled", True):
         return
+    now = time.time()
+    if not _auto_ctx_due(now):
+        rtlog.log("ctx.check", backoff=True)
+        return
     workspace = get_workspace_path()
+    windows = dispatched = cooldown = 0
     for ccsid, owrap_sid in all_attached_ccsid_pairs():
+        windows += 1
         try:
             transcript_path = claude_transcript_path(ccsid, workspace)
             if not transcript_path.exists():
                 continue
-            _dispatch_and_track(owrap_sid, ccsid, str(transcript_path), config)
+            if _ctx_window_recently_attempted(owrap_sid, ccsid, now):
+                cooldown += 1
+                continue
+            dispatched += 1
+            _dispatch_and_track(
+                owrap_sid, ccsid, str(transcript_path), config, is_auto=True,
+            )
         except Exception as e:
             print(
                 f"ctx-worker: background check failed for ccsid={ccsid}: {e}",
                 file=sys.stderr,
             )
     for cid, owrap_sid in all_attached_codex_session_id_pairs():
+        windows += 1
         try:
             transcript_path = codex_transcript_path(cid)
             if transcript_path is None or not transcript_path.exists():
                 continue
+            if _ctx_window_recently_attempted(owrap_sid, cid, now):
+                cooldown += 1
+                continue
+            dispatched += 1
             _dispatch_and_track(
                 owrap_sid, cid, str(transcript_path), config, source="codex",
+                is_auto=True,
             )
         except Exception as e:
             print(
                 f"ctx-worker: background check failed for codex sid={cid}: {e}",
                 file=sys.stderr,
             )
+    rtlog.log(
+        "ctx.check", backoff=False, windows=windows, dispatched=dispatched,
+        cooldown=cooldown,
+    )
 
 
 def _dispatch_tracked(
     owrap_sid, ccsid, transcript_path, config,
     do_context, do_protocol,
     subproject_override=None, source="claude", cursor_ceiling_ns=None,
-    job_dir=None,
+    job_dir=None, is_auto=False,
 ) -> int:
     """
     Run `_dispatch` with ctx_status tracking in ctx_state.json: pending
     before, ok on clean success, failed on any error, including an
     uncaught exception — so a crash in our own code shows up too, not
-    just a failed model dispatch.
+    just a failed model dispatch. Also updates the background-ctx
+    backoff state (`_record_auto_ctx_outcome`) for any real model
+    attempt (not a too-soon/too-small skip) -- a background failure
+    advances the backoff schedule, and any success (background,
+    manual, or PreCompact) clears it.
     """
     kind = "context+protocol" if do_context and do_protocol else (
         "context" if do_context else "protocol"
@@ -405,6 +513,9 @@ def _dispatch_tracked(
     except Exception as e:
         state.set_ctx_dispatch_result(owrap_sid, "failed", kind=kind, reason=str(e))
         raise
+    attempted = reason is not None or model is not None
+    if attempted and (is_auto or rc == 0):
+        _record_auto_ctx_outcome(success=(rc == 0), now=time.time())
     state.set_ctx_dispatch_result(
         owrap_sid, "ok" if rc == 0 else "failed",
         kind=kind, model=model, reason=reason,
@@ -425,6 +536,11 @@ def _dispatch(
     cursor_ceiling_ns, if given, bounds the transcript to what existed
     when the dispatch was triggered, not whatever has accumulated by
     the time this runs — it may have sat behind dispatch.lock.
+
+    Every caller -- background, manual, PreCompact -- is held to the
+    same floor before a real model call: at least `CTX_MIN_INTERVAL_S`
+    since this window's last real attempt, and an excerpt of at least
+    `CTX_MIN_CHARS`. Both are required, not either.
 
     Returns (returncode, reason, model) — returncode is 0 if nothing
     needed summarizing or on success; reason explains a failure;
@@ -450,6 +566,12 @@ def _dispatch(
     counters = state.read_window_state(owrap_sid, ccsid)
     cursor_ns = counters.get("transcript_cursor_ns", 0)
 
+    now = time.time()
+    since_last = now - counters.get("last_ctx_attempt_ts", 0)
+    if since_last < CTX_MIN_INTERVAL_S:
+        print(f"ctx-worker: {CTX_MIN_INTERVAL_S - since_last:.0f}s left", flush=True)
+        return 0, None, None
+
     if not transcript_path or not Path(transcript_path).exists():
         print("ctx-worker: transcript path missing", file=sys.stderr)
         return 1, "transcript path missing", None
@@ -458,15 +580,10 @@ def _dispatch(
     if cursor_ceiling_ns is not None:
         transcript_lines = lines_up_to_ceiling(transcript_lines, cursor_ceiling_ns)
 
-    # Floor at this window's last attach — a window can switch sessions.
-    # Timestamp-based, not line-index-based: Claude Code's crash/resume
-    # flow can re-append old transcript entries verbatim later in the
-    # file, and a replayed entry keeps its original (old) timestamp, so
-    # it can't masquerade as a newer attach the way a line number would.
+    # Floor at this window's last attach — guards against a switched session.
     attach_ts_ns = last_attach_ts_ns(transcript_lines, owrap_sid)
     effective_cursor_ns = max(cursor_ns, attach_ts_ns)
-    # Never move the cursor backward — an empty/malformed transcript
-    # read shouldn't re-expose content already marked consumed.
+    # Never move the cursor backward, even on an empty/malformed read.
     new_cursor_ns = max(
         latest_event_ns(transcript_lines) or 0, effective_cursor_ns,
     )
@@ -502,9 +619,7 @@ def _dispatch(
 
     if not combined_texts:
         print("ctx-worker: nothing to summarize", flush=True)
-        # Always leave a transcript.txt behind, even empty — a job
-        # directory with no file at all means something crashed
-        # before reaching here, not that there was nothing new.
+        # Leave a transcript.txt even when empty -- a missing one means a crash.
         placeholder = "(nothing new since the last update)"
         session_ctx_transcript_path(owrap_sid, ccsid).write_text(placeholder)
         if job_dir:
@@ -517,6 +632,16 @@ def _dispatch(
         return 0, None, None
 
     excerpt = "\n\n".join(combined_texts)
+
+    if len(excerpt) < CTX_MIN_CHARS:
+        print(f"ctx-worker: need {CTX_MIN_CHARS - len(excerpt)} more chars", flush=True)
+        # Cursor stays put so the next check sees the full accumulated excerpt.
+        return 0, None, None
+
+    # Persist now, not only on success, so the interval gate holds after failures.
+    counters["last_ctx_attempt_ts"] = now
+    state.write_window_state(owrap_sid, counters, ccsid)
+
     excerpt_limit = (
         MAX_CODEX_EXCERPT_CHARS if source == "codex" else MAX_EXCERPT_CHARS
     )
@@ -723,10 +848,7 @@ def _classify_opencode_failure(attempt_metas) -> str:
         if "subscription is required" in meta["stdout"]:
             line = meta["stdout"].strip().splitlines()[-1][:160]
             return f"subscription_required: {meta['model']} — {line}"
-    # Reads/tool-call progress lines survive strip_boilerplate, so a
-    # model that got partway through (e.g. read its input, then idled
-    # out before writing output.md) is a model_error, not no_output —
-    # it did respond, it just didn't finish.
+    # A partial response (idled out after some real progress) is a model_error.
     for meta in reversed(attempt_metas):
         stripped = strip_boilerplate(meta["stdout"])
         if stripped:

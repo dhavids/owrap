@@ -4,6 +4,7 @@ Persistent status records for background context work.
 
 import json
 import os
+import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -13,6 +14,8 @@ from ..constants import RECENT_TASK_RETENTION_S
 from ..io.filelock import file_lock
 from .. import paths
 from . import rtlog
+
+JOB_SWEEP_AGE_S = 1800
 
 
 def create(session_id: str, window_id: str, kind: str) -> Path:
@@ -60,7 +63,8 @@ def update(job_dir: Path, **fields) -> dict:
 
 def finish(job_dir: Path, rc: int) -> None:
     """
-    Record the completed worker result.
+    Record the completed worker result, then sweep this session's
+    other job directories once they've aged past JOB_SWEEP_AGE_S.
     """
     status = "succeeded" if rc == 0 else "failed"
     data = update(job_dir, status=status, rc=rc, finished=time.time())
@@ -70,6 +74,37 @@ def finish(job_dir: Path, rc: int) -> None:
         log_path=data.get("log_path"), result_path=data.get("result_path"),
         output_snippet=tail(Path(data["log_path"]), limit=320),
     )
+    session_id = data.get("session_id")
+    if session_id:
+        sweep_old(session_id)
+
+
+def sweep_old(session_id: str, older_than_s: float = JOB_SWEEP_AGE_S) -> int:
+    """
+    Delete finished job directories older than `older_than_s` past
+    their finish time -- status.json, logs, transcript, and result
+    all live under the job dir, so removing it clears everything at
+    once. Returns how many were removed.
+    """
+    jobs_dir = paths.session_ctx_jobs_dir(session_id)
+    if not jobs_dir.exists():
+        return 0
+    now = time.time()
+    removed = 0
+    for job_dir in jobs_dir.iterdir():
+        status_path = job_dir / "status.json"
+        try:
+            data = json.loads(status_path.read_text())
+        except (OSError, ValueError):
+            continue
+        finished = data.get("finished")
+        if data.get("status") not in ("succeeded", "failed") or not finished:
+            continue
+        if now - finished < older_than_s:
+            continue
+        shutil.rmtree(job_dir, ignore_errors=True)
+        removed += 1
+    return removed
 
 
 def tail(path: Path, limit: int = 320) -> str:
