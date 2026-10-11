@@ -80,4 +80,4 @@ def test_main_reports_ambiguous_verb_with_no_session_candidate(monkeypatch, caps
     assert exc.value.code == 2
     out = capsys.readouterr().out
     assert "ambiguous" in out
-    assert "owrap {todo|daemon} add" in out
+    assert "owrap add {todo|daemon}" in out

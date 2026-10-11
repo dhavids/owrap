@@ -35,23 +35,27 @@ def _strip_global_flags(argv):
 
 def _resolve_kind_first(argv):
     """
-    Reorder a shim-style, action-first invocation onto `cli.py`'s
-    kind-first shape, or leave `argv` unchanged if it already starts
-    with a kind. Returns `None` if `argv[0]` resolves to neither.
+    Reorder an action-first invocation (`owrap <action> <kind>
+    ...`) onto `dispatch()`'s internal kind-first shape, or leave
+    `argv` unchanged if it already starts with a kind. Returns
+    `None` if `argv[0]` resolves to neither.
     """
     token = argv[0]
+    kinds = ACTION_REGISTRY.get(token, [])
+    # Checked before the kind-name match below -- `token` can be both an
+    # action and a standalone kind name (e.g. `update`), and a second
+    # token naming one of its owning kinds settles that unambiguously.
+    if len(argv) > 1:
+        next_kind = KIND_ALIASES.get(argv[1], argv[1])
+        if next_kind in kinds:
+            return [next_kind, token] + argv[2:]
     if (KIND_ALIASES.get(token, token)) in KIND_REGISTRY:
         return argv
-    kinds = ACTION_REGISTRY.get(token, [])
     if not kinds:
         # Verbs with no owning kind (e.g. get) fall back to Self.BARE_ACTIONS.
         if token in KIND_REGISTRY["self"].BARE_ACTIONS:
             return ["self", token] + argv[1:]
         return None
-    if len(argv) > 1:
-        next_kind = KIND_ALIASES.get(argv[1], argv[1])
-        if next_kind in kinds:
-            return [next_kind, token] + argv[2:]
     # Lifecycle verbs (start/stop/restart) default to session when ambiguous.
     if "session" in kinds:
         return ["session", token] + argv[1:]
@@ -59,26 +63,27 @@ def _resolve_kind_first(argv):
         return [kinds[0], token] + argv[1:]
     print(
         f"ERROR: '{token}' is ambiguous -- specify a kind: "
-        f"owrap {{{'|'.join(kinds)}}} {token} ..."
+        f"owrap {token} {{{'|'.join(kinds)}}} ..."
     )
     sys.exit(2)
 
 
 def main(argv=None):
     """
-    Entry point for the kind-first CLI: `owrap <kind> <action>
-    [args...]`, falling back to the shim's action-first shape via
-    `_resolve_kind_first`. A bare `-h`/`--help` anywhere prints the
-    resolved kind's (or action's) usage instead of dispatching. Logs
-    every resolved invocation to rtlog as `cmd.start`/`cmd.end`,
-    except `UNLOGGED_CMDS`.
+    Entry point for the CLI: `owrap <action> <kind> [args...]` is
+    the canonical form, with the older `owrap <kind> <action>
+    [args...]` still accepted -- `_resolve_kind_first` normalizes
+    either onto `dispatch()`'s internal kind-first shape. A bare
+    `-h`/`--help` anywhere prints the resolved kind's (or action's)
+    usage instead of dispatching. Logs every resolved invocation to
+    rtlog as `cmd.start`/`cmd.end`, except `UNLOGGED_CMDS`.
     """
     raw_argv = sys.argv[1:] if argv is None else argv
     argv = _strip_global_flags(raw_argv)
     help_requested = any(token in HELP_FLAGS for token in argv)
     argv = [token for token in argv if token not in HELP_FLAGS]
     if not argv:
-        print("Usage: owrap <kind> <action> [args...]")
+        print("Usage: owrap <action> <kind> [args...]")
         sys.exit(0 if help_requested else 2)
 
     token = argv[0]
@@ -96,10 +101,15 @@ def main(argv=None):
 
     instance = cls()
     if len(argv) < 2:
+        if issubclass(cls, Dispatch) and not help_requested:
+            # A Dispatch kind needs no explicit "start" -- a bare call is it.
+            action, args = "start", ()
         # help() exits on its own; a kind with no do() never reaches dispatch.
-        if help_requested or type(instance).do is Actions.do:
+        elif help_requested or type(instance).do is Actions.do:
             instance.help()
-        action, args = "do", ()
+            action, args = "do", ()
+        else:
+            action, args = "do", ()
     else:
         action, *args = argv[1:]
         if issubclass(cls, Dispatch) and getattr(instance, action, None) is None:

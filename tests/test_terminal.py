@@ -98,3 +98,33 @@ class TestTerminalRunStandard:
         )
         assert result["returncode"] == 0
         assert "0" in result["stdout"] and "2" in result["stdout"]
+
+    def test_idle_timeout_after_marker_survives_a_longer_silent_stretch(self):
+        """
+        A silent stretch past the base idle_timeout, but under the
+        extended one, must not be killed once the marker has printed.
+        """
+        t = Terminal(verbose=False, signals="none")
+        result = t.run(
+            "python3 -c 'print(\"saw marker\", flush=True); "
+            "import time; time.sleep(1.5)'",
+            capture_output=True, print_output=True,
+            timeout=30, idle_timeout=1, idle_timeout_after=("marker", 5),
+        )
+        assert result["returncode"] == 0
+        assert not result.get("idled_out")
+
+    def test_idle_timeout_after_marker_still_kills_once_extended_budget_elapses(self):
+        """
+        Once the marker has printed, silence past the *extended* idle
+        budget still kills the process.
+        """
+        t = Terminal(verbose=False, signals="none")
+        result = t.run(
+            "python3 -c 'print(\"saw marker\", flush=True); "
+            "import time; time.sleep(30)'",
+            capture_output=True, print_output=True,
+            timeout=30, idle_timeout=1, idle_timeout_after=("marker", 1),
+        )
+        assert result["returncode"] == -1
+        assert result["idled_out"] is True

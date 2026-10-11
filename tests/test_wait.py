@@ -13,9 +13,9 @@ import time
 import pytest
 
 from owrap.ctx.dispatch import wait_for_job
-from owrap.kind.run.ctx import Ctx
+from owrap.kind.dispatch.ctx import Ctx
 from owrap.kind.run.session import Session
-from owrap.kind.run.updr import Updr
+from owrap.kind.dispatch.updr import Updr
 from owrap.utils.log import context_jobs
 from owrap.utils.paths import session_ctx_jobs_dir, session_input
 

@@ -17,7 +17,7 @@ import pytest
 from owrap.kind.dispatch.agent import Agent
 from owrap.kind.op.self import Self
 from owrap.kind.run.session import Session
-from owrap.kind.run.updr import Updr
+from owrap.kind.dispatch.updr import Updr
 
 
 # Self -- do (self.md content) / get home / get opencode [reason]
@@ -78,21 +78,25 @@ def test_get_unknown_target_shows_usage(self_setup, capsys):
     with pytest.raises(SystemExit) as exc:
         Self().get("bogus")
     assert exc.value.code == 2
-    assert "Usage: owrap self get" in capsys.readouterr().out
+    assert "Usage: owrap get self" in capsys.readouterr().out
 
 
 # Self -- get config/plan/input (Session/Project-scoped data, no kind of its own)
 
-def test_get_config_prints_the_attached_sessions_workspace_config(
+def test_get_config_prints_the_attached_sessions_effective_config(
     monkeypatch, capsys,
 ):
+    """
+    Reports the merged base+workspace config, not just the
+    workspace override file.
+    """
     monkeypatch.setenv("SESSION_ID", "abc123")
     monkeypatch.setattr(
         "owrap.kind.op.self.current_workspace", lambda: "marl",
     )
     monkeypatch.setattr(
-        "owrap.kind.op.self.get_workspace_config",
-        lambda workspace: {"workspace": workspace, "allow_all": True},
+        "owrap.kind.op.self._read_config",
+        lambda workspace=None: {"workspace": workspace, "allow_all": True},
     )
     Self().get("config")
     out = capsys.readouterr().out
@@ -112,12 +116,12 @@ def test_get_config_fails_cleanly_when_workspace_has_no_config(monkeypatch, caps
     monkeypatch.setenv("SESSION_ID", "abc123")
     monkeypatch.setattr("owrap.kind.op.self.current_workspace", lambda: "")
     monkeypatch.setattr(
-        "owrap.kind.op.self.get_workspace_config", lambda workspace: {},
+        "owrap.kind.op.self._read_config", lambda workspace=None: {},
     )
     with pytest.raises(SystemExit) as exc:
         Self().get("config")
     assert exc.value.code == 2
-    assert "no workspace config" in capsys.readouterr().out
+    assert "no config found" in capsys.readouterr().out
 
 
 def test_get_plan_prints_path_and_preview(monkeypatch, tmp_path, capsys):
@@ -198,7 +202,7 @@ def test_get_output_rejects_unknown_kind(monkeypatch, capsys):
     with pytest.raises(SystemExit) as exc:
         Self().get("output", "bogus")
     assert exc.value.code == 2
-    assert "Usage: owrap self get" in capsys.readouterr().out
+    assert "Usage: owrap get self" in capsys.readouterr().out
 
 
 # Session._default_get -- identity-field table
@@ -296,7 +300,7 @@ def updr_memory_setup(tmp_path, monkeypatch):
     sfile.write_text(
         "session_id=abc123\ntarget_kind=project\nproject_id=proj\nworkspace=test\n",
     )
-    monkeypatch.setattr("owrap.kind.run.updr.session_file", lambda sid: sfile)
+    monkeypatch.setattr("owrap.kind.dispatch.updr.session_file", lambda sid: sfile)
     monkeypatch.setenv("SESSION_ID", "abc123")
     return root
 
@@ -313,4 +317,4 @@ def test_updr_get_rejects_anything_other_than_memory(updr_memory_setup, capsys):
     with pytest.raises(SystemExit) as exc:
         Updr().get("bogus")
     assert exc.value.code == 2
-    assert "Usage: owrap updr get" in capsys.readouterr().out
+    assert "Usage: owrap get updr" in capsys.readouterr().out

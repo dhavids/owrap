@@ -1,6 +1,7 @@
 import os
 
-from . import Run
+from . import Dispatch
+from ...actions.run.wait import Wait
 from ...ctx import manual
 from ...ctx.dispatch import run_manual, wait_for_job
 from ...ctx.state import (
@@ -11,7 +12,7 @@ from ...utils.memory.records import resolve_memory_target
 from ...utils.parser.text import preview_lines
 
 
-class Updr(Run):
+class Updr(Dispatch, Wait):
     """
     Dispatches an Update Protocol task for the window's attached
     session (its project/subproject or repository record), optionally

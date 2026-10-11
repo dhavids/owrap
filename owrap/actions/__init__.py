@@ -6,6 +6,13 @@ from ..utils.memory.records import normalize_identity_kind, resolve_memory_targe
 from ..utils.session.resolver import session_file, _parse, resolve_session_or_exit
 
 
+def usage_prefix(kind: str, action: str) -> str:
+    """
+    Build the `owrap <action> <kind>` command prefix for one action.
+    """
+    return f"owrap {action} {kind}".strip()
+
+
 def dispatch(registry: dict, kind: str, action: str, *args) -> str:
     """
     Normalize `kind`, look it up in `registry`, and call its `action`
@@ -209,11 +216,9 @@ class Actions:
     def _print_usage(self, action):
         """
         Print one action's usage line, argument descriptions, and
-        examples, without exiting. A kind's `usage` entries hold only
-        the argument shape and descriptions; the `owrap <kind>
-        <action>` prefix is built here, not hardcoded per kind.
+        examples, without exiting.
         """
-        prefix = f"owrap {self.kind} {action}"
+        prefix = usage_prefix(self.kind, action)
         spec = self.usage.get(action, {})
         print(f"Usage: {prefix} {spec.get('usage', '')}".rstrip())
         args = spec.get("args", [])

@@ -50,7 +50,7 @@ def test_add_missing_text_shows_usage_not_a_crash(decision_setup, capsys):
     with pytest.raises(SystemExit) as exc:
         Decision().add("abc123", None)
     assert exc.value.code == 2
-    assert "Usage: owrap decision add" in capsys.readouterr().out
+    assert "Usage: owrap add decision" in capsys.readouterr().out
 
 
 def test_clear_removes_all_entries(decision_setup):

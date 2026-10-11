@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from owrap.actions import usage_prefix  # noqa: E402
 from owrap.cli import _resolve_kind_first  # noqa: E402
 from owrap.kind import KIND_ALIASES, KIND_REGISTRY  # noqa: E402
 from owrap.kind.dispatch import Dispatch  # noqa: E402
@@ -135,9 +136,10 @@ def verify_file(path: Path) -> list:
 def verify(paths: list = None) -> dict:
     """
     Verify every example across `paths` (default: every template
-    Markdown file). Returns {path: [errors]} for files with failures.
+    Markdown file, plus the promoted README). Returns {path: [errors]}
+    for files with failures.
     """
-    paths = paths or sorted(TEMPLATES_DIR.rglob("*.md"))
+    paths = paths or sorted(TEMPLATES_DIR.rglob("*.md")) + [ROOT / "README.md"]
     failures = {}
     for path in paths:
         errors = verify_file(path)
@@ -154,7 +156,7 @@ def _kind_reference(kind: str, cls: type) -> str:
     for action, spec in usage.items():
         example = spec.get("examples", [""])[0] if spec.get("examples") else ""
         shape = spec.get("usage", "")
-        full = f"owrap {kind} {action} {example}".strip()
+        full = f"{usage_prefix(kind, action)} {example}".strip()
         lines.append(f"| `{action}` | `{shape}` | `{full}` |")
     return "\n".join(lines)
 
@@ -217,7 +219,7 @@ def generate_workflow_tables() -> str:
             continue
         lines = [title, "", "| Command | Effect |", "|---|---|"]
         for kind, action, purpose in rows:
-            lines.append(f"| `owrap {kind} {action}` | {purpose} |")
+            lines.append(f"| `{usage_prefix(kind, action)}` | {purpose} |")
         sections.append("\n".join(lines))
     body = "\n\n\n".join(sections)
     return f"{WORKFLOW_START}\n{body}\n{WORKFLOW_END}"

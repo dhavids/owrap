@@ -3,7 +3,8 @@ import os
 import sys
 from pathlib import Path
 
-from . import Run
+from . import Dispatch
+from ...actions.run.wait import Wait
 from ...ctx import manual
 from ...ctx.dispatch import hook_run, run, run_manual, wait_for_job
 from ...ctx.state import (
@@ -25,7 +26,7 @@ def main():
     sys.exit(run(input_path=Path(args.input)))
 
 
-class Ctx(Run):
+class Ctx(Dispatch, Wait):
     """
     Dispatches an Update Context task for the window's attached session.
     """
@@ -127,8 +128,7 @@ class Ctx(Run):
         Run a plumbing facet by name: `template` (the manual
         opencode-down fallback instructions, forwarding any
         subproject arg) or `hook` (Claude/Codex's PreCompact entry
-        point). A bare `owrap ctx get` reaches `_default_get` instead
-        (dispatch's own no-args fallback), never this method.
+        point).
         """
         if what == "template":
             self.template(*args)
@@ -142,10 +142,9 @@ class Ctx(Run):
 
     def _hook(self) -> None:
         """
-        Always prints "{}" and never lets an exception escape --
-        compaction must never be blocked by this, regardless of what
-        happens inside `hook_run`.
+        Run the PreCompact hook and print "{}".
         """
+        # Compaction must never be blocked by this hook's own outcome.
         try:
             hook_run()
         except Exception:

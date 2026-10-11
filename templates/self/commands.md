@@ -19,51 +19,51 @@ servers past `idle_shutdown_s`.
 
 | Command | Effect |
 |---|---|
-| `owrap project start` | Start a targeted project session |
-| `owrap project add` | Select or create a regular subproject |
-| `owrap project set` | Return the current project session to main, or select an existing subproject |
-| `owrap session add` | Create a child session with inherited target, or an independent one via `temp` |
-| `owrap session done` | Preview or merge child context |
-| `owrap session attach` | Bind this window to a session |
-| `owrap session refresh` | Refresh session context and orientation |
-| `owrap session stop` | Stop the current session (reversible via `owrap session restore`) |
-| `owrap stat do` | Show sessions, types, recent tasks, live stages, and server status |
-| `owrap worktree add` | Create a child session with Git worktrees |
-| `owrap worktree done` | Preview or merge branch code |
-| `owrap worktree clear` | Remove merged branch worktrees |
+| `owrap start project` | Start a targeted project session |
+| `owrap add project` | Select or create a regular subproject |
+| `owrap set project` | Return the current project session to main, or select an existing subproject |
+| `owrap add session` | Create a child session with inherited target, or an independent one via `temp` |
+| `owrap done session` | Preview or merge child context |
+| `owrap attach session` | Bind this window to a session |
+| `owrap refresh session` | Refresh session context and orientation |
+| `owrap stop session` | Stop the current session (reversible via `owrap session restore`) |
+| `owrap do stat` | Show sessions, types, recent tasks, live stages, and server status |
+| `owrap add worktree` | Create a child session with Git worktrees |
+| `owrap done worktree` | Preview or merge branch code |
+| `owrap clear worktree` | Remove merged branch worktrees |
 
 
 ## Record and context commands
 
 | Command | Effect |
 |---|---|
-| `owrap ctx start` | Queue a session context update |
-| `owrap decision get` | List decisions for a project/repository/session target |
-| `owrap project get` | Read project/subproject goals and decisions, or report identity |
-| `owrap sync do` | Stage and merge workspace instructions |
-| `owrap todo get` | List goals for a project/repository/session target |
-| `owrap updr start` | Queue durable record updates, optionally with context |
+| `owrap start ctx` | Queue a session context update |
+| `owrap get decision` | List decisions for a project/repository/session target |
+| `owrap get project` | Read project/subproject goals and decisions, or report identity |
+| `owrap do sync` | Stage and merge workspace instructions |
+| `owrap get todo` | List goals for a project/repository/session target |
+| `owrap start updr` | Queue durable record updates, optionally with context |
 
 
 ## Dispatch commands
 
 | Command | Effect |
 |---|---|
-| `owrap exec start` | Execute the active session plan |
-| `owrap fallback start` | Run a direct fallback task or plan |
-| `owrap read start` | Read a file or list a directory |
-| `owrap session wait` | Wait for queued input to clear |
-| `owrap task start` | Run one inline task, or dispatch a task file |
+| `owrap start exec` | Execute the active session plan |
+| `owrap start fallback` | Run a direct fallback task or plan |
+| `owrap start read` | Read a file or list a directory |
+| `owrap wait session` | Wait for queued input to clear |
+| `owrap start task` | Run one inline task, or dispatch a task file |
 
 
 ## Server management
 
 | Command | Effect |
 |---|---|
-| `owrap daemon start / stop / restart` | Manage the background daemon process directly |
-| `owrap daemon get` | Report whether the daemon is running (and its pid) |
-| `owrap daemon kill` | Kill all running tasks, pool servers, and the daemon itself (optionally scoped to one session) |
-| `owrap daemon clean` | Remove stale session/context/server-log files |
+| `owrap start / stop / restart daemon` | Manage the background daemon process directly |
+| `owrap get daemon` | Report whether the daemon is running (and its pid) |
+| `owrap kill daemon` | Kill all running tasks, pool servers, and the daemon itself (optionally scoped to one session) |
+| `owrap clean daemon` | Remove stale session/context/server-log files |
 <!-- END GENERATED: workflow tables -->
 
 
@@ -101,7 +101,7 @@ Check `owrap self get config` for live values.
 | `max_requests_per_server` | int | `10` | Request quota per server before graceful eviction. |
 | `idle_shutdown_s` | float | `300` | Idle seconds before server shutdown. |
 | `daemon_interval_s` | float | `10` | Seconds between daemon pool-lifecycle checks. |
-| `ctx_check_interval_s` | float | `600` | Seconds between the daemon's background checks for an attached window's unprocessed transcript diff -- an auto-dispatch still only fires once the excerpt clears `AUTO_CTX_MIN_CHARS` and this window's own 5-min cooldown, and backs off further (30m/1h/2h/5h) after repeated opencode-down failures. |
+| `ctx_check_interval_s` | float | `600` | Seconds between the daemon's background checks for an attached window's unprocessed transcript diff -- an auto-dispatch still only fires once the excerpt clears `CTX_MIN_CHARS` (5k) and this window's own 15-min cooldown, and otherwise follows a 30m/1h/2h schedule that cycles back to 30m after repeated opencode-down failures. |
 | `runner_model` | string | — | Model for regular runner dispatch (`owrap task start`/`owrap exec start`). |
 | `context_manager_model` | string | — | Model for context-manager tasks (Update Context/Update Protocol dispatch). |
 | `context_fallback_model` | string | — | Fallback model when `context_manager_model` isn't set. |
@@ -133,218 +133,219 @@ when its content needs correction.
 
 | Action | Usage | Example |
 |---|---|---|
-| `start` | `<data> [--id <id>] [--timeout <s>] [--clear]` | `owrap agent start 'review owrap/cli.py for dead code'` |
-| `get` | `<task_id>` | `owrap agent get a_1234` |
-| `clear` | `` | `owrap agent clear` |
+| `start` | `<data> [--id <id>] [--timeout <s>] [--clear]` | `owrap start agent 'review owrap/cli.py for dead code'` |
+| `get` | `<task_id>` | `owrap get agent a_1234` |
+| `clear` | `` | `owrap clear agent` |
 
 
 ### `owrap backup`
 
 | Action | Usage | Example |
 |---|---|---|
-| `add` | `[<target>]` | `owrap backup add` |
-| `get` | `[<target>] [<timestamp>]` | `owrap backup get` |
-| `restore` | `[<target>] <timestamp>` | `owrap backup restore myproject latest` |
-| `remove` | `[<target>] [<which>]` | `owrap backup remove myproject` |
+| `add` | `[<target>]` | `owrap add backup` |
+| `get` | `[<target>] [<timestamp>]` | `owrap get backup` |
+| `restore` | `[<target>] <timestamp>` | `owrap restore backup myproject latest` |
+| `remove` | `[<target>] [<which>]` | `owrap remove backup myproject` |
 
 
 ### `owrap branch`
 
 | Action | Usage | Example |
 |---|---|---|
-| `add` | `<project_id> <branch_id> <parent_id> <repository_id> <branch_ref>` | `owrap branch add myproject feature-x main myrepo feature/x` |
-| `done` | `<project_id> <branch_id> [apply]` | `owrap branch done myproject feature-x` |
+| `add` | `<project_id> <branch_id> <parent_id> <repository_id> <branch_ref>` | `owrap add branch myproject feature-x main myrepo feature/x` |
+| `done` | `<project_id> <branch_id> [apply]` | `owrap done branch myproject feature-x` |
 
 
 ### `owrap ctx`
 
 | Action | Usage | Example |
 |---|---|---|
-| `start` | `` | `owrap ctx start` |
-| `template` | `[subproject]` | `owrap ctx template` |
-| `done` | `[--error <reason>]` | `owrap ctx done` |
-| `add` | `<path> [path...] [--note <text>]` | `owrap ctx add owrap` |
-| `wait` | `<job_id> [<timeout>]` | `owrap ctx wait 7f67b3760d` |
+| `start` | `` | `owrap start ctx` |
+| `template` | `[subproject]` | `owrap template ctx` |
+| `get` | `[template [subproject]|hook]` | `owrap get ctx` |
+| `done` | `[--error <reason>]` | `owrap done ctx` |
+| `add` | `<path> [path...] [--note <text>]` | `owrap add ctx owrap` |
+| `wait` | `<job_id> [<timeout>]` | `owrap wait ctx 7f67b3760d` |
 
 
 ### `owrap daemon`
 
 | Action | Usage | Example |
 |---|---|---|
-| `start` | `` | `owrap daemon start` |
-| `stop` | `` | `owrap daemon stop` |
-| `restart` | `` | `owrap daemon restart` |
-| `get` | `` | `owrap daemon get` |
-| `kill` | `[<session_id>]` | `owrap daemon kill` |
-| `clean` | `[<session_id>]` | `owrap daemon clean` |
+| `start` | `` | `owrap start daemon` |
+| `stop` | `` | `owrap stop daemon` |
+| `restart` | `` | `owrap restart daemon` |
+| `get` | `` | `owrap get daemon` |
+| `kill` | `[<session_id>]` | `owrap kill daemon` |
+| `clean` | `[<session_id>]` | `owrap clean daemon` |
 
 
 ### `owrap decision`
 
 | Action | Usage | Example |
 |---|---|---|
-| `add` | `<target> "<text>"` | `owrap decision add myproject "Keep the dev/live split"` |
-| `remove` | `<target> <position>` | `owrap decision remove myproject 2` |
-| `clear` | `[<target>]` | `owrap decision clear myproject` |
-| `get` | `[<target> [<position|all>]]` | `owrap decision get myproject 1` |
+| `add` | `<target> "<text>"` | `owrap add decision myproject "Keep the dev/live split"` |
+| `remove` | `<target> <position>` | `owrap remove decision myproject 2` |
+| `clear` | `[<target>]` | `owrap clear decision myproject` |
+| `get` | `[<target> [<position|all>]]` | `owrap get decision myproject 1` |
 
 
 ### `owrap exec`
 
 | Action | Usage | Example |
 |---|---|---|
-| `start` | `[--timeout <s>] [--no-watchdog]` | `owrap exec start` |
-| `get` | `<task_id>` | `owrap exec get abc123` |
+| `start` | `[--timeout <s>] [--no-watchdog]` | `owrap start exec` |
+| `get` | `<task_id>` | `owrap get exec abc123` |
 
 
 ### `owrap fallback`
 
 | Action | Usage | Example |
 |---|---|---|
-| `start` | `<path>` | `owrap fallback start plan.md` |
-| `done` | `<task|exec>` | `owrap fallback done task` |
-| `get` | `<task|exec>` | `owrap fallback get task` |
+| `start` | `<path>` | `owrap start fallback plan.md` |
+| `done` | `<task|exec>` | `owrap done fallback task` |
+| `get` | `<task|exec>` | `owrap get fallback task` |
 
 
 ### `owrap model`
 
 | Action | Usage | Example |
 |---|---|---|
-| `set` | `<slot> <query> [workspace]` | `owrap model set runner haiku` |
+| `set` | `<slot> <query> [workspace]` | `owrap set model runner haiku` |
 
 
 ### `owrap permit`
 
 | Action | Usage | Example |
 |---|---|---|
-| `set` | `<on|off> | <name> <on|off>` | `owrap permit set on` |
-| `get` | `[<workspace>]` | `owrap permit get` |
+| `set` | `<on|off> | <name> <on|off>` | `owrap set permit on` |
+| `get` | `[<workspace>]` | `owrap get permit` |
 
 
 ### `owrap project`
 
 | Action | Usage | Example |
 |---|---|---|
-| `start` | `[<id>]` | `owrap project start myproject` |
-| `update` | `<old-id> <new-id>` | `owrap project update myproject renamed-project` |
-| `add` | `<name> [force]` | `owrap project add docs` |
-| `set` | `[<name>]` | `owrap project set` |
-| `get` | `[main|subs|sub <name>|name|path]` | `owrap project get` |
+| `start` | `[<id>]` | `owrap start project myproject` |
+| `update` | `<old-id> <new-id>` | `owrap update project myproject renamed-project` |
+| `add` | `<name> [force]` | `owrap add project docs` |
+| `set` | `[<name>]` | `owrap set project` |
+| `get` | `[main|subs|sub <name>|name|path]` | `owrap get project` |
 
 
 ### `owrap read`
 
 | Action | Usage | Example |
 |---|---|---|
-| `start` | `<file> [--summarise] [--details <text>] [--grep <pattern>] [--id <id>]` | `owrap read start owrap/cli.py` |
-| `get` | `<task_id>` | `owrap read get r_1234` |
+| `start` | `<file> [--summarise] [--details <text>] [--grep <pattern>] [--id <id>]` | `owrap start read owrap/cli.py` |
+| `get` | `<task_id>` | `owrap get read r_1234` |
 
 
 ### `owrap repository`
 
 | Action | Usage | Example |
 |---|---|---|
-| `add` | `<repo_id> [checkout]` | `owrap repository add myrepo` |
-| `update` | `<old_id> <new_id>` | `owrap repository update myrepo renamed-repo` |
-| `remove` | `<repo_id>` | `owrap repository remove myrepo` |
-| `attach` | `<repo_id> <project_id>` | `owrap repository attach myrepo myproject` |
-| `detach` | `<repo_id> <project_id>` | `owrap repository detach myrepo myproject` |
+| `add` | `<repo_id> [checkout]` | `owrap add repository myrepo` |
+| `update` | `<old_id> <new_id>` | `owrap update repository myrepo renamed-repo` |
+| `remove` | `<repo_id>` | `owrap remove repository myrepo` |
+| `attach` | `<repo_id> <project_id>` | `owrap attach repository myrepo myproject` |
+| `detach` | `<repo_id> <project_id>` | `owrap detach repository myrepo myproject` |
 
 
 ### `owrap self`
 
 | Action | Usage | Example |
 |---|---|---|
-| `get` | `[home|opencode [reason]|config|plan|input|output <kind>|runtime [history]|history] [--count <n>] [--tail <n>] [-g <pattern>] [--sid <id>]` | `owrap self get` |
+| `get` | `[home|opencode [reason]|config [workspace]|plan|input|output <kind>|runtime [history]|history] [--count <n>] [--tail <n>] [-g <pattern>] [--sid <id>]` | `owrap get self` |
 
 
 ### `owrap session`
 
 | Action | Usage | Example |
 |---|---|---|
-| `add` | `[temp] [<label>]` | `owrap session add` |
-| `done` | `[<sid>] [apply]` | `owrap session done` |
-| `restore` | `<sid>` | `owrap session restore abc123` |
-| `wait` | `[<timeout>]` | `owrap session wait` |
-| `attach` | `<target>` | `owrap session attach abc123` |
-| `refresh` | `` | `owrap session refresh` |
-| `stop` | `[force]` | `owrap session stop` |
+| `add` | `[temp] [<label>]` | `owrap add session` |
+| `done` | `[<sid>] [apply]` | `owrap done session` |
+| `restore` | `<sid>` | `owrap restore session abc123` |
+| `wait` | `[<timeout>]` | `owrap wait session` |
+| `attach` | `<target>` | `owrap attach session abc123` |
+| `refresh` | `` | `owrap refresh session` |
+| `stop` | `[force]` | `owrap stop session` |
 
 
 ### `owrap setup`
 
 | Action | Usage | Example |
 |---|---|---|
-| `do` | `<path> | --name <n> --workspace <path> [options]` | `owrap setup do /path/to/workspace` |
+| `do` | `<path> | --name <n> --workspace <path> [options]` | `owrap do setup /path/to/workspace` |
 
 
 ### `owrap stat`
 
 | Action | Usage | Example |
 |---|---|---|
-| `do` | `` | `owrap stat do` |
-| `get` | `<session_id>` | `owrap stat get abc123` |
+| `do` | `` | `owrap do stat` |
+| `get` | `<session_id>` | `owrap get stat abc123` |
 
 
 ### `owrap subproject`
 
 | Action | Usage | Example |
 |---|---|---|
-| `update` | `<project_id> <old_id> <new_id>` | `owrap subproject update myproject docs renamed-docs` |
-| `remove` | `<project_id> <sub_id>` | `owrap subproject remove myproject docs` |
+| `update` | `<project_id> <old_id> <new_id>` | `owrap update subproject myproject docs renamed-docs` |
+| `remove` | `<project_id> <sub_id>` | `owrap remove subproject myproject docs` |
 
 
 ### `owrap sync`
 
 | Action | Usage | Example |
 |---|---|---|
-| `do` | `` | `owrap sync do` |
+| `do` | `` | `owrap do sync` |
 
 
 ### `owrap task`
 
 | Action | Usage | Example |
 |---|---|---|
-| `start` | `[--msg <text>] [--id <id>] [--input <path>]` | `owrap task start --msg 'summarise owrap/cli.py'` |
-| `done` | `<target> [<session_id>]` | `owrap task done exec` |
-| `get` | `<task_id>` | `owrap task get r_1234` |
+| `start` | `[--msg <text>] [--id <id>] [--input <path>]` | `owrap start task --msg 'summarise owrap/cli.py'` |
+| `done` | `<target> [<session_id>]` | `owrap done task exec` |
+| `get` | `<task_id>` | `owrap get task r_1234` |
 
 
 ### `owrap todo`
 
 | Action | Usage | Example |
 |---|---|---|
-| `add` | `<target> [<position>] "<text>"` | `owrap todo add myproject "Fix the auth redirect bug"` |
-| `update` | `<target> <position> "<text>"` | `owrap todo update myproject 2 "Replace item 2 in place"` |
-| `remove` | `<target> <position>` | `owrap todo remove myproject 2` |
-| `clear` | `[<target>]` | `owrap todo clear myproject` |
-| `done` | `<target> <position|next|"<phrase>">` | `owrap todo done myproject next` |
-| `get` | `[<target> [<position|all>]]` | `owrap todo get myproject 1` |
+| `add` | `<target> [<position>] "<text>"` | `owrap add todo myproject "Fix the auth redirect bug"` |
+| `update` | `<target> <position> "<text>"` | `owrap update todo myproject 2 "Replace item 2 in place"` |
+| `remove` | `<target> <position>` | `owrap remove todo myproject 2` |
+| `clear` | `[<target>]` | `owrap clear todo myproject` |
+| `done` | `<target> <position|next|"<phrase>">` | `owrap done todo myproject next` |
+| `get` | `[<target> [<position|all>]]` | `owrap get todo myproject 1` |
 
 
 ### `owrap update`
 
 | Action | Usage | Example |
 |---|---|---|
-| `do` | `<new_path> [--dry-run] [--migrate]` | `owrap update do /mnt/new_home` |
+| `do` | `<new_path> [--dry-run] [--migrate]` | `owrap do update /mnt/new_home` |
 
 
 ### `owrap updr`
 
 | Action | Usage | Example |
 |---|---|---|
-| `start` | `[<subproject>] [--ctx]` | `owrap updr start` |
-| `done` | `[--error <reason>]` | `owrap updr done` |
-| `add` | `<path> [path...] [--note <text>]` | `owrap updr add owrap` |
-| `get` | `[memory]` | `owrap updr get` |
-| `wait` | `<job_id> [<timeout>]` | `owrap updr wait 7f67b3760d` |
+| `start` | `[<subproject>] [--ctx]` | `owrap start updr` |
+| `done` | `[--error <reason>]` | `owrap done updr` |
+| `add` | `<path> [path...] [--note <text>]` | `owrap add updr owrap` |
+| `get` | `[memory]` | `owrap get updr` |
+| `wait` | `<job_id> [<timeout>]` | `owrap wait updr 7f67b3760d` |
 
 
 ### `owrap worktree`
 
 | Action | Usage | Example |
 |---|---|---|
-| `add` | `[<name>] [<ref>]` | `owrap worktree add` |
-| `done` | `[<sid>] [<repo_id>] [apply]` | `owrap worktree done` |
-| `clear` | `[<sid>] [apply]` | `owrap worktree clear` |
+| `add` | `[<name>] [<ref>]` | `owrap add worktree` |
+| `done` | `[<sid>] [<repo_id>] [apply]` | `owrap done worktree` |
+| `clear` | `[<sid>] [apply]` | `owrap clear worktree` |
 <!-- END GENERATED: full command reference -->

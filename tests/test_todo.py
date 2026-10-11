@@ -25,14 +25,14 @@ class _ToyKind(Actions):
         self._ok("add", thing=a)
 
 
-def test_usage_builds_kind_action_prefix(capsys):
+def test_usage_builds_action_kind_prefix(capsys):
     with pytest.raises(SystemExit) as exc:
         _ToyKind().add(None)
     out = capsys.readouterr().out
     assert exc.value.code == 2
-    assert "Usage: owrap toy add <a>" in out
+    assert "Usage: owrap add toy <a>" in out
     assert "a  the thing to add" in out
-    assert "owrap toy add x" in out
+    assert "owrap add toy x" in out
 
 
 def test_ok_formats_registered_message(capsys):
@@ -147,7 +147,7 @@ def test_add_missing_text_shows_usage_not_a_crash(todo_setup, capsys):
     with pytest.raises(SystemExit) as exc:
         Todo().add("abc123", None, None)
     assert exc.value.code == 2
-    assert "Usage: owrap todo add" in capsys.readouterr().out
+    assert "Usage: owrap add todo" in capsys.readouterr().out
 
 
 def test_update_replaces_in_place_keeping_done_state(todo_setup):
@@ -201,7 +201,7 @@ def test_cli_missing_args_shows_usage(todo_setup, capsys):
     with pytest.raises(SystemExit) as exc:
         cli_main(["todo", "add", "abc123"])
     assert exc.value.code == 2
-    assert "Usage: owrap todo add" in capsys.readouterr().out
+    assert "Usage: owrap add todo" in capsys.readouterr().out
 
 
 def test_cli_unknown_kind_fails_cleanly(capsys):
@@ -216,5 +216,5 @@ def test_cli_kind_with_no_action_shows_full_help(capsys):
         cli_main(["todo"])
     out = capsys.readouterr().out
     assert exc.value.code == 2
-    assert "Usage: owrap todo add" in out
-    assert "Usage: owrap todo done" in out
+    assert "Usage: owrap add todo" in out
+    assert "Usage: owrap done todo" in out

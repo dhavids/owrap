@@ -1,4 +1,7 @@
 CTX_IDLE_TIMEOUT_S = 60
+# Wider idle budget, re-armed on every file read.
+CTX_IDLE_TIMEOUT_AFTER_READ_S = 120
+CTX_READ_MARKER = "Read"
 
 CTX_SCOPED_TASK_TEMPLATE = (
     """\

@@ -69,7 +69,7 @@ def test_no_argv_at_all_prints_usage_and_exits_2(capsys):
     with pytest.raises(SystemExit) as exc:
         main([])
     assert exc.value.code == 2
-    assert "Usage: owrap <kind> <action>" in capsys.readouterr().out
+    assert "Usage: owrap <action> <kind>" in capsys.readouterr().out
 
 
 def test_unknown_kind_fails_cleanly(capsys):
@@ -89,7 +89,7 @@ def test_bare_kind_without_do_falls_back_to_help(capsys, toy_registry):
     with pytest.raises(SystemExit) as exc:
         main(["model"])
     assert exc.value.code == 2
-    assert "Usage: owrap model set" in capsys.readouterr().out
+    assert "Usage: owrap set model" in capsys.readouterr().out
 
 
 def test_kind_alias_resolves_before_registry_lookup(capsys, toy_registry):
@@ -170,7 +170,7 @@ def test_bare_help_flag_prints_global_usage_and_exits_0(capsys):
     with pytest.raises(SystemExit) as exc:
         main(["-h"])
     assert exc.value.code == 0
-    assert "Usage: owrap <kind> <action>" in capsys.readouterr().out
+    assert "Usage: owrap <action> <kind>" in capsys.readouterr().out
 
 
 def test_kind_with_help_flag_prints_help_not_do(capsys, toy_registry):
@@ -181,7 +181,7 @@ def test_kind_with_help_flag_prints_help_not_do(capsys, toy_registry):
     with pytest.raises(SystemExit) as exc:
         main(["sync", "-h"])
     assert exc.value.code == 2
-    assert "Usage: owrap sync do" in capsys.readouterr().out
+    assert "Usage: owrap do sync" in capsys.readouterr().out
     assert "did the one thing" not in capsys.readouterr().out
 
 
@@ -190,7 +190,7 @@ def test_action_with_help_flag_prints_only_that_actions_usage(capsys, toy_regist
         main(["model", "set", "-h"])
     assert exc.value.code == 2
     out = capsys.readouterr().out
-    assert "Usage: owrap model set <slot> <query>" in out
+    assert "Usage: owrap set model <slot> <query>" in out
     assert "set runner=haiku" not in out
 
 
@@ -198,7 +198,7 @@ def test_help_flag_works_regardless_of_position(capsys, toy_registry):
     with pytest.raises(SystemExit) as exc:
         main(["--help", "model", "set"])
     assert exc.value.code == 2
-    assert "Usage: owrap model set" in capsys.readouterr().out
+    assert "Usage: owrap set model" in capsys.readouterr().out
 
 
 def test_unlogged_cmd_skips_rtlog_entirely(monkeypatch, capsys, toy_registry):
