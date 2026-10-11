@@ -47,6 +47,75 @@ def _wait_dead(pids: list, timeout: float = 3.0) -> None:
         _kill_pid(p, 9)
 
 
+DAEMON_REGISTRY_FILE = DAEMON_PID_FILE.with_name("daemons.json")
+
+
+def _read_registry() -> dict:
+    try:
+        return json.loads(DAEMON_REGISTRY_FILE.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_registry(data: dict) -> None:
+    DAEMON_REGISTRY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    DAEMON_REGISTRY_FILE.write_text(json.dumps(data))
+
+
+def _register_daemon(pid: int) -> None:
+    """
+    Record this pid in the shared daemon registry -- the source of
+    truth for every daemon process this checkout has ever spawned,
+    independent of (and more reliable than) the single-slot pid file.
+    """
+    with file_lock(DAEMON_LOCK_FILE):
+        registry = {p: ts for p, ts in _read_registry().items() if is_alive(int(p))}
+        registry[str(pid)] = time.time()
+        _write_registry(registry)
+
+
+def _unregister_daemon(pid: int) -> None:
+    with file_lock(DAEMON_LOCK_FILE):
+        registry = _read_registry()
+        if registry.pop(str(pid), None) is not None:
+            _write_registry(registry)
+
+
+def _registered_daemon_pids(exclude_pid: int = None) -> list:
+    """
+    Every live pid in the registry except `exclude_pid`, pruning dead
+    entries from the registry file as a side effect.
+    """
+    with file_lock(DAEMON_LOCK_FILE):
+        registry = _read_registry()
+        pruned, alive = {}, []
+        for p, ts in registry.items():
+            pid = int(p)
+            if not is_alive(pid):
+                continue
+            pruned[p] = ts
+            if pid != exclude_pid:
+                alive.append(pid)
+        if pruned != registry:
+            _write_registry(pruned)
+        return alive
+
+
+def _kill_other_daemons(keep_pid: int = None) -> int:
+    """
+    Kill every registered daemon process except `keep_pid`, waiting
+    for each to actually exit before returning. Returns how many
+    were found and killed.
+    """
+    stray = _registered_daemon_pids(exclude_pid=keep_pid)
+    for pid in stray:
+        _kill_pid(pid, signal.SIGTERM)
+    _wait_dead(stray)
+    for pid in stray:
+        _unregister_daemon(pid)
+    return len(stray)
+
+
 def main():
     """
     Entry point for the owrap daemon process.
@@ -120,11 +189,7 @@ class Daemon(Run):
 
     TWO_HOURS = 2 * 3600
 
-    # (name, enabled config key, interval config key, default interval_s,
-    # check method name) -- each due, not-already-running entry gets its
-    # check run in its own background thread so a slow one can't stall
-    # the pool-lifecycle tick. Add a kind's own periodic check here (and
-    # its `_check_<name>` method below) to move it into the daemon loop.
+    # (name, enabled key, interval key, default interval_s, check method) tuples.
     WORKERS = (
         (
             "ctx", "owrap_context_manager_enabled", "ctx_check_interval_s",
@@ -155,6 +220,7 @@ class Daemon(Run):
             if existing_pid is not None and existing_pid != my_pid:
                 return
             DAEMON_PID_FILE.write_text(str(my_pid))
+        _register_daemon(my_pid)
 
         daemon_start_file = DAEMON_STATE_FILE.with_name("daemon.start")
         try:
@@ -175,6 +241,10 @@ class Daemon(Run):
         prev_idle = None
         try:
             while True:
+                # Re-confirm ownership every tick -- a loser of the startup race exits.
+                if Daemon._read_pid() != my_pid:
+                    rtlog.log("daemon.exit", pid=my_pid, reason="superseded")
+                    return
                 try:
                     tick_config = _read_config()
                     self._run_due_workers(tick_config, last_run, threads)
@@ -188,10 +258,12 @@ class Daemon(Run):
                     pass
                 time.sleep(daemon_interval_s)
         finally:
-            rtlog.log("daemon.exit", pid=my_pid, reason="terminated")
-            DAEMON_PID_FILE.unlink(missing_ok=True)
-            DAEMON_STATE_FILE.unlink(missing_ok=True)
-            daemon_start_file.unlink(missing_ok=True)
+            _unregister_daemon(my_pid)
+            if Daemon._read_pid() == my_pid:
+                rtlog.log("daemon.exit", pid=my_pid, reason="terminated")
+                DAEMON_PID_FILE.unlink(missing_ok=True)
+                DAEMON_STATE_FILE.unlink(missing_ok=True)
+                daemon_start_file.unlink(missing_ok=True)
 
 
     # Private Methods
@@ -209,17 +281,20 @@ class Daemon(Run):
         self._ok("get", pid=pid)
 
     def _on_start(self) -> dict:
+        _kill_other_daemons()
         started = Daemon.ensure_daemon()
         status = "daemon: started" if started else "daemon: already running"
         return {"status": status}
 
     def _on_stop(self, timeout: float = 3.0) -> dict:
         stopped = self._stop_process(timeout)
+        stopped = _kill_other_daemons() > 0 or stopped
         status = "daemon: stopped" if stopped else "daemon: not running"
         return {"status": status}
 
     def _on_restart(self) -> dict:
         self._stop_process()
+        _kill_other_daemons()
         Daemon.ensure_daemon()
         return {"status": "daemon: restarted"}
 

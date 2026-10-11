@@ -65,8 +65,7 @@ def test_repository_only_start_clears_research_and_area(
          }), \
          patch("owrap.session.start.print_orientation"), \
          patch("owrap.utils.dispatch.pool._pool_active", return_value=True), \
-         patch("owrap.utils.dispatch.pool.ensure_min_servers"), \
-         patch("owrap.utils.dispatch.pool._ensure_daemon"):
+         patch("owrap.utils.dispatch.pool.ensure_min_servers"):
         start(mock_manager, session_id="repo001", repository_id="owrap-dev")
 
     data = resolver._parse(session_path)
@@ -107,8 +106,7 @@ def test_start_with_bare_name_resolves_to_project(
          ), \
          patch("owrap.session.start.print_orientation"), \
          patch("owrap.utils.dispatch.pool._pool_active", return_value=True), \
-         patch("owrap.utils.dispatch.pool.ensure_min_servers"), \
-         patch("owrap.utils.dispatch.pool._ensure_daemon"):
+         patch("owrap.utils.dispatch.pool.ensure_min_servers"):
         start(mock_manager, session_id="legacy", project_name="owrap")
 
     data = resolver._parse(session_path)
@@ -151,8 +149,7 @@ def test_start_with_bare_name_and_area_resolves_to_subproject(
          ), \
          patch("owrap.session.start.print_orientation"), \
          patch("owrap.utils.dispatch.pool._pool_active", return_value=True), \
-         patch("owrap.utils.dispatch.pool.ensure_min_servers"), \
-         patch("owrap.utils.dispatch.pool._ensure_daemon"):
+         patch("owrap.utils.dispatch.pool.ensure_min_servers"):
         start(
             mock_manager, session_id="legacy", project_name="scratchproj",
             subproject_name="feature",
@@ -222,7 +219,6 @@ def test_refresh_with_bare_name_redirects_to_project(
          patch("owrap.session.start.print_orientation"), \
          patch("owrap.utils.dispatch.pool._pool_active", return_value=True), \
          patch("owrap.utils.dispatch.pool.ensure_min_servers"), \
-         patch("owrap.utils.dispatch.pool._ensure_daemon"), \
          patch.object(mock_manager, "_housekeeping"):
         refresh(mock_manager, session_id="abc123", project_name="owrap")
 
@@ -253,7 +249,6 @@ def test_refresh_repository_session_rejects_research(
     }), \
          patch("owrap.utils.dispatch.pool._pool_active", return_value=True), \
          patch("owrap.utils.dispatch.pool.ensure_min_servers"), \
-         patch("owrap.utils.dispatch.pool._ensure_daemon"), \
          patch.object(mock_manager, "_housekeeping"):
         with pytest.raises(SystemExit) as exc:
             refresh(mock_manager, session_id="abc123", project_name="owrap")
@@ -301,8 +296,7 @@ def test_start_with_zero_args_creates_anonymous_session_without_legacy_file(
          }), \
          patch("owrap.session.start.print_orientation"), \
          patch("owrap.utils.dispatch.pool._pool_active", return_value=True), \
-         patch("owrap.utils.dispatch.pool.ensure_min_servers"), \
-         patch("owrap.utils.dispatch.pool._ensure_daemon"):
+         patch("owrap.utils.dispatch.pool.ensure_min_servers"):
         start(mock_manager, session_id="anon123")
 
     data = resolver._parse(session_path)
