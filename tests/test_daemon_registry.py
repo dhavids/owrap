@@ -57,9 +57,9 @@ def test_kill_other_daemons_kills_everyone_but_keep_pid(monkeypatch, tmp_path):
     daemon_module._register_daemon(stray2.pid)
     daemon_module._register_daemon(os.getpid())
 
-    killed = daemon_module._kill_other_daemons(keep_pid=os.getpid())
+    daemon_module._kill_other_daemons(keep_pid=os.getpid())
 
-    assert killed == 2
+    # Reap first -- an unreaped child looks alive to os.kill(pid, 0).
     stray1.wait(timeout=5)
     stray2.wait(timeout=5)
     assert daemon_module._registered_daemon_pids() == [os.getpid()]

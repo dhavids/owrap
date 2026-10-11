@@ -34,10 +34,10 @@ def _kill_pid(pid: int, signum: int = 15) -> bool:
         return False
 
 
-def _wait_dead(pids: list, timeout: float = 3.0) -> None:
+def _wait_dead(pids: list, timeout: float = 3.0) -> list:
     """
-    Wait up to `timeout` seconds for `pids` to exit, then SIGKILL any
-    that remain.
+    Wait up to `timeout` seconds for `pids` to exit, SIGKILL any that
+    remain, and return whichever pids are still alive afterward.
     """
     deadline = time.time() + timeout
     remaining = list(pids)
@@ -46,6 +46,8 @@ def _wait_dead(pids: list, timeout: float = 3.0) -> None:
         remaining = [p for p in remaining if is_alive(p)]
     for p in remaining:
         _kill_pid(p, 9)
+    time.sleep(0.2)
+    return [p for p in remaining if is_alive(p)]
 
 
 DAEMON_REGISTRY_FILE = DAEMON_PID_FILE.with_name("daemons.json")
@@ -106,15 +108,17 @@ def _kill_other_daemons(keep_pid: int = None) -> int:
     """
     Kill every registered daemon process except `keep_pid`, waiting
     for each to actually exit before returning. Returns how many
-    were found and killed.
+    were actually killed.
     """
     stray = _registered_daemon_pids(exclude_pid=keep_pid)
     for pid in stray:
         _kill_pid(pid, signal.SIGTERM)
-    _wait_dead(stray)
+    still_alive = _wait_dead(stray)
     for pid in stray:
-        _unregister_daemon(pid)
-    return len(stray)
+        # Stays registered so a pid that outlives SIGKILL gets retried, not lost.
+        if pid not in still_alive:
+            _unregister_daemon(pid)
+    return len(stray) - len(still_alive)
 
 
 def main():
