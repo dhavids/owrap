@@ -23,10 +23,13 @@ from datetime import datetime
 from .process import is_alive
 from ..ctx.state import clear_running_task, register_running_task
 from ..utils.constants import RECENT_TASK_RETENTION_S
+from ..utils.io.atomic import write_atomic
+from ..utils.io.filelock import file_lock
 from ..utils.log import rtlog
 from ..utils.parser.snippet import divider
 from ..utils.paths import (
-    RECENTLY_DONE_DIR, RUNNING_DIR, STATS_FILE, _read_config, get_workspace_config,
+    RECENTLY_DONE_DIR, RUNNING_DIR, STATS_FILE, STATS_LOCK_FILE, _read_config,
+    get_workspace_config,
 )
 
 
@@ -83,14 +86,12 @@ def context_block(cp, executor_md=None) -> str:
 
 def _increment_stat(key: str) -> None:
     """
-    Atomically increment a counter in the stats file using flock.
+    Atomically increment a counter in the stats file -- shares
+    STATS_LOCK_FILE with Daemon._reset_stats, the file's only other
+    writer.
     """
-    import fcntl
     STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = STATS_FILE.with_suffix(".lock")
-    fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+    with file_lock(STATS_LOCK_FILE):
         try:
             data = json.loads(STATS_FILE.read_text())
         except (FileNotFoundError, json.JSONDecodeError):
@@ -99,10 +100,7 @@ def _increment_stat(key: str) -> None:
                 "stalled": 0, "timed_out": 0,
             }
         data[key] = data.get(key, 0) + 1
-        STATS_FILE.write_text(json.dumps(data))
-    finally:
-        fcntl.flock(fd, fcntl.LOCK_UN)
-        os.close(fd)
+        write_atomic(STATS_FILE, json.dumps(data))
 
 
 def prepend_log_entry(log_path, title: str, tag: str = "") -> None:
