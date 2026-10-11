@@ -93,6 +93,7 @@ DAEMON_PID_FILE = RUNTIME_DIR / "daemon.pid"
 DAEMON_STATE_FILE = RUNTIME_DIR / "daemon.state"
 DAEMON_LOCK_FILE = RUNTIME_DIR / "daemon.lock"
 STATS_FILE = RUNTIME_DIR / "stats.json"
+STATS_LOCK_FILE = RUNTIME_DIR / "stats.lock"
 OPENCODE_STATUS_FILE = RUNTIME_DIR / "opencode_status.json"
 
 _config_cache: dict | None = None

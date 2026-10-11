@@ -19,7 +19,7 @@ from ...utils.log import rtlog
 from ...utils.paths import (
     DAEMON_LOCK_FILE, DAEMON_PID_FILE, DAEMON_STATE_FILE, DOCS_DIR, OWRAP_ROOT,
     POOL_FILE, RECENTLY_DONE_DIR, RUNNING_DIR, SERVERS_DIR, SERVER_LOGS_DIR,
-    SESSIONS_DIR, SESSION_DIR, STATS_FILE, _read_config,
+    SESSIONS_DIR, SESSION_DIR, STATS_FILE, STATS_LOCK_FILE, _read_config,
 )
 
 
@@ -226,7 +226,7 @@ class Daemon(Run):
         daemon_start_file = DAEMON_STATE_FILE.with_name("daemon.start")
         try:
             if not daemon_start_file.exists():
-                daemon_start_file.write_text(str(time.time()))
+                write_atomic(daemon_start_file, str(time.time()))
         except OSError:
             pass
 
@@ -252,8 +252,8 @@ class Daemon(Run):
                     idle_since, prev_idle = self._tick_pool(
                         tick_config, idle_shutdown_s, idle_since, prev_idle,
                     )
-                    DAEMON_STATE_FILE.write_text(
-                        json.dumps({"idle_since": idle_since}),
+                    write_atomic(
+                        DAEMON_STATE_FILE, json.dumps({"idle_since": idle_since}),
                     )
                 except Exception:
                     pass
@@ -503,10 +503,11 @@ class Daemon(Run):
 
     def _reset_stats(self) -> None:
         STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        STATS_FILE.write_text(json.dumps({
-            "dispatched": 0, "succeeded": 0, "failed": 0,
-            "stalled": 0, "timed_out": 0,
-        }))
+        with file_lock(STATS_LOCK_FILE):
+            write_atomic(STATS_FILE, json.dumps({
+                "dispatched": 0, "succeeded": 0, "failed": 0,
+                "stalled": 0, "timed_out": 0,
+            }))
 
     def _clean_matching_sessions(self, session_id: str, removed: list) -> None:
         global_session = SESSION_DIR / "session"

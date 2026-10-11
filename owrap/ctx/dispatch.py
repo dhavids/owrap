@@ -37,6 +37,7 @@ from .templates import (
 from ..utils.constants import ANTI_SUMMARY_SUFFIX
 from ..utils.dispatch.terminal import Terminal
 from ..utils.dispatch.watchdog import strip_boilerplate
+from ..utils.io.atomic import write_atomic
 from ..utils.io.filelock import file_lock
 from ..utils.log import context_jobs, rtlog
 from ..utils.memory.records import (
@@ -100,7 +101,7 @@ def _write_opencode_status(status: str, reason: str = None) -> None:
     any failed write and is always cleared on an "up" write.
     """
     OPENCODE_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    OPENCODE_STATUS_FILE.write_text(json.dumps({
+    write_atomic(OPENCODE_STATUS_FILE, json.dumps({
         "status": status, "reason": reason,
         "since": datetime.now(timezone.utc).isoformat(),
     }))
@@ -169,6 +170,32 @@ def _ctx_window_recently_attempted(owrap_sid: str, ccsid: str, now: float) -> bo
     """
     counters = state.read_window_state(owrap_sid, ccsid)
     return now - counters.get("last_ctx_attempt_ts", 0) < CTX_MIN_INTERVAL_S
+
+
+def _pending_excerpt_len(
+    owrap_sid: str, ccsid: str, transcript_path: str, source: str,
+) -> int:
+    """
+    Cheaply measure how many chars of new, not-yet-summarized content
+    this window has -- a transcript read, no sandbox, no job, no
+    model. Lets the background loop skip queuing a job outright for
+    a window `_dispatch` would gate on CTX_MIN_CHARS anyway.
+    """
+    if not transcript_path or not Path(transcript_path).exists():
+        return 0
+    counters = state.read_window_state(owrap_sid, ccsid)
+    transcript_lines = Path(transcript_path).read_text().splitlines()
+    attach_ts_ns = last_attach_ts_ns(transcript_lines, owrap_sid)
+    effective_cursor_ns = max(counters.get("transcript_cursor_ns", 0), attach_ts_ns)
+    extractor = (
+        extract_codex_excerpt_lines if source == "codex" else extract_excerpt_lines
+    )
+    new_assistant_texts = extractor(transcript_lines, effective_cursor_ns)
+    touched_lines = [
+        f"[Touched] {e['path']}" + (f" — {e['note']}" if e.get("note") else "")
+        for e in state.load_touched_entries(owrap_sid, ccsid)
+    ]
+    return len("\n\n".join(new_assistant_texts + touched_lines))
 
 
 def run(input_path: Path = None) -> int:
@@ -417,13 +444,16 @@ def check_all_attached() -> None:
     when a window's excerpt since its checkpoint is empty, so a window
     with nothing new costs only a transcript line-count check.
 
-    Gated two ways before anything else runs: `_auto_ctx_due` holds
-    off entirely while backing off from repeated opencode-down
-    failures, and `_ctx_window_recently_attempted` skips creating a
-    job for a window `_dispatch` would immediately gate anyway (that
-    gate -- `CTX_MIN_INTERVAL_S` and `CTX_MIN_CHARS`, both required --
-    is universal and lives in `_dispatch` itself, applying equally to
-    manual and PreCompact dispatches, which never reach this function).
+    Gated three ways before a job is ever created: `_auto_ctx_due`
+    holds off entirely while backing off from repeated opencode-down
+    failures; `_ctx_window_recently_attempted` skips a window inside
+    its own cooldown; `_pending_excerpt_len` skips a window whose new
+    content wouldn't clear `CTX_MIN_CHARS` anyway. Both the interval
+    and the size gate must pass, not either -- `_dispatch` itself
+    re-checks both (it's the authoritative, universal version, since
+    it also covers manual/PreCompact dispatches that never reach this
+    function), but checking here too means a window with nothing new
+    never gets a job/rtlog entry at all instead of a trivial one.
 
     Called from the daemon loop; never raises — one window's failure
     is logged and skipped rather than blocking every other window.
@@ -438,7 +468,7 @@ def check_all_attached() -> None:
         rtlog.log("ctx.check", backoff=True)
         return
     workspace = get_workspace_path()
-    windows = dispatched = cooldown = 0
+    windows = dispatched = cooldown = too_small = 0
     for ccsid, owrap_sid in all_attached_ccsid_pairs():
         windows += 1
         try:
@@ -447,6 +477,12 @@ def check_all_attached() -> None:
                 continue
             if _ctx_window_recently_attempted(owrap_sid, ccsid, now):
                 cooldown += 1
+                continue
+            pending = _pending_excerpt_len(
+                owrap_sid, ccsid, str(transcript_path), "claude",
+            )
+            if pending < CTX_MIN_CHARS:
+                too_small += 1
                 continue
             dispatched += 1
             _dispatch_and_track(
@@ -466,6 +502,10 @@ def check_all_attached() -> None:
             if _ctx_window_recently_attempted(owrap_sid, cid, now):
                 cooldown += 1
                 continue
+            pending = _pending_excerpt_len(owrap_sid, cid, str(transcript_path), "codex")
+            if pending < CTX_MIN_CHARS:
+                too_small += 1
+                continue
             dispatched += 1
             _dispatch_and_track(
                 owrap_sid, cid, str(transcript_path), config, source="codex",
@@ -478,7 +518,7 @@ def check_all_attached() -> None:
             )
     rtlog.log(
         "ctx.check", backoff=False, windows=windows, dispatched=dispatched,
-        cooldown=cooldown,
+        cooldown=cooldown, too_small=too_small,
     )
 
 

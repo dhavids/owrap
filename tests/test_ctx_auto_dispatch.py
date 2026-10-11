@@ -19,6 +19,10 @@ def _attached_window(monkeypatch, tmp_path, transcript_name="transcript.jsonl"):
     monkeypatch.setattr(dispatch, "get_workspace_path", lambda: tmp_path)
     monkeypatch.setattr(dispatch, "claude_transcript_path", lambda ccsid, ws: transcript)
     monkeypatch.setattr(dispatch, "codex_transcript_path", lambda cid: None)
+    # These tests exercise job-tracking, not the size gate -- keep it open.
+    monkeypatch.setattr(
+        dispatch, "_pending_excerpt_len", lambda *a: dispatch.CTX_MIN_CHARS,
+    )
     return transcript
 
 
@@ -115,6 +119,9 @@ def test_check_all_attached_tracks_codex_windows_too(monkeypatch, tmp_path):
         dispatch, "all_attached_codex_session_id_pairs", lambda: [("cid1", "sid3")],
     )
     monkeypatch.setattr(dispatch, "codex_transcript_path", lambda cid: transcript)
+    monkeypatch.setattr(
+        dispatch, "_pending_excerpt_len", lambda *a: dispatch.CTX_MIN_CHARS,
+    )
 
     seen = {}
 
@@ -163,7 +170,7 @@ def test_check_all_attached_logs_a_summary_even_with_no_windows(monkeypatch, tmp
     dispatch.check_all_attached()
 
     assert logged == [("ctx.check", {"backoff": False, "windows": 0,
-                                      "dispatched": 0, "cooldown": 0})]
+                                      "dispatched": 0, "cooldown": 0, "too_small": 0})]
 
 
 def test_check_all_attached_logs_backoff_without_checking_any_window(
@@ -220,6 +227,39 @@ def test_check_all_attached_skips_job_creation_for_a_recently_attempted_window(
     dispatch.check_all_attached()
 
     assert calls == []
+
+
+def test_check_all_attached_never_queues_a_job_for_too_small_an_excerpt(
+    monkeypatch, tmp_path,
+):
+    """
+    A window with "nothing to summarize" must not even reach
+    _dispatch_and_track -- no job directory, no ctx.queued/done pair,
+    not just a trivial one. Confirmed by watching both the dispatch
+    call and the ctx.check summary's too_small count, not a code read.
+    """
+    _attached_window(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        dispatch, "all_attached_ccsid_pairs", lambda: [("ccsid1", "sid1")],
+    )
+    monkeypatch.setattr(dispatch, "all_attached_codex_session_id_pairs", lambda: [])
+    monkeypatch.setattr(dispatch, "_pending_excerpt_len", lambda *a: 0)
+    calls = []
+    monkeypatch.setattr(
+        dispatch, "_dispatch_tracked", lambda *a, **kw: calls.append(1) or 0,
+    )
+    logged = []
+    monkeypatch.setattr(
+        dispatch.rtlog, "log", lambda event, **fields: logged.append((event, fields)),
+    )
+
+    dispatch.check_all_attached()
+
+    assert calls == []
+    assert logged[-1] == (
+        "ctx.check",
+        {"backoff": False, "windows": 1, "dispatched": 0, "cooldown": 0, "too_small": 1},
+    )
 
 
 def test_auto_ctx_due_true_before_three_failures(monkeypatch, tmp_path):
