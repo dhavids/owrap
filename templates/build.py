@@ -33,6 +33,7 @@ from owrap.actions import usage_prefix  # noqa: E402
 from owrap.cli import _resolve_kind_first  # noqa: E402
 from owrap.ctx.dispatch import (  # noqa: E402
     AUTO_CTX_BACKOFF_SCHEDULE_S, CTX_MIN_CHARS, CTX_MIN_INTERVAL_S,
+    STALE_WINDOW_DAYS,
 )
 from owrap.kind import KIND_ALIASES, KIND_REGISTRY  # noqa: E402
 from owrap.kind.dispatch import Dispatch  # noqa: E402
@@ -102,6 +103,7 @@ CONFIG_ROWS = (
     (("daemon_interval_s",), "float",
      "Seconds between daemon pool-lifecycle checks."),
     (("ctx_check_interval_s",), "float", None),  # built from code constants below
+    (("stale_detach_check_interval_s",), "float", None),  # built below, like the above
     (("runner_model",), "string",
      "Model for regular runner dispatch (`owrap task start`/`owrap "
      "exec start`)."),
@@ -328,22 +330,30 @@ def generate_config_table() -> str:
     cooldown/backoff numbers, the live code constants that drive them.
     """
     config = json.loads(CONFIG_JSON.read_text())
-    ctx_desc = (
-        "Seconds between the daemon's background checks for an "
-        "attached window's unprocessed transcript diff -- an "
-        f"auto-dispatch still only fires once the excerpt clears "
-        f"`CTX_MIN_CHARS` ({CTX_MIN_CHARS // 1000}k) and this window's "
-        f"own {CTX_MIN_INTERVAL_S // 60}-min cooldown, and "
-        "otherwise follows a "
-        f"{'/'.join(_format_duration(s) for s in AUTO_CTX_BACKOFF_SCHEDULE_S)}"
-        f" schedule that cycles back to "
-        f"{_format_duration(AUTO_CTX_BACKOFF_SCHEDULE_S[0])} after "
-        "repeated opencode-down failures."
-    )
+    built_descriptions = {
+        "ctx_check_interval_s": (
+            "Seconds between the daemon's background checks for an "
+            "attached window's unprocessed transcript diff -- an "
+            "auto-dispatch still only fires once the excerpt clears "
+            f"`CTX_MIN_CHARS` ({CTX_MIN_CHARS // 1000}k) and this window's "
+            f"own {CTX_MIN_INTERVAL_S // 60}-min cooldown, and "
+            "otherwise follows a "
+            f"{'/'.join(_format_duration(s) for s in AUTO_CTX_BACKOFF_SCHEDULE_S)}"
+            f" schedule that cycles back to "
+            f"{_format_duration(AUTO_CTX_BACKOFF_SCHEDULE_S[0])} after "
+            "repeated opencode-down failures."
+        ),
+        "stale_detach_check_interval_s": (
+            "Seconds between the daemon's sweeps for an attached window "
+            f"gone stale -- idle, or transcript-less, for `STALE_WINDOW_"
+            f"DAYS` ({STALE_WINDOW_DAYS} days). Only detaches the pointer; "
+            "the session itself re-attaches normally later."
+        ),
+    }
     lines = ["| Key | Type | Default | Description |", "|---|---|---|---|"]
     for keys, type_, description in CONFIG_ROWS:
         if description is None:
-            description = ctx_desc
+            description = built_descriptions[keys[0]]
         key_cell = " / ".join(f"`{key}`" for key in keys)
         default = _config_default(keys, config)
         lines.append(f"| {key_cell} | {type_} | {default} | {description} |")

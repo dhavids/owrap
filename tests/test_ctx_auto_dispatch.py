@@ -3,10 +3,12 @@
 confirming a dispatch actually produces a `context_jobs`/rtlog record,
 and that the gates actually hold, needs a real run, not a code read.
 """
+import json
 import time
 from pathlib import Path
 
 from owrap.ctx import dispatch
+from owrap.ctx.excerpt import ts_ns
 from owrap.utils.log import context_jobs
 
 
@@ -480,3 +482,39 @@ def test_dispatch_reaches_model_once_both_gates_clear(monkeypatch, tmp_path):
 
     assert (rc, reason, model) == (0, None, "m1")
     assert statuses == [("up",)]
+
+
+def test_pending_excerpt_len_counts_only_lines_after_the_cursor(monkeypatch):
+    old_line = json.dumps({
+        "type": "assistant", "timestamp": "2026-01-01T00:00:00Z",
+        "message": {"content": [{"type": "text", "text": "old, before cursor"}]},
+    })
+    new_line = json.dumps({
+        "type": "assistant", "timestamp": "2026-01-02T00:00:00Z",
+        "message": {"content": [{"type": "text", "text": "new, after cursor"}]},
+    })
+    monkeypatch.setattr(
+        dispatch.state, "read_window_state",
+        lambda *a: {"transcript_cursor_ns": ts_ns("2026-01-01T12:00:00Z")},
+    )
+    monkeypatch.setattr(dispatch.state, "load_touched_entries", lambda *a: [])
+
+    pending = dispatch._pending_excerpt_len(
+        "sid", "ccsid", [old_line, new_line], "claude",
+    )
+
+    assert pending == len("new, after cursor")
+
+
+def test_pending_excerpt_len_zero_with_no_new_content(monkeypatch):
+    old_line = json.dumps({
+        "type": "assistant", "timestamp": "2026-01-01T00:00:00Z",
+        "message": {"content": [{"type": "text", "text": "old"}]},
+    })
+    monkeypatch.setattr(
+        dispatch.state, "read_window_state",
+        lambda *a: {"transcript_cursor_ns": ts_ns("2026-01-02T00:00:00Z")},
+    )
+    monkeypatch.setattr(dispatch.state, "load_touched_entries", lambda *a: [])
+
+    assert dispatch._pending_excerpt_len("sid", "ccsid", [old_line], "claude") == 0

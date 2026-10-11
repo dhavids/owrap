@@ -53,7 +53,8 @@ from ..utils.paths import (
 )
 from ..session.resolver import (
     _parse, all_attached_ccsid_pairs, all_attached_codex_session_id_pairs,
-    owrap_sid_for_ccsid, owrap_sid_for_codex_session_id, session_file,
+    detach_window, owrap_sid_for_ccsid, owrap_sid_for_codex_session_id,
+    session_file,
 )
 
 MAX_EXCERPT_CHARS = 40000
@@ -65,6 +66,7 @@ CTX_MIN_CHARS = 5000  # excerpt must also clear this
 AUTO_CTX_STATE_FILE = RUNTIME_DIR / "auto_ctx_backoff.json"
 AUTO_CTX_FAILS_BEFORE_BACKOFF = 3
 AUTO_CTX_BACKOFF_SCHEDULE_S = (900, 3600, 7200)  # 15m, 1h, 2h, then back to 15m
+STALE_WINDOW_DAYS = 7  # auto-detach a window idle (or transcript-less) this long
 
 
 def read_opencode_status_detail() -> dict:
@@ -172,18 +174,15 @@ def _ctx_window_recently_attempted(owrap_sid: str, ccsid: str, now: float) -> bo
 
 
 def _pending_excerpt_len(
-    owrap_sid: str, ccsid: str, transcript_path: str, source: str,
+    owrap_sid: str, ccsid: str, transcript_lines: list, source: str,
 ) -> int:
     """
     Cheaply measure how many chars of new, not-yet-summarized content
-    this window has -- a transcript read, no sandbox, no job, no
-    model. Lets the background loop skip queuing a job outright for
-    a window `_dispatch` would gate on CTX_MIN_CHARS anyway.
+    this window has -- no sandbox, no job, no model. Lets the
+    background loop skip queuing a job outright for a window
+    `_dispatch` would gate on CTX_MIN_CHARS anyway.
     """
-    if not transcript_path or not Path(transcript_path).exists():
-        return 0
     counters = state.read_window_state(owrap_sid, ccsid)
-    transcript_lines = Path(transcript_path).read_text().splitlines()
     attach_ts_ns = last_attach_ts_ns(transcript_lines, owrap_sid)
     effective_cursor_ns = max(counters.get("transcript_cursor_ns", 0), attach_ts_ns)
     extractor = (
@@ -415,12 +414,16 @@ def wait_for_job(job_id: str, timeout: int = None) -> dict:
 
 def _dispatch_and_track(
     owrap_sid, ccsid, transcript_path, config, source="claude", is_auto=False,
+    transcript_lines: list = None,
 ):
     """
     Create a job, run `_dispatch_tracked` under it with full
     create/running/finish bookkeeping, and finish the job no matter
     what. Runs in-process, so its own print()s are explicitly
     redirected into the job's output.log for the duration.
+
+    transcript_lines, if the caller already read the file, avoids a
+    second full read of what can be a very large transcript.
     """
     job_dir = context_jobs.create(owrap_sid, ccsid, "auto")
     context_jobs.update(
@@ -437,6 +440,7 @@ def _dispatch_and_track(
                         owrap_sid, ccsid, transcript_path, config,
                         do_context=True, do_protocol=True, source=source,
                         job_dir=job_dir, is_auto=is_auto,
+                        transcript_lines=transcript_lines,
                     )
     finally:
         context_jobs.finish(job_dir, rc)
@@ -494,15 +498,15 @@ def check_all_attached() -> None:
             if _ctx_window_recently_attempted(owrap_sid, ccsid, now):
                 cooldown += 1
                 continue
-            pending = _pending_excerpt_len(
-                owrap_sid, ccsid, str(transcript_path), "claude",
-            )
+            transcript_lines = transcript_path.read_text().splitlines()
+            pending = _pending_excerpt_len(owrap_sid, ccsid, transcript_lines, "claude")
             if pending < CTX_MIN_CHARS:
                 too_small += 1
                 continue
             dispatched += 1
             _dispatch_and_track(
                 owrap_sid, ccsid, str(transcript_path), config, is_auto=True,
+                transcript_lines=transcript_lines,
             )
         except Exception as e:
             print(
@@ -520,14 +524,15 @@ def check_all_attached() -> None:
             if _ctx_window_recently_attempted(owrap_sid, cid, now):
                 cooldown += 1
                 continue
-            pending = _pending_excerpt_len(owrap_sid, cid, str(transcript_path), "codex")
+            transcript_lines = transcript_path.read_text().splitlines()
+            pending = _pending_excerpt_len(owrap_sid, cid, transcript_lines, "codex")
             if pending < CTX_MIN_CHARS:
                 too_small += 1
                 continue
             dispatched += 1
             _dispatch_and_track(
                 owrap_sid, cid, str(transcript_path), config, source="codex",
-                is_auto=True,
+                is_auto=True, transcript_lines=transcript_lines,
             )
         except Exception as e:
             print(
@@ -540,11 +545,65 @@ def check_all_attached() -> None:
     )
 
 
+def _is_stale_window(transcript_path) -> bool:
+    """
+    True if `transcript_path` doesn't exist, or hasn't been touched
+    in `STALE_WINDOW_DAYS` -- checked by mtime, no file content read.
+    """
+    if transcript_path is None or not transcript_path.exists():
+        return True
+    age_s = time.time() - transcript_path.stat().st_mtime
+    return age_s > STALE_WINDOW_DAYS * 86400
+
+
+def detach_stale_attached() -> None:
+    """
+    Detach every currently-attached Claude or Codex window whose
+    transcript is stale or missing -- the pointer only, same as a
+    manual `owrap detach`. The underlying session is untouched and
+    re-attaches normally on the next `owrap refresh`/`attach`.
+
+    Called from the daemon loop; never raises -- one window's
+    failure is logged and skipped rather than blocking the rest.
+    Always logs one `ctx.stale_sweep` summary event.
+    """
+    config = _read_config()
+    if not config.get("owrap_context_manager_enabled", True):
+        return
+    workspace = get_workspace_path()
+    windows = detached = 0
+    for ccsid, owrap_sid in all_attached_ccsid_pairs():
+        windows += 1
+        try:
+            transcript_path = claude_transcript_path(ccsid, workspace)
+            if _is_stale_window(transcript_path):
+                detach_window(ccsid, owrap_sid, source="claude")
+                detached += 1
+        except Exception as e:
+            print(
+                f"ctx-worker: stale sweep failed for ccsid={ccsid}: {e}",
+                file=sys.stderr,
+            )
+    for cid, owrap_sid in all_attached_codex_session_id_pairs():
+        windows += 1
+        try:
+            transcript_path = codex_transcript_path(cid)
+            if _is_stale_window(transcript_path):
+                detach_window(cid, owrap_sid, source="codex")
+                detached += 1
+        except Exception as e:
+            print(
+                f"ctx-worker: stale sweep failed for codex sid={cid}: {e}",
+                file=sys.stderr,
+            )
+    rtlog.log("ctx.stale_sweep", windows=windows, detached=detached)
+
+
 def _dispatch_tracked(
     owrap_sid, ccsid, transcript_path, config,
     do_context, do_protocol,
     subproject_override=None, source="claude", cursor_ceiling_ns=None,
-    job_dir=None, is_auto=False,
+    job_dir=None, is_auto=False, transcript_lines: list = None,
 ) -> int:
     """
     Run `_dispatch` with ctx_status tracking in ctx_state.json: pending
@@ -566,7 +625,7 @@ def _dispatch_tracked(
             do_context=do_context, do_protocol=do_protocol,
             subproject_override=subproject_override,
             source=source, cursor_ceiling_ns=cursor_ceiling_ns,
-            job_dir=job_dir,
+            job_dir=job_dir, transcript_lines=transcript_lines,
         )
     except Exception as e:
         state.set_ctx_dispatch_result(owrap_sid, "failed", kind=kind, reason=str(e))
@@ -585,7 +644,7 @@ def _dispatch(
     owrap_sid, ccsid, transcript_path, config,
     do_context, do_protocol,
     subproject_override=None, source="claude", cursor_ceiling_ns=None,
-    job_dir=None,
+    job_dir=None, transcript_lines: list = None,
 ) -> tuple:
     """
     Build the scoped sandbox, dispatch to the model, and apply its
@@ -594,6 +653,8 @@ def _dispatch(
     cursor_ceiling_ns, if given, bounds the transcript to what existed
     when the dispatch was triggered, not whatever has accumulated by
     the time this runs — it may have sat behind dispatch.lock.
+    transcript_lines, if the caller already read the file, avoids a
+    second full read of what can be a very large transcript.
 
     Every caller -- background, manual, PreCompact -- is held to the
     same floor before a real model call: at least `CTX_MIN_INTERVAL_S`
@@ -630,11 +691,11 @@ def _dispatch(
         print(f"ctx-worker: {CTX_MIN_INTERVAL_S - since_last:.0f}s left", flush=True)
         return 0, None, None
 
-    if not transcript_path or not Path(transcript_path).exists():
-        print("ctx-worker: transcript path missing", file=sys.stderr)
-        return 1, "transcript path missing", None
-
-    transcript_lines = Path(transcript_path).read_text().splitlines()
+    if transcript_lines is None:
+        if not transcript_path or not Path(transcript_path).exists():
+            print("ctx-worker: transcript path missing", file=sys.stderr)
+            return 1, "transcript path missing", None
+        transcript_lines = Path(transcript_path).read_text().splitlines()
     if cursor_ceiling_ns is not None:
         transcript_lines = lines_up_to_ceiling(transcript_lines, cursor_ceiling_ns)
 
@@ -962,17 +1023,17 @@ def hook_run() -> None:
     now = time.time()
     if _ctx_window_recently_attempted(owrap_sid, ccsid, now):
         return
-    if _pending_excerpt_len(owrap_sid, ccsid, transcript_path, source) < CTX_MIN_CHARS:
+    if not transcript_path or not Path(transcript_path).exists():
+        return
+    transcript_lines = Path(transcript_path).read_text().splitlines()
+    if _pending_excerpt_len(owrap_sid, ccsid, transcript_lines, source) < CTX_MIN_CHARS:
         return
 
     ctx_dir = session_ctx_dir(owrap_sid, ccsid)
     ctx_dir.mkdir(parents=True, exist_ok=True)
     job_dir = context_jobs.create(owrap_sid, ccsid, "ctx+updr")
     hook_data["job_dir"] = str(job_dir)
-    if transcript_path and Path(transcript_path).exists():
-        hook_data["cursor_ceiling_ns"] = latest_event_ns(
-            Path(transcript_path).read_text().splitlines(),
-        )
+    hook_data["cursor_ceiling_ns"] = latest_event_ns(transcript_lines)
     input_path = job_dir / "hook.json"
     input_path.write_text(json.dumps(hook_data))
 
