@@ -23,9 +23,10 @@ class TestResolveOpencodeRunId:
         monkeypatch.delenv("SESSION_ID", raising=False)
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
 
-        sf = tmp_path / "abc123.session"
+        sf = tmp_path / "abc123" / ".session"
+        sf.parent.mkdir(parents=True, exist_ok=True)
         sf.write_text("session_id=abc123\n")
-        opencode_run_id_pointer("run-abc").parent.mkdir(parents=True)
+        opencode_run_id_pointer("run-abc").parent.mkdir(parents=True, exist_ok=True)
         opencode_run_id_pointer("run-abc").write_text("abc123")
 
         sid, sfile, source = resolve(mode="refresh")
@@ -40,7 +41,7 @@ class TestResolveOpencodeRunId:
         monkeypatch.delenv("SESSION_ID", raising=False)
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
 
-        opencode_run_id_pointer("run-abc").parent.mkdir(parents=True)
+        opencode_run_id_pointer("run-abc").parent.mkdir(parents=True, exist_ok=True)
         opencode_run_id_pointer("run-abc").write_text("missing")
 
         sid, sfile, source = resolve(mode="refresh")
@@ -73,7 +74,8 @@ class TestCodexSession:
         monkeypatch.setenv("CODEX_SESSION_ID", "codex-123")
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
         monkeypatch.delenv("OPENCODE_RUN_ID", raising=False)
-        (tmp_path / "abc123.session").write_text("session_id=abc123\n")
+        (tmp_path / "abc123" / ".session").parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "abc123" / ".session").write_text("session_id=abc123\n")
 
         attach("abc123")
         assert codex_session_id_pointer("codex-123").read_text() == "abc123"
@@ -106,7 +108,8 @@ class TestAttachSingleAnchor:
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "ccsid-123")
         monkeypatch.delenv("OPENCODE_RUN_ID", raising=False)
 
-        sf = tmp_path / "abc123.session"
+        sf = tmp_path / "abc123" / ".session"
+        sf.parent.mkdir(parents=True, exist_ok=True)
         sf.write_text("session_id=abc123\n")
 
         sid, sfile, prev = attach("abc123")
@@ -124,7 +127,8 @@ class TestAttachSingleAnchor:
         monkeypatch.setenv("OPENCODE_RUN_ID", "run-xyz")
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
 
-        sf = tmp_path / "abc123.session"
+        sf = tmp_path / "abc123" / ".session"
+        sf.parent.mkdir(parents=True, exist_ok=True)
         sf.write_text("session_id=abc123\n")
 
         sid, sfile, prev = attach("abc123")
@@ -142,11 +146,12 @@ class TestAttachSingleAnchor:
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "ccsid-123")
         monkeypatch.setenv("OPENCODE_RUN_ID", "run-xyz")
 
-        sf = tmp_path / "abc123.session"
+        sf = tmp_path / "abc123" / ".session"
+        sf.parent.mkdir(parents=True, exist_ok=True)
         sf.write_text("session_id=abc123\n")
 
         # Pre-existing oid pointer for this session
-        opencode_run_id_pointer("run-xyz").parent.mkdir(parents=True)
+        opencode_run_id_pointer("run-xyz").parent.mkdir(parents=True, exist_ok=True)
         opencode_run_id_pointer("run-xyz").write_text("abc123")
 
         sid, sfile, prev = attach("abc123")
@@ -165,11 +170,12 @@ class TestAttachSingleAnchor:
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
         monkeypatch.delenv("OPENCODE_RUN_ID", raising=False)
 
-        sf = tmp_path / "abc123.session"
+        sf = tmp_path / "abc123" / ".session"
+        sf.parent.mkdir(parents=True, exist_ok=True)
         sf.write_text("session_id=abc123\nclaude_session_id=old-ccsid\nopencode_run_id=old-run\n")
-        ccsid_pointer("old-ccsid").parent.mkdir(parents=True)
+        ccsid_pointer("old-ccsid").parent.mkdir(parents=True, exist_ok=True)
         ccsid_pointer("old-ccsid").write_text("abc123")
-        opencode_run_id_pointer("old-run").parent.mkdir(parents=True)
+        opencode_run_id_pointer("old-run").parent.mkdir(parents=True, exist_ok=True)
         opencode_run_id_pointer("old-run").write_text("abc123")
 
         sid, sfile, prev = attach("abc123")
@@ -190,7 +196,8 @@ class TestAttachOpencodeRunId:
         monkeypatch.setenv("OPENCODE_RUN_ID", "run-abc")
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
 
-        sf = tmp_path / "abc123.session"
+        sf = tmp_path / "abc123" / ".session"
+        sf.parent.mkdir(parents=True, exist_ok=True)
         sf.write_text("session_id=abc123\n")
 
         sid, sfile, prev = attach("abc123")
@@ -207,11 +214,13 @@ class TestAttachOpencodeRunId:
         monkeypatch.setenv("OPENCODE_RUN_ID", "run-abc")
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
 
-        old_sf = tmp_path / "old.session"
+        old_sf = tmp_path / "old" / ".session"
+        old_sf.parent.mkdir(parents=True, exist_ok=True)
         old_sf.write_text("session_id=old\nopencode_run_id=run-abc\n")
-        new_sf = tmp_path / "new.session"
+        new_sf = tmp_path / "new" / ".session"
+        new_sf.parent.mkdir(parents=True, exist_ok=True)
         new_sf.write_text("session_id=new\n")
-        opencode_run_id_pointer("run-abc").parent.mkdir(parents=True)
+        opencode_run_id_pointer("run-abc").parent.mkdir(parents=True, exist_ok=True)
         opencode_run_id_pointer("run-abc").write_text("old")
 
         sid, sfile, prev = attach("new")
@@ -233,7 +242,8 @@ class TestMultiAttach:
         )
         monkeypatch.delenv("OPENCODE_RUN_ID", raising=False)
 
-        sf = tmp_path / "abc123.session"
+        sf = tmp_path / "abc123" / ".session"
+        sf.parent.mkdir(parents=True, exist_ok=True)
         sf.write_text("session_id=abc123\n")
 
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "ccsid-a")
@@ -257,8 +267,10 @@ class TestMultiAttach:
         monkeypatch.delenv("OPENCODE_RUN_ID", raising=False)
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "ccsid-a")
 
-        (tmp_path / "old.session").write_text("session_id=old\n")
-        (tmp_path / "new.session").write_text("session_id=new\n")
+        (tmp_path / "old" / ".session").parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "old" / ".session").write_text("session_id=old\n")
+        (tmp_path / "new" / ".session").parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "new" / ".session").write_text("session_id=new\n")
 
         attach("old")
         attach("new")
@@ -279,7 +291,8 @@ class TestDetach:
         )
         monkeypatch.delenv("OPENCODE_RUN_ID", raising=False)
 
-        (tmp_path / "abc123.session").write_text("session_id=abc123\n")
+        (tmp_path / "abc123" / ".session").parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "abc123" / ".session").write_text("session_id=abc123\n")
 
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "ccsid-a")
         attach("abc123")
@@ -313,9 +326,10 @@ class TestRemoveSession:
         monkeypatch.setattr("owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
         monkeypatch.setattr("owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
 
-        sf = tmp_path / "abc123.session"
+        sf = tmp_path / "abc123" / ".session"
+        sf.parent.mkdir(parents=True, exist_ok=True)
         sf.write_text("session_id=abc123\n")
-        opencode_run_id_pointer("run-abc").parent.mkdir(parents=True)
+        opencode_run_id_pointer("run-abc").parent.mkdir(parents=True, exist_ok=True)
         opencode_run_id_pointer("run-abc").write_text("abc123")
 
         remove_session("abc123")
@@ -331,7 +345,8 @@ class TestListSessions:
         monkeypatch.setenv("OPENCODE_RUN_ID", "run-abc")
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
 
-        sf = tmp_path / "abc123.session"
+        sf = tmp_path / "abc123" / ".session"
+        sf.parent.mkdir(parents=True, exist_ok=True)
         sf.write_text("session_id=abc123\nopencode_run_id=run-abc\n")
 
         sessions = list_sessions()
@@ -351,7 +366,8 @@ def _parse_session(path: Path) -> dict:
 class TestResolveAttachTarget:
     def _write_sessions(self, tmp_path, sessions):
         for sid, project_id, subproject_id in sessions:
-            (tmp_path / f"{sid}.session").write_text(
+            (tmp_path / sid / ".session").parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / sid / ".session").write_text(
                 f"session_id={sid}\ntarget_kind=project\n"
                 f"project_id={project_id}\nsubproject_id={subproject_id}\n",
             )
@@ -439,3 +455,63 @@ class TestResolveAttachTarget:
         status, payload = resolve_attach_target("bogusxyz")
         assert status == "none"
         assert payload == []
+
+
+class TestResolveEnvRebindsStaleAnchor:
+    def _setup(self, tmp_path, monkeypatch, sid="abc123"):
+        monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid",
+        )
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_CODEX_SESSION_ID_DIR",
+            tmp_path / "by_codex",
+        )
+        (tmp_path / sid / ".session").parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / sid / ".session").write_text(f"session_id={sid}\n")
+
+    def test_env_resolve_binds_a_ccsid_with_no_existing_pointer(
+        self, tmp_path, monkeypatch,
+    ):
+        self._setup(tmp_path, monkeypatch)
+        monkeypatch.setenv("SESSION_ID", "abc123")
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "new-ccsid")
+        monkeypatch.delenv("CODEX_SESSION_ID", raising=False)
+
+        sid, _, source = resolve(mode="refresh")
+
+        assert (sid, source) == ("abc123", "env")
+        assert ccsid_pointer("new-ccsid").read_text().strip() == "abc123"
+
+    def test_env_resolve_rebinds_a_ccsid_pointing_at_a_different_session(
+        self, tmp_path, monkeypatch,
+    ):
+        """
+        A harness restart can mint a new ccsid while SESSION_ID stays
+        set; an unrelated session's stale ccsid pointer must not be
+        mistaken for this one still being correctly bound.
+        """
+        self._setup(tmp_path, monkeypatch)
+        ccsid_pointer("old-ccsid").parent.mkdir(parents=True, exist_ok=True)
+        ccsid_pointer("old-ccsid").write_text("some-other-session")
+        monkeypatch.setenv("SESSION_ID", "abc123")
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "old-ccsid")
+        monkeypatch.delenv("CODEX_SESSION_ID", raising=False)
+
+        sid, _, source = resolve(mode="refresh")
+
+        assert (sid, source) == ("abc123", "env")
+        assert ccsid_pointer("old-ccsid").read_text().strip() == "abc123"
+
+    def test_env_resolve_also_rebinds_a_stale_codex_session_id(
+        self, tmp_path, monkeypatch,
+    ):
+        self._setup(tmp_path, monkeypatch)
+        monkeypatch.setenv("SESSION_ID", "abc123")
+        monkeypatch.setenv("CODEX_SESSION_ID", "new-cid")
+        monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+
+        sid, _, source = resolve(mode="refresh")
+
+        assert (sid, source) == ("abc123", "env")
+        assert codex_session_id_pointer("new-cid").read_text().strip() == "abc123"

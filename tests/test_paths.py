@@ -35,19 +35,6 @@ def test_session_and_fallback_paths_share_session_root(isolate_owrap_dirs):
     assert READ_LOG == FALLBACK_DIR / "read" / "log.md"
 
 
-def test_session_dir_reads_legacy_artifacts(tmp_path, monkeypatch):
-    from owrap.utils import paths
-
-    current = tmp_path / "sessions"
-    legacy = tmp_path / "docs" / "sessions"
-    (legacy / "abc123").mkdir(parents=True)
-    monkeypatch.setattr(paths, "SESSIONS_DIR", current)
-    monkeypatch.setattr(paths, "LEGACY_SESSIONS_DIR", legacy)
-
-    assert paths.session_dir("abc123") == legacy / "abc123"
-    assert paths.session_dir("new123") == current / "new123"
-
-
 def test_context_lock_path_under_context_dir():
     from owrap.utils.paths import context_lock_path, SESSIONS_DIR
     p = context_lock_path("abc123")

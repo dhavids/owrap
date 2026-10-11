@@ -55,6 +55,7 @@ class MemoryTarget:
     branch_parent: str = ""
     branch_repository: str = ""
     branch_ref: str = ""
+    high_risk: bool = False
 
 
 def docs_root(workspace: str = "") -> Path:
@@ -192,11 +193,26 @@ def resolve_memory_target(
             or not branch_ref
         ):
             raise ValueError(f"invalid branch record: {project_id}/{subproject_id}")
+    # A subproject can't de-escalate below its own project's risk.
+    high_risk = record.get("risk") == "high" or entry.get("risk") == "high"
     return MemoryTarget(
         kind, project_id, subproject_id, project_path,
         repo_ids, tuple(repo_paths), branch_parent,
-        branch_repository, branch_ref,
+        branch_repository, branch_ref, high_risk,
     )
+
+
+def is_high_risk_session(session: dict) -> bool:
+    """
+    Whether this session's resolved project/subproject target is
+    marked high-risk. False for a repository-only session, or a
+    session whose target doesn't resolve at all.
+    """
+    try:
+        target = resolve_memory_target(session)
+    except (FileNotFoundError, ValueError):
+        return False
+    return bool(target and target.high_risk)
 
 
 def session_repositories(session: dict) -> tuple[str, ...]:

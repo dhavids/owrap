@@ -21,9 +21,9 @@ def test_move_to_trash_moves_all_pieces(tmp_path):
     trash_dir, sessions_dir, runtime_dir, docs_dir = _patch_paths(tmp_path)
     sid = "abc123"
 
-    (sessions_dir / f"{sid}.session").write_text("session_id=abc123\n")
     sess_docs = sessions_dir / sid
     sess_docs.mkdir(parents=True)
+    (sess_docs / ".session").write_text("session_id=abc123\n")
     (sess_docs / "context.md").write_text("hello")
     (runtime_dir / sid).mkdir()
     (runtime_dir / sid / "state.json").write_text("{}")
@@ -38,8 +38,7 @@ def test_move_to_trash_moves_all_pieces(tmp_path):
         result = trash_mod.move_to_trash(sid)
 
     assert result == trash_dir / sid
-    assert (trash_dir / sid / "session").exists()
-    assert not (sessions_dir / f"{sid}.session").exists()
+    assert (trash_dir / sid / "docs_sessions" / ".session").exists()
     assert (trash_dir / sid / "docs_sessions" / "context.md").exists()
     assert not sess_docs.exists()
     assert (trash_dir / sid / "runtime" / "state.json").exists()
@@ -55,9 +54,9 @@ def test_restore_from_trash_round_trips(tmp_path):
     trash_dir, sessions_dir, runtime_dir, docs_dir = _patch_paths(tmp_path)
     sid = "def456"
 
-    (sessions_dir / f"{sid}.session").write_text("session_id=def456\n")
     sess_docs = sessions_dir / sid
     sess_docs.mkdir(parents=True)
+    (sess_docs / ".session").write_text("session_id=def456\n")
     (sess_docs / "context.md").write_text("hello")
     (runtime_dir / sid).mkdir()
 

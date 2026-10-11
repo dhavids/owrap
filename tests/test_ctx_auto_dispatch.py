@@ -262,7 +262,38 @@ def test_check_all_attached_never_queues_a_job_for_too_small_an_excerpt(
     )
 
 
-def test_auto_ctx_due_respects_base_30m_cadence_before_three_failures(
+def test_check_all_attached_excludes_a_high_risk_window_entirely(
+    monkeypatch, tmp_path,
+):
+    """
+    A high-risk window must not be counted at all, not even as a
+    too-small/cooldown skip -- it never reaches the per-window body.
+    """
+    _attached_window(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        dispatch, "all_attached_ccsid_pairs", lambda: [("ccsid1", "sid1")],
+    )
+    monkeypatch.setattr(dispatch, "all_attached_codex_session_id_pairs", lambda: [])
+    monkeypatch.setattr(dispatch, "_is_high_risk_sid", lambda sid: True)
+    calls = []
+    monkeypatch.setattr(
+        dispatch, "_dispatch_tracked", lambda *a, **kw: calls.append(1) or 0,
+    )
+    logged = []
+    monkeypatch.setattr(
+        dispatch.rtlog, "log", lambda event, **fields: logged.append((event, fields)),
+    )
+
+    dispatch.check_all_attached()
+
+    assert calls == []
+    assert logged[-1] == (
+        "ctx.check",
+        {"backoff": False, "windows": 0, "dispatched": 0, "cooldown": 0, "too_small": 0},
+    )
+
+
+def test_auto_ctx_due_respects_base_15m_cadence_before_three_failures(
     monkeypatch, tmp_path,
 ):
     monkeypatch.setattr(dispatch, "AUTO_CTX_STATE_FILE", tmp_path / "backoff.json")
@@ -271,38 +302,38 @@ def test_auto_ctx_due_respects_base_30m_cadence_before_three_failures(
     dispatch._record_auto_ctx_outcome(success=False, now=now)
     dispatch._record_auto_ctx_outcome(success=False, now=now)
     assert dispatch._auto_ctx_due(now + 1) is False
-    assert dispatch._auto_ctx_due(now + 1800) is True
+    assert dispatch._auto_ctx_due(now + 900) is True
 
 
 def test_auto_ctx_backoff_schedule_advances_per_failure_then_cycles(
     monkeypatch, tmp_path,
 ):
     """
-    3 consecutive background failures hold off the next try for 30m;
-    a 4th failure (once that 30m clears) pushes it to 1h, then 2h,
-    then a further failure cycles back to 30m.
+    3 consecutive background failures hold off the next try for 15m;
+    a 4th failure (once that 15m clears) pushes it to 1h, then 2h,
+    then a further failure cycles back to 15m.
     """
     monkeypatch.setattr(dispatch, "AUTO_CTX_STATE_FILE", tmp_path / "backoff.json")
     now = 1_000_000.0
     for _ in range(3):
         dispatch._record_auto_ctx_outcome(success=False, now=now)
     assert dispatch._auto_ctx_due(now + 1) is False
-    assert dispatch._auto_ctx_due(now + 1800) is True
+    assert dispatch._auto_ctx_due(now + 900) is True
 
-    dispatch._record_auto_ctx_outcome(success=False, now=now + 1800)
-    assert dispatch._auto_ctx_due(now + 1800 + 1) is False
-    assert dispatch._auto_ctx_due(now + 1800 + 3600) is True
+    dispatch._record_auto_ctx_outcome(success=False, now=now + 900)
+    assert dispatch._auto_ctx_due(now + 900 + 1) is False
+    assert dispatch._auto_ctx_due(now + 900 + 3600) is True
 
-    dispatch._record_auto_ctx_outcome(success=False, now=now + 1800 + 3600)
-    assert dispatch._auto_ctx_due(now + 1800 + 3600 + 7199) is False
-    assert dispatch._auto_ctx_due(now + 1800 + 3600 + 7200) is True
+    dispatch._record_auto_ctx_outcome(success=False, now=now + 900 + 3600)
+    assert dispatch._auto_ctx_due(now + 900 + 3600 + 7199) is False
+    assert dispatch._auto_ctx_due(now + 900 + 3600 + 7200) is True
 
-    # Cycles back to 30m after 2h, rather than capping or climbing further.
+    # Cycles back to 15m after 2h, rather than capping or climbing further.
     dispatch._record_auto_ctx_outcome(
-        success=False, now=now + 1800 + 3600 + 7200,
+        success=False, now=now + 900 + 3600 + 7200,
     )
-    assert dispatch._auto_ctx_due(now + 1800 + 3600 + 7200 + 1799) is False
-    assert dispatch._auto_ctx_due(now + 1800 + 3600 + 7200 + 1800) is True
+    assert dispatch._auto_ctx_due(now + 900 + 3600 + 7200 + 899) is False
+    assert dispatch._auto_ctx_due(now + 900 + 3600 + 7200 + 900) is True
 
 
 def test_auto_ctx_backoff_resets_on_any_success(monkeypatch, tmp_path):
@@ -314,9 +345,9 @@ def test_auto_ctx_backoff_resets_on_any_success(monkeypatch, tmp_path):
 
     dispatch._record_auto_ctx_outcome(success=True, now=now + 1)
 
-    # Back to the base 30m cadence, not the 1h+ backoff interval.
-    assert dispatch._auto_ctx_due(now + 1 + 1799) is False
-    assert dispatch._auto_ctx_due(now + 1 + 1800) is True
+    # Back to the base 15m cadence, not the 1h+ backoff interval.
+    assert dispatch._auto_ctx_due(now + 1 + 899) is False
+    assert dispatch._auto_ctx_due(now + 1 + 900) is True
 
 
 def test_dispatch_tracked_records_auto_failure_but_not_manual_failure(

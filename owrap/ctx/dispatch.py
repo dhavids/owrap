@@ -42,8 +42,8 @@ from ..utils.io.atomic import write_atomic
 from ..utils.io.filelock import file_lock
 from ..utils.log import context_jobs, rtlog
 from ..utils.memory.records import (
-    register_discovered_repositories, resolve_memory_target,
-    touched_repository_paths,
+    is_high_risk_session, register_discovered_repositories,
+    resolve_memory_target, touched_repository_paths,
 )
 from ..utils.parser.output import OutputParser
 from ..utils.paths import (
@@ -60,11 +60,11 @@ MAX_EXCERPT_CHARS = 40000
 MAX_CODEX_EXCERPT_CHARS = 40000
 
 # Applies everywhere; a real model call needs both, not either.
-CTX_MIN_INTERVAL_S = 900  # 15 min since this window's last real attempt
+CTX_MIN_INTERVAL_S = 300  # 5 min since this window's last real attempt
 CTX_MIN_CHARS = 5000  # excerpt must also clear this
 AUTO_CTX_STATE_FILE = RUNTIME_DIR / "auto_ctx_backoff.json"
 AUTO_CTX_FAILS_BEFORE_BACKOFF = 3
-AUTO_CTX_BACKOFF_SCHEDULE_S = (1800, 3600, 7200)  # 30m, 1h, 2h, then back to 30m
+AUTO_CTX_BACKOFF_SCHEDULE_S = (900, 3600, 7200)  # 15m, 1h, 2h, then back to 15m
 
 
 def read_opencode_status_detail() -> dict:
@@ -315,10 +315,18 @@ def run_manual(mode: str = None, subproject: str = None) -> None:
     # Bound the dispatch to now, not whenever it clears dispatch.lock.
     cursor_ceiling_ns = latest_event_ns(transcript.read_text().splitlines())
 
+    sf_path = session_file(owrap_sid)
+    d = _parse(sf_path) if sf_path.exists() else {}
+    if is_high_risk_session(d):
+        print(
+            "This session's project/subproject is marked high-risk -- "
+            "auto-dispatch to a model is disabled. Run `owrap ctx get "
+            "template`, update the files by hand, then `owrap ctx done`.",
+        )
+        sys.exit(1)
+
     kind = None
     if mode != "ctx":
-        sf_path = session_file(owrap_sid)
-        d = _parse(sf_path) if sf_path.exists() else {}
         kind = d.get("target_kind")
         if kind == "project":
             target_data = dict(d)
@@ -434,6 +442,12 @@ def _dispatch_and_track(
         context_jobs.finish(job_dir, rc)
 
 
+def _is_high_risk_sid(owrap_sid: str) -> bool:
+    sf_path = session_file(owrap_sid)
+    d = _parse(sf_path) if sf_path.exists() else {}
+    return is_high_risk_session(d)
+
+
 def check_all_attached() -> None:
     """
     Background trigger check: for every currently-attached Claude or
@@ -443,7 +457,8 @@ def check_all_attached() -> None:
     when a window's excerpt since its checkpoint is empty, so a window
     with nothing new costs only a transcript line-count check.
 
-    Gated three ways before a job is ever created: `_auto_ctx_due`
+    A high-risk window is excluded before it's even counted. Gated
+    three further ways before a job is ever created: `_auto_ctx_due`
     holds off entirely while backing off from repeated opencode-down
     failures; `_ctx_window_recently_attempted` skips a window inside
     its own cooldown; `_pending_excerpt_len` skips a window whose new
@@ -469,6 +484,8 @@ def check_all_attached() -> None:
     workspace = get_workspace_path()
     windows = dispatched = cooldown = too_small = 0
     for ccsid, owrap_sid in all_attached_ccsid_pairs():
+        if _is_high_risk_sid(owrap_sid):
+            continue
         windows += 1
         try:
             transcript_path = claude_transcript_path(ccsid, workspace)
@@ -493,6 +510,8 @@ def check_all_attached() -> None:
                 file=sys.stderr,
             )
     for cid, owrap_sid in all_attached_codex_session_id_pairs():
+        if _is_high_risk_sid(owrap_sid):
+            continue
         windows += 1
         try:
             transcript_path = codex_transcript_path(cid)
@@ -910,7 +929,8 @@ def hook_run() -> None:
     """
     Receive Claude/Codex's PreCompact hook data (on stdin) and spawn
     a background context-manager worker for the firing window
-    (ccsid), if there's enough new content to justify one.
+    (ccsid), if there's enough new content to justify one and the
+    window's target isn't marked high-risk.
     """
     try:
         hook_data = json.load(sys.stdin)
@@ -933,6 +953,8 @@ def hook_run() -> None:
             source = "codex"
 
     if not owrap_sid:
+        return
+    if _is_high_risk_sid(owrap_sid):
         return
 
     # Same floor as every other caller -- skip outright rather than

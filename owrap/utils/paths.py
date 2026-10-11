@@ -32,10 +32,8 @@ del _env_home
 RUNTIME_HOME = OWRAP_HOME
 RUNTIME_DIR = RUNTIME_HOME / "runtime"
 RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-# Read-only compatibility root until legacy runtime files are migrated.
 DOCS_DIR = RUNTIME_HOME / "docs"
 SESSIONS_DIR = RUNTIME_HOME / "sessions"
-LEGACY_SESSIONS_DIR = DOCS_DIR / "sessions"
 SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 LOCKS_DIR = RUNTIME_HOME / "locks"
 LOCKS_DIR.mkdir(parents=True, exist_ok=True)
@@ -125,22 +123,14 @@ def _resolve_owrap_home() -> Path:
 
 
 def session_dir(session_id: str) -> Path:
-    current = SESSIONS_DIR / session_id
-    legacy = LEGACY_SESSIONS_DIR / session_id
-    return legacy if not current.exists() and legacy.exists() else current
+    return SESSIONS_DIR / session_id
 
 
 def session_ctx_counters_path(session_id: str, harness_id: str) -> Path:
-    current = (
+    return (
         session_dir(session_id) / "ctx" / "windows" / harness_id
         / "counters.json"
     )
-    name = f"{session_id}.{harness_id}.counters.json"
-    flat = SESSIONS_DIR / name
-    legacy = LEGACY_SESSIONS_DIR / name
-    if not current.exists() and flat.exists():
-        return flat
-    return legacy if not current.exists() and legacy.exists() else current
 
 
 def session_log(base_log: Path, session_id: str) -> Path:
@@ -175,15 +165,8 @@ def session_ctx_root(session_id: str) -> Path:
 def session_ctx_dir(session_id: str, ccsid: str) -> Path:
     """
     Return the per-window context-manager state directory.
-
-    Existing per-window directories remain readable after the layout change.
     """
-    root = session_ctx_root(session_id)
-    current = root / "windows" / ccsid
-    legacy = root / ccsid
-    if legacy.exists() and not current.exists():
-        return legacy
-    return current
+    return session_ctx_root(session_id) / "windows" / ccsid
 
 
 def session_ctx_jobs_dir(session_id: str) -> Path:

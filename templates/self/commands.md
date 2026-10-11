@@ -21,7 +21,7 @@ servers past `idle_shutdown_s`.
 |---|---|
 | `owrap start project` | Start a targeted project session |
 | `owrap add project` | Select or create a regular subproject |
-| `owrap set project` | Return the current project session to main, or select an existing subproject |
+| `owrap set project` | Return the current project session to main, select an existing subproject, or set its risk level |
 | `owrap add session` | Create a child session with inherited target, or an independent one via `temp` |
 | `owrap done session` | Preview or merge child context |
 | `owrap attach session` | Bind this window to a session |
@@ -83,12 +83,13 @@ servers past `idle_shutdown_s`.
 Base config: `templates/config.json` → copy to `OWRAP_HOME/configs/base.json`.
 Check `owrap self get config` for live values.
 
+<!-- BEGIN GENERATED: config table (templates/build.py) -->
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `owrap_runner_enabled` | bool | `true` | Runner on/off switch. When `false`, dispatch tooling (`owrap read`/`exec`/`agent`/`task`, or `owrap fallback start`) is disabled and planner works directly. |
 | `owrap_context_manager_enabled` | bool | `true` | Gates the context-manager pipeline (Update Context/Update Protocol dispatch, including PreCompact), independent of the runner switch above. |
-| `permit_bypass_all` | bool | `false` | When `true`, `owrap p` auto-approves every Bash/Write/Edit call with no rule matching. Explicit opt-in only — never implied by the runner switch. |
-| `runner_allow_all` | bool | `false` | Always pass `--dangerously-skip-permissions` to opencode dispatches. |
+| `permit_bypass_all` | bool | `false` | When `true`, `owrap p` auto-approves every Bash/Write/Edit call with no rule matching. Explicit opt-in only -- never implied by the runner switch. |
+| `runner_allow_all` | bool | `true` | Always pass `--dangerously-skip-permissions` to opencode dispatches. |
 | `runner_use_oread` | bool | `true` | Require file reads through `owrap read` (enables Read in permission matcher). |
 | `context_injection_enabled` | bool | `true` | Inject session context file into task/msg prompts. |
 | `default_research` | string | — | Default target for legacy positional `start`. |
@@ -101,7 +102,7 @@ Check `owrap self get config` for live values.
 | `max_requests_per_server` | int | `10` | Request quota per server before graceful eviction. |
 | `idle_shutdown_s` | float | `300` | Idle seconds before server shutdown. |
 | `daemon_interval_s` | float | `10` | Seconds between daemon pool-lifecycle checks. |
-| `ctx_check_interval_s` | float | `600` | Seconds between the daemon's background checks for an attached window's unprocessed transcript diff -- an auto-dispatch still only fires once the excerpt clears `CTX_MIN_CHARS` (5k) and this window's own 15-min cooldown, and otherwise follows a 30m/1h/2h schedule that cycles back to 30m after repeated opencode-down failures. |
+| `ctx_check_interval_s` | float | `900` | Seconds between the daemon's background checks for an attached window's unprocessed transcript diff -- an auto-dispatch still only fires once the excerpt clears `CTX_MIN_CHARS` (5k) and this window's own 5-min cooldown, and otherwise follows a 15m/1h/2h schedule that cycles back to 15m after repeated opencode-down failures. |
 | `runner_model` | string | — | Model for regular runner dispatch (`owrap task start`/`owrap exec start`). |
 | `context_manager_model` | string | — | Model for context-manager tasks (Update Context/Update Protocol dispatch). |
 | `context_fallback_model` | string | — | Fallback model when `context_manager_model` isn't set. |
@@ -110,6 +111,7 @@ Check `owrap self get config` for live values.
 | `stall_notify_s` | int | `120` | Seconds before notification for a stalled job. |
 | `watchdog_poll_s` | int | `10` | Watchdog polling interval. |
 | `expected_duration_*` | int | varies | Expected duration thresholds for msg/read/task/exec. |
+<!-- END GENERATED: config table -->
 
 
 ## Duration defaults
@@ -229,8 +231,8 @@ when its content needs correction.
 | `start` | `[<id>]` | `owrap start project myproject` |
 | `update` | `<old-id> <new-id>` | `owrap update project myproject renamed-project` |
 | `add` | `<name> [force]` | `owrap add project docs` |
-| `set` | `[<name>]` | `owrap set project` |
-| `get` | `[main|subs|sub <name>|name|path]` | `owrap get project` |
+| `set` | `[<name>|risk <low|high>]` | `owrap set project` |
+| `get` | `[main|subs|sub <name>|name|path|risk]` | `owrap get project` |
 
 
 ### `owrap read`
