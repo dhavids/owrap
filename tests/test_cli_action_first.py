@@ -13,7 +13,7 @@ from owrap.cli import _resolve_kind_first, main
 
 
 class _ToySelf:
-    BARE_ACTIONS = ()
+    pass
 
 
 @pytest.fixture(autouse=True)
@@ -61,14 +61,25 @@ def test_unknown_token_returns_none():
     assert _resolve_kind_first(["bogus"]) is None
 
 
-def test_verb_not_in_action_registry_falls_back_to_self_bare_action(monkeypatch):
-    # `get` has no tie-break kind -- only `Self.BARE_ACTIONS` members get this.
-    monkeypatch.setattr(_ToySelf, "BARE_ACTIONS", ("get",))
+def test_verb_not_in_action_registry_returns_none():
+    assert _resolve_kind_first(["get", "config"]) is None
+
+
+def test_verb_ambiguous_among_many_kinds_defaults_to_self(monkeypatch):
+    # "config" names no owning kind -- falls back to self, like session.
+    monkeypatch.setattr(
+        cli_module, "ACTION_REGISTRY", {"get": ["todo", "daemon", "self"]},
+    )
     assert _resolve_kind_first(["get", "config"]) == ["self", "get", "config"]
 
 
-def test_verb_not_in_action_registry_and_not_a_self_bare_action_returns_none():
-    assert _resolve_kind_first(["get", "config"]) is None
+def test_verb_ambiguous_among_many_kinds_prefers_a_matching_kind_over_self(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        cli_module, "ACTION_REGISTRY", {"get": ["todo", "daemon", "self"]},
+    )
+    assert _resolve_kind_first(["get", "daemon"]) == ["daemon", "get"]
 
 
 def test_main_reports_ambiguous_verb_with_no_session_candidate(monkeypatch, capsys):

@@ -50,7 +50,7 @@ class _ToyWithoutDo(Actions):
 
 
 class _ToySelf:
-    BARE_ACTIONS = ()
+    pass
 
 
 @pytest.fixture(autouse=True)
