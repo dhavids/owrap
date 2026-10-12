@@ -20,7 +20,7 @@ servers past `idle_shutdown_s`.
 | Command | Effect |
 |---|---|
 | `owrap start project` | Start a targeted project session |
-| `owrap add project` | Select or create a regular subproject |
+| `owrap add project` | Select or create a regular subproject, or create scratch notes |
 | `owrap set project` | Return the current project session to main, select an existing subproject, or set its risk level |
 | `owrap add session` | Create a child session with inherited target, or an independent one via `temp` |
 | `owrap done session` | Preview or merge child context |
@@ -39,6 +39,7 @@ servers past `idle_shutdown_s`.
 |---|---|
 | `owrap start ctx` | Queue a session context update |
 | `owrap get decision` | List decisions for a project/repository/session target |
+| `owrap clear project` | Delete the active target's disposable scratch notes |
 | `owrap get project` | Read project/subproject goals and decisions, or report identity |
 | `owrap do sync` | Stage and merge workspace instructions |
 | `owrap get todo` | List goals for a project/repository/session target |
@@ -232,8 +233,9 @@ when its content needs correction.
 | `start` | `[<id>]` | `owrap start project myproject` |
 | `update` | `<old-id> <new-id>` | `owrap update project myproject renamed-project` |
 | `add` | `<name> [force]` | `owrap add project docs` |
+| `clear` | `scratch` | `owrap clear project scratch` |
 | `set` | `[<name>|risk <low|high>]` | `owrap set project` |
-| `get` | `[main|subs|sub <name>|name|path|risk]` | `owrap get project` |
+| `get` | `[main|subs|sub <name>|scratch [path]|name|path|risk]` | `owrap get project` |
 
 
 ### `owrap read`
