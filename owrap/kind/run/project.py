@@ -174,6 +174,49 @@ def _create_or_select_subproject(name: str, force: bool = False) -> bool:
     return created
 
 
+def _scratch_label(data: dict) -> str:
+    return f"{data['project_id']}/{data.get('subproject_id') or 'main'}"
+
+
+def _scratch_path(data: dict) -> Path:
+    """
+    The active target's scratch-notes path, by convention -- never
+    stored in the project record. Raises if the target itself
+    (project or subproject) doesn't resolve.
+    """
+    target = resolve_memory_target(data)
+    directory = target.project_path.parent
+    name = (
+        f"{target.subproject_id}.scratch.md" if target.subproject_id
+        else "scratch.md"
+    )
+    return directory / name
+
+
+def _create_scratch(path: Path) -> bool:
+    """
+    Create an empty scratch-notes file at `path` if it doesn't
+    already exist. Returns True if created.
+    """
+    try:
+        with path.open("x"):
+            pass
+        return True
+    except FileExistsError:
+        return False
+
+
+def _clear_scratch(path: Path) -> bool:
+    """
+    Delete the scratch-notes file at `path` if it exists. Returns
+    True if it was removed.
+    """
+    if not path.is_file():
+        return False
+    path.unlink()
+    return True
+
+
 def _print_subprojects() -> None:
     """
     List the attached session's project's subprojects.
@@ -226,14 +269,26 @@ class Project(Session):
         "add": {
             "usage": "<name> [force]",
             "args": [
-                ("name", "subproject to create, or select if it "
-                         "already exists"),
+                ("name", "subproject to create, or select if it already "
+                         "exists -- 'scratch' creates the active target's "
+                         "scratch notes file instead"),
                 ("force", "reserved keyword -- skip the typo-suggestion "
                           "check and create anyway"),
             ],
-            "examples": ["docs", "experimental force"],
-            "purpose": "Select or create a regular subproject",
+            "examples": ["docs", "experimental force", "scratch"],
+            "purpose": "Select or create a regular subproject, or create "
+                   "scratch notes",
             "group": "session",
+        },
+        "clear": {
+            "usage": "scratch",
+            "args": [
+                ("scratch", "delete the active target's scratch notes"),
+            ],
+            "examples": ["scratch"],
+            "purpose": "Delete the active target's disposable scratch "
+                   "notes",
+            "group": "record",
         },
         "set": {
             "usage": "[<name>|risk <low|high>]",
@@ -249,16 +304,21 @@ class Project(Session):
             "group": "session",
         },
         "get": {
-            "usage": "[main|subs|sub <name>|name|path|risk]",
+            "usage": "[main|subs|sub <name>|scratch [path]|name|path|risk]",
             "args": [
                 ("main", "the project's own Goals/Decisions (default)"),
                 ("subs", "list the project's subprojects"),
                 ("sub", "a named subproject's Goals/Decisions"),
+                ("scratch", "the active target's scratch notes, or its "
+                            "file path with 'path'"),
                 ("name", "report the active project/subproject id"),
                 ("path", "report the active record's file path"),
                 ("risk", "report the active target's risk level"),
             ],
-            "examples": ["", "main", "subs", "sub docs", "name", "path", "risk"],
+            "examples": [
+                "", "main", "subs", "sub docs", "scratch", "scratch path",
+                "name", "path", "risk",
+            ],
             "purpose": "Read project/subproject goals and decisions, or "
                    "report identity",
             "group": "record",
@@ -267,11 +327,13 @@ class Project(Session):
 
     messages = {
         "update": "Renamed project {old_id} -> {new_id}",
-        "add": "{action}: {project_id}/{name}",
+        "add": "{verb}: {project_id}/{name}",
+        "scratch_add": "{verb} scratch notes: {label}",
         "set": "Selected: {project_id}/{name}",
         "risk": "{project_id}/{name}: risk set to {value}",
         "name": "{name}",
         "path": "{path}",
+        "clear": "Cleared scratch notes: {label}",
     }
 
 
@@ -292,14 +354,39 @@ class Project(Session):
     def add(self, name: str = None, force: str = None) -> None:
         """
         Create (or select, if it already exists) a subproject of
-        the active session's project.
+        the active session's project -- or, for `name == "scratch"`,
+        create the active target's scratch notes file instead.
         """
         if not name:
             self._usage("add")
+        if name == "scratch":
+            _, data = self._edit(_project_session)
+            path = self._edit(_scratch_path, data)
+            created = self._edit(_create_scratch, path)
+            verb = "Created" if created else "Already exists:"
+            self._ok("scratch_add", verb=verb, label=_scratch_label(data))
+            return
         created = self._edit(_create_or_select_subproject, name, force=force == "force")
-        action = "Created and selected" if created else "Subproject"
+        verb = "Created and selected" if created else "Subproject"
         _, data = _project_session()
-        self._ok("add", action=action, project_id=data["project_id"], name=name)
+        self._ok("add", verb=verb, project_id=data["project_id"], name=name)
+
+    def clear(self, facet: str = None) -> None:
+        """
+        Delete the active target's scratch notes -- disposable
+        design/dev notes that are never part of the durable project
+        or subproject record.
+        """
+        if facet != "scratch":
+            self._usage("clear")
+        _, data = self._edit(_project_session)
+        path = self._edit(_scratch_path, data)
+        removed = self._edit(_clear_scratch, path)
+        label = _scratch_label(data)
+        if removed:
+            self._ok("clear", label=label)
+        else:
+            print(f"No scratch notes for {label} to clear.")
 
     def set(self, name: str = None, value: str = None) -> None:
         """
@@ -343,6 +430,17 @@ class Project(Session):
             self._print_content(data, name or "")
         elif facet == "subs":
             _print_subprojects()
+        elif facet == "scratch":
+            path = _scratch_path(data)
+            if name == "path":
+                self._ok("path", path=str(path))
+            elif not path.is_file():
+                print(
+                    f"No scratch notes for {_scratch_label(data)} yet -- "
+                    f"create with 'owrap add project scratch'."
+                )
+            else:
+                print(path.read_text())
         elif facet == "name":
             subproject = data.get("subproject_id") or "main"
             self._ok("name", name=f"{data['project_id']}/{subproject}")
