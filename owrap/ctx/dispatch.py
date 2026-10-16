@@ -959,6 +959,7 @@ def _run_dispatch_attempt(
         idle_timeout_after=(
             CTX_READ_MARKER, round(CTX_IDLE_TIMEOUT_AFTER_READ_S * factor),
         ),
+        heartbeat_path=ctx_dir / "idle.json",
     )
     rc = result.get("returncode", 1)
     print(f"ctx-worker: opencode rc={rc}", flush=True)

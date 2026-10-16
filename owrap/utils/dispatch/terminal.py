@@ -1,3 +1,4 @@
+import json
 import os
 import signal
 import subprocess
@@ -5,6 +6,7 @@ import threading
 from typing import Optional
 
 from ..parser.output import OutputParser
+from ..io.atomic import write_atomic
 
 
 _MUTE_LINE_PREFIXES = (
@@ -136,6 +138,7 @@ class Terminal:
         use_pty=False,
         idle_timeout=None,
         idle_timeout_after=None,
+        heartbeat_path=None,
     ):
         """
         Execute a command in the managed subprocess.
@@ -149,6 +152,11 @@ class Terminal:
         idle_timeout_after: (marker, extended_timeout) -- each time
         `marker` appears in a new chunk of output, `idle_timeout`
         resets to `extended_timeout` from that point.
+
+        heartbeat_path: when given (and idle_timeout is set), a small
+        JSON file kept up to date with `last_data_time`/
+        `active_idle_timeout` so an outside reader (e.g. `owrap stat`)
+        can compute this run's current kill deadline.
         """
         if silent:
             print_output = False
@@ -167,6 +175,7 @@ class Terminal:
                     command, stdin, capture_output, print_output, silent, timeout,
                     tee_file, cwd=cwd, use_pty=use_pty, idle_timeout=idle_timeout,
                     idle_timeout_after=idle_timeout_after,
+                    heartbeat_path=heartbeat_path,
                 )
         finally:
             if register_signals and not detached:
@@ -321,10 +330,22 @@ class Terminal:
             "success": None,
         }
 
+    def _write_heartbeat(self, path, last_data_time, active_idle_timeout):
+        """
+        Record this run's current kill deadline for an outside reader.
+        """
+        try:
+            write_atomic(path, json.dumps({
+                "last_data_time": last_data_time,
+                "active_idle_timeout": active_idle_timeout,
+            }))
+        except OSError:
+            pass
+
     def _run_standard(
         self, command, stdin, capture_output, print_output, silent, timeout,
         tee_file=None, cwd=None, use_pty=False, idle_timeout=None,
-        idle_timeout_after=None,
+        idle_timeout_after=None, heartbeat_path=None,
     ):
         import time
         if self.verbose and not silent:
@@ -385,6 +406,10 @@ class Terminal:
             idled_out = False
             pty_closed = False
             active_idle_timeout = idle_timeout
+            if heartbeat_path and active_idle_timeout:
+                self._write_heartbeat(
+                    heartbeat_path, last_data_time, active_idle_timeout,
+                )
             while proc.poll() is None:
                 now = time.time()
                 if deadline and now >= deadline:
@@ -417,6 +442,11 @@ class Terminal:
                             self._partial_stdout += line
                             if idle_timeout_after and idle_timeout_after[0] in line:
                                 active_idle_timeout = idle_timeout_after[1]
+                            if heartbeat_path and active_idle_timeout:
+                                self._write_heartbeat(
+                                    heartbeat_path, last_data_time,
+                                    active_idle_timeout,
+                                )
                             clean = parser.feed(line)
                             if not any(line.startswith(p) for p in _MUTE_LINE_PREFIXES):
                                 print(clean, end="", flush=True)
@@ -438,6 +468,11 @@ class Terminal:
                                 self._partial_stdout += line
                                 if idle_timeout_after and idle_timeout_after[0] in line:
                                     active_idle_timeout = idle_timeout_after[1]
+                                if heartbeat_path and active_idle_timeout:
+                                    self._write_heartbeat(
+                                        heartbeat_path, last_data_time,
+                                        active_idle_timeout,
+                                    )
                                 clean = parser.feed(line)
                                 if not any(
                                     line.startswith(p) for p in _MUTE_LINE_PREFIXES
@@ -450,6 +485,11 @@ class Terminal:
                             line = stream.readline()
                             if line:
                                 last_data_time = time.time()
+                                if heartbeat_path and active_idle_timeout:
+                                    self._write_heartbeat(
+                                        heartbeat_path, last_data_time,
+                                        active_idle_timeout,
+                                    )
                                 stderr_lines.append(line)
                                 clean = parser.feed(line)
                                 if not any(
