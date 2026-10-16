@@ -14,6 +14,7 @@ Three entry points share the same `_dispatch` core:
 """
 import contextlib
 import json
+import math
 import os
 import re
 import shlex
@@ -757,10 +758,6 @@ def _dispatch(
         # Cursor stays put so the next check sees the full accumulated excerpt.
         return 0, None, None
 
-    # Persist now, not only on success, so the interval gate holds after failures.
-    counters["last_ctx_attempt_ts"] = now
-    state.write_window_state(owrap_sid, counters, ccsid)
-
     excerpt_limit = (
         MAX_CODEX_EXCERPT_CHARS if source == "codex" else MAX_EXCERPT_CHARS
     )
@@ -853,7 +850,9 @@ def _dispatch(
             context_jobs.update(
                 job_dir, stage="running model", model=model or "default",
             )
-        rc, candidate, meta = _run_dispatch_attempt(ctx_dir, output_path, model)
+        rc, candidate, meta = _run_dispatch_attempt(
+            ctx_dir, output_path, model, len(excerpt),
+        )
         attempt_metas.append(meta)
         if rc == 0 and candidate and validate_output(
             candidate, do_context, do_protocol,
@@ -898,6 +897,9 @@ def _dispatch(
         repository_paths, owrap_sid, project_snapshot, event_ns,
         repository_snapshots, project_section,
     )
+    # Stamp only on success -- a failed attempt should retry as soon as
+    # the next sweep tick, not wait out the same interval as a success.
+    counters["last_ctx_attempt_ts"] = now
     counters["transcript_cursor_ns"] = new_cursor_ns
     state.write_window_state(owrap_sid, counters, ccsid)
     if touched_entries:
@@ -905,7 +907,20 @@ def _dispatch(
     return rc, None, model
 
 
-def _run_dispatch_attempt(ctx_dir: Path, output_path: Path, model: str) -> tuple:
+def _idle_timeout_factor(excerpt_len: int) -> float:
+    """
+    1x at CTX_MIN_CHARS, up to 3x at MAX_EXCERPT_CHARS, sqrt-ramped and
+    clamped -- a bigger excerpt gives the model more to read before it
+    produces any output, so the stuck-model detector needs more slack.
+    """
+    span = MAX_EXCERPT_CHARS - CTX_MIN_CHARS
+    ratio = max(0.0, min(1.0, (excerpt_len - CTX_MIN_CHARS) / span))
+    return 1 + 2 * math.sqrt(ratio)
+
+
+def _run_dispatch_attempt(
+    ctx_dir: Path, output_path: Path, model: str, excerpt_len: int,
+) -> tuple:
     """
     Run one opencode dispatch attempt in `ctx_dir` with `model`.
 
@@ -934,14 +949,15 @@ def _run_dispatch_attempt(ctx_dir: Path, output_path: Path, model: str) -> tuple
     )
     cmd_str = " ".join(shlex.quote(c) for c in cmd)
     terminal = Terminal(verbose=False)
+    factor = _idle_timeout_factor(excerpt_len)
     # use_pty=True: without a real pty, OpenCode's permission prompt hangs.
-    # idle_timeout: fail fast on a stuck model, not the full hard timeout.
+    # idle_timeout: fail fast on a stuck model, scaled by excerpt size.
     result = terminal.run(
         cmd_str, capture_output=True, print_output=True,
         use_pty=True, cwd=str(ctx_dir), timeout=180,
-        idle_timeout=CTX_IDLE_TIMEOUT_S,
+        idle_timeout=round(CTX_IDLE_TIMEOUT_S * factor),
         idle_timeout_after=(
-            CTX_READ_MARKER, CTX_IDLE_TIMEOUT_AFTER_READ_S,
+            CTX_READ_MARKER, round(CTX_IDLE_TIMEOUT_AFTER_READ_S * factor),
         ),
     )
     rc = result.get("returncode", 1)
