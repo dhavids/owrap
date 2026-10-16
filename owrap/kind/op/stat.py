@@ -1,6 +1,7 @@
 import json
 import os
 import time
+from pathlib import Path
 
 from . import Op
 from ...dispatch import work
@@ -21,6 +22,26 @@ from ...utils.parser.text import age_str
 def _print_tasks(tasks, show_session: bool = True, indent: str = "  ") -> None:
     for t in tasks:
         print(f"{indent}{work.format_task_status(t, show_session=show_session)}")
+
+
+def _idle_budget(log_path: str, started: float):
+    """
+    This job's current kill deadline, in seconds since `started` --
+    read from the heartbeat `Terminal.run` keeps next to the log,
+    or None if the job hasn't produced output yet (or isn't ctx).
+    """
+    idle_path = Path(log_path).parent / "work" / "idle.json"
+    if not idle_path.exists():
+        return None
+    try:
+        heartbeat = json.loads(idle_path.read_text())
+        return max(
+            0,
+            (heartbeat["last_data_time"] - started)
+            + heartbeat["active_idle_timeout"],
+        )
+    except (OSError, ValueError, KeyError):
+        return None
 
 
 def _print_context_jobs(jobs, show_session: bool = True) -> None:
@@ -46,8 +67,13 @@ def _print_context_jobs(jobs, show_session: bool = True) -> None:
         job_id = job.get("job_id", "?")
         session = f"[{session_label(sid)}]  " if show_session else ""
         age = f"  {age_str(job['finished'])} ago" if job.get("finished") else ""
-        print(f"  {kind}  {session}{job_id}  {status}{age}  {elapsed:.0f}s")
         log_path = job.get("log_path", "")
+        budget = (
+            _idle_budget(log_path, started)
+            if log_path and not job.get("finished") else None
+        )
+        clock = f"{elapsed:.0f}s/{budget:.0f}s" if budget is not None else f"{elapsed:.0f}s"
+        print(f"  {kind}  {session}{job_id}  {status}{age}  {clock}")
         if log_path:
             print(f"    output: {log_path}")
         transcript = job.get("transcript_path", "")
