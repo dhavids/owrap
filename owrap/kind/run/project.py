@@ -12,6 +12,7 @@ from ...utils.memory.records import (
     docs_root, resolve_memory_target,
 )
 from ...utils.parser.sections import extract_section
+from ...utils.parser.text import preview_lines
 from ...session.resolver import _parse, resolve, set_session_identity
 
 
@@ -333,6 +334,7 @@ class Project(Session):
         "risk": "{project_id}/{name}: risk set to {value}",
         "name": "{name}",
         "path": "{path}",
+        "get": "{text}",
         "clear": "Cleared scratch notes: {label}",
     }
 
@@ -440,7 +442,10 @@ class Project(Session):
                     f"create with 'owrap add project scratch'."
                 )
             else:
-                print(path.read_text())
+                self._ok(
+                    "get",
+                    text=f"{path}\n\n{preview_lines(path.read_text())}",
+                )
         elif facet == "name":
             subproject = data.get("subproject_id") or "main"
             self._ok("name", name=f"{data['project_id']}/{subproject}")
