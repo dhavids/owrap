@@ -8,11 +8,11 @@ build/
 *.log
 
 # Runtime output
-docs/
+/docs/
 
 # Per-user config
 configs/
 
-# Workspace-generated agent instructions live under files/workspace.
+# Generated agent instructions, if the checkout is itself used as a workspace.
 /AGENTS.md
 /CLAUDE.md
