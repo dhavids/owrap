@@ -66,6 +66,22 @@ def _resolve_kind_first(argv):
     sys.exit(2)
 
 
+def _print_action_kinds(action):
+    """
+    List every kind that accepts `action`, each with its one-line
+    purpose (or argument shape if it has none) -- the help for a bare
+    action word like `owrap get -h`.
+    """
+    print(f"Usage: owrap {action} <kind> [args...]\n")
+    for kind in ACTION_REGISTRY[action]:
+        spec = getattr(KIND_REGISTRY[kind], "usage", {}).get(action, {})
+        summary = spec.get("purpose") or spec.get("usage", "")
+        if len(summary) > 70:
+            summary = summary[:67] + "..."
+        print(f"  {kind:<10} {summary}".rstrip())
+    print(f"\nPer-kind syntax: owrap {action} <kind> -h")
+
+
 def main(argv=None):
     """
     Entry point for the CLI: `owrap <action> <kind> [args...]` is
@@ -73,7 +89,8 @@ def main(argv=None):
     [args...]` still accepted -- `_resolve_kind_first` normalizes
     either onto `dispatch()`'s internal kind-first shape. A bare
     `-h`/`--help` anywhere prints the resolved kind's (or action's)
-    usage instead of dispatching. Logs every resolved invocation to
+    usage instead of dispatching; on a bare action word it lists the
+    kinds accepting that action. Logs every resolved invocation to
     rtlog as `cmd.start`/`cmd.end`, except `UNLOGGED_CMDS`.
     """
     raw_argv = sys.argv[1:] if argv is None else argv
@@ -85,6 +102,10 @@ def main(argv=None):
         sys.exit(0 if help_requested else 2)
 
     token = argv[0]
+    is_kind = KIND_ALIASES.get(token, token) in KIND_REGISTRY
+    if help_requested and len(argv) == 1 and token in ACTION_REGISTRY and not is_kind:
+        _print_action_kinds(token)
+        sys.exit(0)
     argv = _resolve_kind_first(argv)
     if argv is None:
         print(f"ERROR: no such kind '{token}'")

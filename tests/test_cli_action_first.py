@@ -92,3 +92,12 @@ def test_main_reports_ambiguous_verb_with_no_session_candidate(monkeypatch, caps
     out = capsys.readouterr().out
     assert "ambiguous" in out
     assert "owrap add {todo|daemon}" in out
+
+
+def test_bare_action_help_lists_the_kinds_accepting_it(capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        main(["add", "-h"])
+    out = capsys.readouterr().out
+    assert exit_info.value.code == 0
+    assert "Usage: owrap add <kind>" in out
+    assert "todo" in out and "session" in out
