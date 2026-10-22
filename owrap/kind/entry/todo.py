@@ -36,6 +36,8 @@ class Todo(Entry):
                 'myproject 0 "Replace the first item\'s text"',
                 'myproject -1 "Replace the last item\'s text"',
             ],
+            "purpose": "Add a goal to a project/repository/session target",
+            "group": "record",
         },
         "update": {
             "usage": '<target> <position> "<text>"',

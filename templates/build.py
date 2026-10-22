@@ -8,7 +8,8 @@ kind/action resolver -- catches a doc describing a command that quietly
 stopped existing (renamed kind, renamed action, retired verb) instead of
 letting it sit stale until someone trips over it by hand.
 
-`generate()` rewrites the "GENERATED" blocks in `self/commands.md` --
+`generate()` rewrites the "GENERATED" blocks in `self/commands.md` and
+the command-grammar cheat sheet in `planner.md` --
 the workflow-grouped tables and full per-kind reference built from
 each kind's own `usage` dict, and the config table built from
 `config.json`/code constants -- so none of them can fall out of sync
@@ -41,6 +42,7 @@ from owrap.kind.dispatch import Dispatch  # noqa: E402
 TEMPLATES_DIR = Path(__file__).resolve().parent
 COMMANDS_MD = TEMPLATES_DIR / "self" / "commands.md"
 CONFIG_JSON = TEMPLATES_DIR / "config.json"
+PLANNER_MD = TEMPLATES_DIR / "planner.md"
 
 PREFIXES = ("owrap", "~/bin/owrap", "{{BIN_DIR}}/owrap")
 # A span may wrap across one prose line break (plain `\n`), but never a
@@ -57,8 +59,25 @@ GENERATED_END = "<!-- END GENERATED: full command reference -->"
 WORKFLOW_START = "<!-- BEGIN GENERATED: workflow tables (templates/build.py) -->"
 WORKFLOW_END = "<!-- END GENERATED: workflow tables -->"
 
+GRAMMAR_START = "<!-- BEGIN GENERATED: command grammar (templates/build.py) -->"
+GRAMMAR_END = "<!-- END GENERATED: command grammar -->"
+
 CONFIG_START = "<!-- BEGIN GENERATED: config table (templates/build.py) -->"
 CONFIG_END = "<!-- END GENERATED: config table -->"
+
+GRAMMAR_INTRO = (
+    "Commands are `owrap <action> <kind> [args]`; `owrap <kind> <action>` "
+    "works too. A word like `scratch` is an argument of its kind, not a "
+    "kind. Exact flags: `owrap <action> <kind> -h`."
+)
+GRAMMAR_OUTRO = (
+    "Every other command: `self/commands.md`, next to `{{SELF_PATH}}`."
+)
+# (kind, action) pairs shown in the planner's cheat sheet.
+GRAMMAR_COMMANDS = (
+    ("project", "get"), ("todo", "get"), ("todo", "add"),
+    ("ctx", "start"), ("stat", "do"),
+)
 
 # (key(s), type, description) for every documented config.json entry.
 # A tuple of keys shares one row (e.g. the three kill timeouts); their
@@ -299,6 +318,20 @@ def generate_workflow_tables() -> str:
     return f"{WORKFLOW_START}\n{body}\n{WORKFLOW_END}"
 
 
+def generate_command_grammar() -> str:
+    """
+    Build the planner's command cheat sheet: the action/kind grammar plus
+    the few commands it needs most, each with its argument shape.
+    """
+    lines = [GRAMMAR_INTRO, "", "| Command | Effect |", "|---|---|"]
+    for kind, action in GRAMMAR_COMMANDS:
+        spec = KIND_REGISTRY[kind].usage[action]
+        command = f"{usage_prefix(kind, action)} {spec.get('usage', '')}".strip()
+        lines.append(f"| `{command}` | {spec['purpose']} |")
+    body = "\n".join(lines)
+    return f"{GRAMMAR_START}\n{body}\n\n{GRAMMAR_OUTRO}\n{GRAMMAR_END}"
+
+
 def _format_duration(seconds: int) -> str:
     """Render a seconds count as `Xm`/`Xh` for prose use."""
     if seconds % 3600 == 0:
@@ -389,6 +422,11 @@ def generate() -> None:
         text, CONFIG_START, CONFIG_END, generate_config_table(),
     )
     COMMANDS_MD.write_text(text)
+    planner = _replace_block(
+        PLANNER_MD.read_text(), GRAMMAR_START, GRAMMAR_END,
+        generate_command_grammar(),
+    )
+    PLANNER_MD.write_text(planner)
 
 
 def main() -> int:
