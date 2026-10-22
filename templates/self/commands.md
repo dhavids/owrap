@@ -42,6 +42,7 @@ servers past `idle_shutdown_s`.
 | `owrap clear project` | Delete the active target's disposable scratch notes |
 | `owrap get project` | Read project/subproject goals and decisions, or report identity |
 | `owrap do sync` | Stage and merge workspace instructions |
+| `owrap add todo` | Add a goal to a project/repository/session target |
 | `owrap get todo` | List goals for a project/repository/session target |
 | `owrap start updr` | Queue durable record updates, optionally with context |
 

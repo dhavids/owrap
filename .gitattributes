@@ -3,3 +3,4 @@
 /deploy.py export-ignore
 /.pytest_cache export-ignore
 /files export-ignore
+/templates/build.py export-ignore

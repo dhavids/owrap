@@ -109,6 +109,22 @@ Read files directly with the Read tool — `{{BIN_DIR}}/owrap read` is not avail
 - Exit codes: see `{{SELF_PATH}}` § Exit codes. Never pipe/redirect owrap output (no `2>&1`, `| head`, `> file`).
 {{ENDIF}}
 
+## Command Grammar
+
+<!-- BEGIN GENERATED: command grammar (templates/build.py) -->
+Commands are `owrap <action> <kind> [args]`; `owrap <kind> <action>` works too. A word like `scratch` is an argument of its kind, not a kind. Exact flags: `owrap <action> <kind> -h`.
+
+| Command | Effect |
+|---|---|
+| `owrap get project [main|subs|sub <name>|scratch [path]|name|path|risk]` | Read project/subproject goals and decisions, or report identity |
+| `owrap get todo [<target> [<position|all>]]` | List goals for a project/repository/session target |
+| `owrap add todo <target> [<position>] "<text>"` | Add a goal to a project/repository/session target |
+| `owrap start ctx` | Queue a session context update |
+| `owrap do stat` | Show sessions, types, recent tasks, live stages, and server status |
+
+Every other command: `self/commands.md`, next to `{{SELF_PATH}}`.
+<!-- END GENERATED: command grammar -->
+
 ## Workflow Rules
 
 - If a request contains `?`, suggest only — do not apply.
