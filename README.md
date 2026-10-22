@@ -1,36 +1,49 @@
 # owrap
 
-owrap has two independent roles for an AI planner (currently Claude Code or
-Codex) working in a workspace:
+**Harness-independent memory and cheap execution for AI coding agents.**
 
-1. **Context manager** — keeps each session's `context.md` and the
-   workspace's project/repository records current from the transcript
-   (`owrap ctx`/`updr`/`uall`, a PreCompact hook, and a background daemon
-   check). Dispatches to one of opencode's free models, not the planner's
-   own model. If opencode is unreachable (`owrap get opencode`), the
-   planner can do the update itself via `owrap ctx get template`/`ctx done`.
-   Runs regardless of whether the role below is enabled.
-2. **Opencode wrapper** — dispatches planner work to an opencode-backed
-   executor (`owrap read`/`exec`/`agent`/`task`, or `owrap f`), with session
-   isolation, a server pool, and watchdog-based stall/failure handling.
-   Toggled off independently via `owrap_runner_enabled: false`.
+owrap is a CLI that gives a frontier-model planner (Claude Code or Codex)
+three things:
+
+- **Segmented memory that outlives the harness.** Project records, repository
+  changes, and per-session context live as plain files in your workspace,
+  organized by project, subproject, and repository rather than by chat.
+  Because they belong to the workspace and not to any one agent, a different
+  harness or session can pick up the project files and continue seamlessly.
+- **Automatic compaction through opencode.** owrap keeps the records and each
+  session's `context.md` current from the transcript (`owrap
+  ctx`/`updr`/`uall`, a PreCompact hook, and a background daemon check),
+  dispatching the work to opencode **free models** instead of the planner's
+  own tokens. After a compaction the planner re-reads its state instead of
+  starting cold. Setting a project's `risk` level to `high` disables this.
+- **Execution offloaded to opencode.** The frontier model plans and reviews;
+  reads, edits, and long tasks go to an opencode-backed executor (`owrap
+  read`/`exec`/`agent`/`task`, or `owrap f`), with session isolation, a
+  server pool, and watchdog-based stall/failure handling.
+
+Memory management and execution are independent. Memory and compaction run
+regardless of whether execution is enabled, except for *high-risk projects*.
+Execution can be turned off with `owrap_runner_enabled: false`, and the
+planner then works directly. If opencode is unreachable (`owrap get
+opencode`), the planner can also manage memory itself via `owrap ctx get
+template`/`ctx done`.
 
 Full reference docs — session lifecycle, every command, config keys,
 timeouts, troubleshooting — live under `templates/self/*.md` and are staged
 into each workspace's `CLAUDE.md`/`AGENTS.md`/`self.md` by `owrap sync`. This
-file covers only install.
+file covers only install and setup.
 
 ## Requirements
 
-- Claude Code (VSCode or CLI) and/or Codex CLI, as planner and/or executor harness
-- opencode CLI
+- Claude Code (VSCode or CLI) and/or Codex CLI, as the planner
+- opencode CLI, for compaction and execution
 - Python >= 3.10
 - PyYAML for the Python interpreter used to run `setup.py`
 
 ## Install
 
 ```bash
-git clone <repo_url>
+git clone https://github.com/dhavids/owrap.git
 cd owrap
 python3 -m pip install PyYAML
 python3 setup.py     # installs the owrap launcher for this checkout
@@ -50,7 +63,7 @@ corresponding staged document on every sync.
 Then start a session and sync workspace settings/hooks:
 
 ```bash
-~/bin/owrap start <project_name>
+~/bin/owrap start project <project_name>
 owrap sync
 ```
 
