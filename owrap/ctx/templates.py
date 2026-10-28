@@ -28,7 +28,10 @@ CTX_CONTEXT_BLOCK = (
 # Context
 ## Focus
 <1-3 lines — what changed in this excerpt (this fully replaces the old """
-    """Focus text, so it must stand alone)>
+    """Focus text, so it must stand alone). If the assistant offered options """
+    """or next steps and is waiting for the user to choose ("say which", """
+    """"I'd suggest", "want me to"), add one `Suggestions: ...` line """
+    """listing them as still open.>
 ## Key Locations
 <NEW entries only, one per line — `- path — reason` ONLY for source-code """
     """paths relevant to ongoing/future work (e.g. a function that was """
@@ -43,8 +46,11 @@ CTX_CONTEXT_BLOCK = (
     """transcript.txt, context.md, or memory record files themselves. Omit """
     """this heading entirely if nothing new qualifies.>
 ## Decisions
-<NEW entries only, one per line — `- decision — why`. Omit this heading """
-    """entirely if no new decision was made in this excerpt.>
+<NEW entries only, one per line — `- decision — why`. A decision is """
+    """a change the assistant actually made or a choice the user explicitly """
+    """approved. Options, suggestions, and open questions are NOT """
+    """decisions — they go in the Focus `Suggestions:` line. Omit this """
+    """heading entirely if no new decision was made in this excerpt.>
 ## Environment
 <only if venv/flags/constraints changed in this excerpt — the full new """
     """text, replacing the old. Otherwise omit this heading entirely.>
@@ -65,7 +71,9 @@ CTX_PROJECT_BLOCK = (
 <Current status supported by this excerpt. Omit this heading when the excerpt
 does not establish a newer state. Never restate an older or superseded state.>
 ## Decisions
-<New decisions only, one per line: `- decision — why`. Omit if none.>
+<New decisions only, one per line: `- decision — why`. Only changes """
+    """actually made or choices the user explicitly approved; never """
+    """options or suggestions still awaiting a choice. Omit if none.>
 """
 )
 

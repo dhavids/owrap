@@ -90,6 +90,11 @@ Read [Recovery](self/recovery.md#do-now).
 Read [Recovery](self/recovery.md#fallback-dispatch).
 
 
+## Proposals
+
+Read [Proposals](self/proposals.md) to request a change to owrap's tooling.
+
+
 ## Command Reference
 
 Read [Commands](self/commands.md) for the current CLI and dispatch commands.
