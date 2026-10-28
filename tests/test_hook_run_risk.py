@@ -46,6 +46,7 @@ def test_hook_run_proceeds_for_a_low_risk_session(monkeypatch, tmp_path):
     monkeypatch.setattr(dispatch, "owrap_sid_for_ccsid", lambda ccsid: "sid1")
     monkeypatch.setattr(dispatch, "_is_high_risk_sid", lambda sid: False)
     monkeypatch.setattr(dispatch, "_ctx_window_recently_attempted", lambda *a: False)
+    monkeypatch.setattr(dispatch.context_jobs, "window_busy", lambda *a: False)
     monkeypatch.setattr(
         dispatch, "_pending_excerpt_len", lambda *a: dispatch.CTX_MIN_CHARS,
     )
@@ -64,3 +65,29 @@ def test_hook_run_proceeds_for_a_low_risk_session(monkeypatch, tmp_path):
     dispatch.hook_run()
 
     assert created == [1]
+
+
+def test_hook_run_skips_a_window_with_a_job_already_running(
+    monkeypatch, tmp_path,
+):
+    transcript = tmp_path / "transcript.txt"
+    transcript.write_text("{}\n")
+    monkeypatch.setattr(
+        dispatch.sys, "stdin",
+        _stdin({"session_id": "ccsid1", "transcript_path": str(transcript)}),
+    )
+    monkeypatch.setattr(dispatch, "_read_config", lambda: {
+        "owrap_context_manager_enabled": True,
+    })
+    monkeypatch.setattr(dispatch, "owrap_sid_for_ccsid", lambda ccsid: "sid1")
+    monkeypatch.setattr(dispatch, "_is_high_risk_sid", lambda sid: False)
+    monkeypatch.setattr(dispatch, "_ctx_window_recently_attempted", lambda *a: False)
+    monkeypatch.setattr(dispatch.context_jobs, "window_busy", lambda *a: True)
+    calls = []
+    monkeypatch.setattr(
+        dispatch.context_jobs, "create", lambda *a, **kw: calls.append(1),
+    )
+
+    dispatch.hook_run()
+
+    assert calls == []

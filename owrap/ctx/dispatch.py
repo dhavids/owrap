@@ -102,12 +102,16 @@ def _write_opencode_status(status: str, reason: str = None) -> None:
     for any reason (timeout, transport error, subscription required,
     etc). A single flag, not per-session — the opencode account/binary
     being unreachable isn't scoped to one project. `reason` describes
-    any failed write and is always cleared on an "up" write.
+    any failed write and is always cleared on an "up" write. A repeat
+    "down" keeps the original `since`, so it dates the outage.
     """
+    since = datetime.now(timezone.utc).isoformat()
+    current = read_opencode_status_detail()
+    if status == "down" and current["status"] == "down" and current["since"]:
+        since = current["since"]
     OPENCODE_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
     write_atomic(OPENCODE_STATUS_FILE, json.dumps({
-        "status": status, "reason": reason,
-        "since": datetime.now(timezone.utc).isoformat(),
+        "status": status, "reason": reason, "since": since,
     }))
 
 
@@ -1039,6 +1043,9 @@ def hook_run() -> None:
     # spawn a subprocess _dispatch would immediately reject anyway.
     now = time.time()
     if _ctx_window_recently_attempted(owrap_sid, ccsid, now):
+        return
+    # The cooldown stamps on success, so a job still running isn't seen.
+    if context_jobs.window_busy(owrap_sid, ccsid):
         return
     if not transcript_path or not Path(transcript_path).exists():
         return

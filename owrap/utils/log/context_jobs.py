@@ -189,3 +189,15 @@ def recent(session_id: str | None = None, limit: int = 8) -> list[dict]:
         reverse=True,
     )
     return active + done[:limit]
+
+
+def window_busy(session_id: str, window_id: str) -> bool:
+    """
+    True if a queued or running job exists for this window.
+    """
+    for job in recent(session_id, limit=0):
+        if job.get("window_id") == window_id and job.get("status") in (
+            "queued", "running",
+        ):
+            return True
+    return False
