@@ -1,9 +1,11 @@
 import json
 import os
 import time
+from datetime import datetime
 from pathlib import Path
 
 from . import Op
+from ...ctx.dispatch import read_opencode_status_detail
 from ...dispatch import work
 from ...dispatch.process import is_alive
 from ...session.resolver import (
@@ -214,6 +216,20 @@ class Stat(Op):
 
         self._print_sessions(current_id)
 
+    def _opencode_down_note(self) -> str:
+        """
+        "  opencode: down <age>" while the shared health flag says down;
+        empty when opencode is up.
+        """
+        info = read_opencode_status_detail()
+        if info["status"] != "down":
+            return ""
+        try:
+            since = datetime.fromisoformat(info["since"]).timestamp()
+        except (TypeError, ValueError):
+            return "  opencode: down"
+        return f"  opencode: down {age_str(since)}"
+
     def _print_daemon_status(self) -> None:
         if DAEMON_PID_FILE.exists():
             try:
@@ -232,6 +248,7 @@ class Stat(Op):
                             ka_extra = "  active"
                     except Exception:
                         pass
+                ka_extra += self._opencode_down_note()
                 print(f"  daemon: pid={kpid} running{ka_extra}")
             except (ValueError, OSError):
                 print("  daemon: stopped")
