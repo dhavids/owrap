@@ -41,6 +41,9 @@ servers past `idle_shutdown_s`.
 | `owrap get decision` | List decisions for a project/repository/session target |
 | `owrap clear project` | Delete the active target's disposable scratch notes |
 | `owrap get project` | Read project/subproject goals and decisions, or report identity |
+| `owrap add proposal` | File a change request for owrap's tooling |
+| `owrap get proposal` | List open owrap tooling proposals, or print the template |
+| `owrap do proposal` | Work a proposal (owrap session) or add a note (any) |
 | `owrap do sync` | Stage and merge workspace instructions |
 | `owrap add todo` | Add a goal to a project/repository/session target |
 | `owrap get todo` | List goals for a project/repository/session target |
@@ -237,6 +240,15 @@ when its content needs correction.
 | `clear` | `scratch` | `owrap clear project scratch` |
 | `set` | `[<name>|risk <low|high>]` | `owrap set project` |
 | `get` | `[main|subs|sub <name>|scratch [path]|name|path|risk]` | `owrap get project` |
+
+
+### `owrap proposal`
+
+| Action | Usage | Example |
+|---|---|---|
+| `add` | `<file|-> [--force]` | `owrap add proposal proposal.md` |
+| `get` | `[template|all|<id>]` | `owrap get proposal` |
+| `do` | `<id> <claim|done|reject|note> [<text>]` | `owrap do proposal my-proposal claim` |
 
 
 ### `owrap read`

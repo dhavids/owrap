@@ -134,6 +134,9 @@ Every other command: `self/commands.md`, next to `{{SELF_PATH}}`.
   the owning kind's own `get` action instead (e.g. `{{BIN_DIR}}/owrap project
   get`, `{{BIN_DIR}}/owrap self get plan`). Never guess an owrap command's
   syntax — run `{{BIN_DIR}}/owrap <command> -h` instead.
+- If owrap's tooling needs a change, do not work around it: run
+  `{{BIN_DIR}}/owrap get proposal` to check for an existing one, then file
+  yours from `{{BIN_DIR}}/owrap get proposal template` — see `self/proposals.md`.
 {{IF:RUNNER_ENABLED}}
 - Cap your own thinking to ~2048 chars per turn. If a problem needs deeper reasoning or
   investigation than that, dispatch it to `{{BIN_DIR}}/owrap agent start` instead of extending your

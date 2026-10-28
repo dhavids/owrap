@@ -20,6 +20,7 @@ from .op.sync import Sync
 from .op.update import Update
 from .record.backup import Backup
 from .record.branch import Branch
+from .record.proposal import Proposal
 from .record.repository import Repository
 from .record.subproject import Subproject
 from .run.daemon import Daemon
@@ -51,10 +52,11 @@ KIND_REGISTRY = {
     "repository": Repository,
     "subproject": Subproject,
     "branch": Branch,
+    "proposal": Proposal,
     "worktree": Worktree,
 }
 
-KIND_ALIASES = {"p": "permit", "f": "fallback"}
+KIND_ALIASES = {"p": "permit", "f": "fallback", "proposals": "proposal"}
 
 MODIFY_VERBS = added(Modify, Actions)
 RUN_VERBS = added(Run, Modify)
