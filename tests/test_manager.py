@@ -23,7 +23,9 @@ def test_register_and_complete_task(tmp_path):
     manager = _make_manager()
     manager.STATE_FILE = str(state_file)
 
-    manager._write_state({"pid": 12345, "url": "http://localhost:4096", "port": 4096, "tasks": {}})
+    manager._write_state(
+        {"pid": 12345, "url": "http://localhost:4096", "port": 4096, "tasks": {}},
+    )
 
     manager.register_task(1)
     state = manager._read_state()
@@ -70,7 +72,10 @@ def test_cleanup_removes_done_task_files(tmp_path, log_name):
     manager.STATE_FILE = str(state_file)
     manager.TASKS_DIR = tasks_dir
 
-    manager._write_state({"pid": 12345, "url": "http://localhost:4096", "port": 4096, "tasks": {"task2": {"status": "done", "invocation_time": time.time()}}})
+    manager._write_state({
+        "pid": 12345, "url": "http://localhost:4096", "port": 4096,
+        "tasks": {"task2": {"status": "done", "invocation_time": time.time()}},
+    })
 
     manager.cleanup_done_tasks()
 
@@ -91,7 +96,10 @@ def test_cleanup_keeps_active_task_when_server_alive(tmp_path):
     manager.STATE_FILE = str(state_file)
     manager.TASKS_DIR = tasks_dir
 
-    manager._write_state({"pid": 12345, "url": "http://localhost:4096", "port": 4096, "tasks": {"task1": {"status": "active", "invocation_time": time.time()}}})
+    manager._write_state({
+        "pid": 12345, "url": "http://localhost:4096", "port": 4096,
+        "tasks": {"task1": {"status": "active", "invocation_time": time.time()}},
+    })
 
     with patch("os.kill", return_value=None):
         manager.cleanup_done_tasks()
@@ -114,7 +122,10 @@ def test_cleanup_removes_active_task_when_server_dead(tmp_path):
     manager.STATE_FILE = str(state_file)
     manager.TASKS_DIR = tasks_dir
 
-    manager._write_state({"pid": 99999, "url": "http://localhost:4096", "port": 4096, "tasks": {"task1": {"status": "active", "invocation_time": time.time()}}})
+    manager._write_state({
+        "pid": 99999, "url": "http://localhost:4096", "port": 4096,
+        "tasks": {"task1": {"status": "active", "invocation_time": time.time()}},
+    })
 
     with patch("os.kill", side_effect=OSError):
         manager.cleanup_done_tasks()
@@ -137,7 +148,10 @@ def test_cleanup_compat_with_old_string_format(tmp_path):
     manager.STATE_FILE = str(state_file)
     manager.TASKS_DIR = tasks_dir
 
-    manager._write_state({"pid": 12345, "url": "http://localhost:4096", "port": 4096, "tasks": {"task3": "done"}})
+    manager._write_state({
+        "pid": 12345, "url": "http://localhost:4096", "port": 4096,
+        "tasks": {"task3": "done"},
+    })
 
     manager.cleanup_done_tasks()
 

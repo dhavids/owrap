@@ -10,12 +10,8 @@ from .update import Update
 
 class Modify(Actions, Update, Set, Remove, Add, Clear, Done, Restore):
     """
-    The base-most modify-capable action type: anything with its own
-    direct identity, resolved by the kind itself rather than through
-    a session. Exposes `update`/`set`/`remove`/`add`/`clear`/`done`/
-    `restore` -- every verb that acts on an identified thing's data,
-    regardless of what shape that thing is (a markdown line-item, a
-    project record, a live process). A kind overrides whichever of
-    these it needs with its own logic; unused ones stay refusing
-    stubs. `Run` adds its own live-process verbs on top.
+    Base action type for kinds with their own direct identity, resolved
+    by the kind itself. Exposes `update`/`set`/`remove`/`add`/`clear`/
+    `done`/`restore`; verbs a kind doesn't override refuse. `Run` adds
+    live-process verbs.
     """

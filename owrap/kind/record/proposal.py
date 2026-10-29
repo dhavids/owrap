@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 from . import Record
-from ...session.resolver import _parse, session_file
+from ...utils.session.resolver import _parse, session_file
 from ...utils.io.atomic import write_atomic
 from ...utils.io.filelock import file_lock
 from ...utils.memory.records import docs_root

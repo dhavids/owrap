@@ -1,4 +1,4 @@
-from owrap.session import resolver
+from owrap.utils.session import resolver
 
 
 def _write_session(tmp_path, sid, **fields):

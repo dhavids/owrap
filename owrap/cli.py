@@ -89,7 +89,7 @@ def main(argv=None):
     [args...]` still accepted -- `_resolve_kind_first` normalizes
     either onto `dispatch()`'s internal kind-first shape. A bare
     `-h`/`--help` anywhere prints the resolved kind's (or action's)
-    usage instead of dispatching; on a bare action word it lists the
+    usage without dispatching; on a bare action word it lists the
     kinds accepting that action. Logs every resolved invocation to
     rtlog as `cmd.start`/`cmd.end`, except `UNLOGGED_CMDS`.
     """

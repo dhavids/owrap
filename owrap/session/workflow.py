@@ -5,7 +5,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from .resolver import (
+from ..utils.session.resolver import (
     _parse, _write, attach, mint_session_id, resolve, session_file,
 )
 from ..utils.io.filelock import file_lock

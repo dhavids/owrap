@@ -12,47 +12,6 @@ from owrap.cli import main
 from owrap.kind.dispatch import Dispatch
 
 
-class _ToyDaemon(Actions):
-    kind = "daemon"
-    ensure_daemon_calls = 0
-
-    @staticmethod
-    def ensure_daemon():
-        _ToyDaemon.ensure_daemon_calls += 1
-
-
-class _ToyDispatch(Dispatch):
-    kind = "read"
-    messages = {"start": "read {file_path}"}
-
-    def start(self, file_path=None, grep: str = None) -> None:
-        self._ok("start", file_path=file_path)
-
-
-class _ToyWithDo(Actions):
-    kind = "sync"
-    usage = {"do": {"usage": "", "args": [], "examples": []}}
-    messages = {"do": "did the one thing"}
-
-    def do(self):
-        self._ok("do")
-
-
-class _ToyWithoutDo(Actions):
-    kind = "model"
-    usage = {"set": {"usage": "<slot> <query>", "args": [], "examples": []}}
-    messages = {"set": "set {slot}={query}"}
-
-    def set(self, slot=None, query=None):
-        if query is None:
-            self._usage("set")
-        self._ok("set", slot=slot, query=query)
-
-
-class _ToySelf:
-    pass
-
-
 @pytest.fixture(autouse=True)
 def toy_registry(monkeypatch):
     _ToyDaemon.ensure_daemon_calls = 0
@@ -151,7 +110,8 @@ def test_dispatch_kind_bare_argument_defaults_to_start(capsys, toy_registry):
 def test_dispatch_kind_flag_only_call_defaults_to_start(capsys, toy_registry):
     main(["read", "--grep", "pattern"])
     out = capsys.readouterr().out
-    assert "read" in out  # start ran; grep was split out, not treated as the file
+    # Start ran; grep was split out, not treated as the file
+    assert "read" in out
 
 
 def test_dispatch_kind_recognized_action_is_not_reinterpreted(capsys, toy_registry):
@@ -223,3 +183,44 @@ def test_logged_cmd_still_reaches_rtlog(monkeypatch, capsys, toy_registry):
     main(["sync"])
 
     assert logged == ["cmd.start", "cmd.end"]
+
+
+class _ToyDaemon(Actions):
+    kind = "daemon"
+    ensure_daemon_calls = 0
+
+    @staticmethod
+    def ensure_daemon():
+        _ToyDaemon.ensure_daemon_calls += 1
+
+
+class _ToyDispatch(Dispatch):
+    kind = "read"
+    messages = {"start": "read {file_path}"}
+
+    def start(self, file_path=None, grep: str = None) -> None:
+        self._ok("start", file_path=file_path)
+
+
+class _ToyWithDo(Actions):
+    kind = "sync"
+    usage = {"do": {"usage": "", "args": [], "examples": []}}
+    messages = {"do": "did the one thing"}
+
+    def do(self):
+        self._ok("do")
+
+
+class _ToyWithoutDo(Actions):
+    kind = "model"
+    usage = {"set": {"usage": "<slot> <query>", "args": [], "examples": []}}
+    messages = {"set": "set {slot}={query}"}
+
+    def set(self, slot=None, query=None):
+        if query is None:
+            self._usage("set")
+        self._ok("set", slot=slot, query=query)
+
+
+class _ToySelf:
+    pass

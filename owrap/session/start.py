@@ -4,8 +4,7 @@ import sys
 import time
 from pathlib import Path
 
-from ..dispatch.manager import Manager
-from ..utils.paths import SESSION_DIR, SESSIONS_DIR, SERVER_LOGS_DIR
+from ..utils.paths import SESSION_DIR, SERVER_LOGS_DIR
 from ..utils.paths import (
     get_plan_path, session_input,
     _read_config, context_path, get_workspace_config,
@@ -284,7 +283,6 @@ def refresh(
 
     data = _parse(session_path)
     existing_project_name = data.get("project_id") or None
-    existing_subproject_name = data.get("subproject_id") or None
     if project_name is None:
         project_name = existing_project_name
 
@@ -300,7 +298,10 @@ def refresh(
                     print("ERROR: cannot start a server for this temp session.")
                     sys.exit(2)
                 os.environ["SESSION_ID"] = session_id
-                start(manager, logger=logger, shell_pid=shell_pid, project_name=project_name)
+                start(
+                    manager, logger=logger, shell_pid=shell_pid,
+                    project_name=project_name,
+                )
                 return
 
     if project_name is not None and project_name != existing_project_name:

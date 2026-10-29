@@ -22,9 +22,11 @@ def test_merge_document_copies_only_pending_non_duplicate_goals():
     goals = {
         "parent": [(True, "Done thing"), (False, "Already pending")],
         "branch": [
-            (False, "Already pending"),  # duplicate (case-insensitive) -- skipped
+            # Duplicate (case-insensitive) -- skipped
+            (False, "Already pending"),
             (False, "New goal"),
-            (True, "Finished in branch"),  # done -- skipped
+            # Done -- skipped
+            (True, "Finished in branch"),
         ],
     }
     merged, pending, findings, decisions = _merge_document(
@@ -32,7 +34,8 @@ def test_merge_document_copies_only_pending_non_duplicate_goals():
     )
     assert pending == ["New goal"]
     assert "- [ ] New goal" in merged
-    assert merged.count("Already pending") == 1  # not duplicated
+    # Not duplicated
+    assert merged.count("Already pending") == 1
 
 
 def test_merge_document_nests_findings_under_branch_heading():
@@ -156,13 +159,15 @@ def test_apply_rolls_back_every_file_when_the_second_write_fails(project, monkey
         _merge_branch("myproj", "feature-x", apply=True)
 
     assert project.parent_path.read_text() == project.parent_text
+    # Still valid/unchanged yaml
     assert project.yaml_path.read_text() == yaml.safe_dump(yaml.safe_load(
         project.yaml_path.read_text(),
-    ))  # still valid/unchanged yaml
+    ))
     record = yaml.safe_load(project.yaml_path.read_text())
     assert "archived" not in record["subprojects"]["feature-x"]
     assert not (project.yaml_path.parent / "feature-x.archived.md").exists()
-    assert project.branch_path.exists()  # never unlinked
+    # Never unlinked
+    assert project.branch_path.exists()
 
 
 def test_rejects_already_archived_branch(project):

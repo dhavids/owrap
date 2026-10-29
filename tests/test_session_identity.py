@@ -278,7 +278,7 @@ def test_start_with_zero_args_creates_anonymous_session_without_legacy_file(
     """
     With no bare name, no --project/--repository, and no default_research
     fallback, 'owrap start' creates a plain identity-less session and
-    never writes a legacy flat projects/<name>.md file.
+    never writes a flat projects/<name>.md file.
     """
     session_path = tmp_path / "anon123.session"
     monkeypatch.setattr(resolver, "session_file", lambda sid: session_path)

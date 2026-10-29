@@ -43,8 +43,8 @@ def latest_event_ns(lines):
 
 def lines_up_to_ceiling(lines: list, ceiling_ns: int) -> list:
     """
-    Drop transcript lines timestamped after `ceiling_ns`; keeps lines
-    with no parseable timestamp, since they can't be bounded.
+    Drop transcript lines timestamped after `ceiling_ns`; lines with no
+    parseable timestamp are kept.
     """
     kept = []
     for line in lines:
@@ -74,17 +74,9 @@ def fmt_ts_ns(ns: int) -> str:
 def last_attach_ts_ns(lines: list, owrap_sid: str) -> int:
     """
     Nanosecond timestamp of the most recent
-    `__OWRAP_EXPORT__ SESSION_ID=<owrap_sid>` marker in the transcript
-    — every owrap start/attach/refresh/sub/spawn prints this to its
-    own stdout, which lands in the transcript as a tool_result.
-    Returns 0 if the marker never appears (e.g. a session predating
-    this convention, or a transcript that doesn't go back far enough).
-
-    Timestamp-based rather than line-index-based: Claude Code's
-    crash/resume flow can re-append an old transcript entry verbatim
-    later in the file, at a higher line number but carrying its
-    original (old) timestamp — a line-index floor would mistake that
-    replay for a brand-new attach and skip everything in between.
+    `__OWRAP_EXPORT__ SESSION_ID=<owrap_sid>` marker in the transcript,
+    printed by every owrap start/attach/refresh/sub/spawn. Returns 0 if
+    the marker never appears.
     """
     marker = f"__OWRAP_EXPORT__ SESSION_ID={owrap_sid}"
     latest = 0

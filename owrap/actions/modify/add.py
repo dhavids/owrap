@@ -1,14 +1,9 @@
 class Add:
     """
-    Default `add`: resolve the target, hand the actual edit off to
-    the kind's `_add` callback for its payload, touch the record,
-    then run the kind's optional `_on_add` hook (a no-op unless a
-    kind needs extra side effects beyond the edit itself) -- if that
-    hook returns an error message, fail with it instead of reporting
-    success. A kind that hasn't defined `_add` refuses immediately,
-    without attempting to resolve a target at all; one whose add
-    doesn't fit this shape overrides `add` directly instead of
-    defining `_add`.
+    Default `add`: resolve the target, run the kind's `_add`
+    callback for the edit, touch the record, then run the optional
+    `_on_add` hook, failing with its message if it returns one. A kind
+    without `_add` refuses before resolving a target.
     """
 
     def add(self, target, arg2=None, arg3=None):
@@ -17,7 +12,7 @@ class Add:
         """
         if type(self)._add is Add._add:
             raise ValueError(f"{self.kind} does not support add")
-        memory_target = self._resolve_target(target)
+        memory_target = self._resolve_target(target, write=True)
         fields = self._add(memory_target.project_path, arg2, arg3)
         self._touch(memory_target)
         error = self._on_add(memory_target, fields)

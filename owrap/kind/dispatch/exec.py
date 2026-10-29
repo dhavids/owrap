@@ -6,7 +6,7 @@ from pathlib import Path
 from . import Dispatch
 from ...dispatch import work
 from ...dispatch.manager import Manager
-from ...session.donow import check_donow
+from ...utils.session.donow import check_donow
 from ...utils.constants import (
     ANTI_SUMMARY_SUFFIX, EXEC_HARD_TIMEOUT_S, EXEC_KILL_S,
     INFRA_FAILURE_EXEC_S, NO_OUTPUT_EXEC_S,
@@ -27,12 +27,10 @@ from ...utils.paths import (
 
 class Exec(Dispatch):
     """
-    Dispatches the session's active plan to opencode -- the `oexec`
-    command. Unlike `read`, this is the long-running "work through
-    the plan" call: a much longer watchdog/timeout, and on success it
-    also refreshes the session's own context-plan/frequent-files
-    state, not just its own sentinel/log. Overrides `start` directly
-    for the same reason `Read` does.
+    Dispatch the session's active plan to opencode (the `oexec`
+    command). A long-running call with a longer watchdog/timeout; on
+    success it refreshes the session's context-plan and frequent-files
+    state. Overrides `start` directly.
     """
 
     kind = "exec"

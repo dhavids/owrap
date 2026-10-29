@@ -1,7 +1,6 @@
 class Restore:
     """
-    Exposes `restore`, refusing by default. Skeleton for now -- no
-    kind uses it yet.
+    Exposes `restore`, refusing by default. No kind uses it yet.
     """
 
     def restore(self, *args):

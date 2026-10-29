@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import os
 import re
@@ -38,24 +40,6 @@ def count_bullets(path: Path, heading: str) -> int:
         1 for line in section.splitlines()[1:]
         if line.strip().startswith("- ")
     )
-
-
-@dataclass(frozen=True)
-class MemoryTarget:
-    """
-    Paths and identity for one session's project or repository records.
-    """
-
-    kind: str
-    project_id: str
-    subproject_id: str
-    project_path: Path | None
-    repository_ids: tuple[str, ...]
-    repository_paths: tuple[Path, ...]
-    branch_parent: str = ""
-    branch_repository: str = ""
-    branch_ref: str = ""
-    high_risk: bool = False
 
 
 def docs_root(workspace: str = "") -> Path:
@@ -406,9 +390,8 @@ def _register_repository(root: Path, git_root: Path) -> str | None:
 
 def add_repository(repo_id: str, checkout: str = None, workspace: str = "") -> str:
     """
-    Create a repository record directly, by explicit id, instead of
-    waiting for a touched file inside it to trigger auto-discovery.
-    Raises FileExistsError if the id is already taken.
+    Create a repository record by explicit id. Raises FileExistsError if
+    the id is already taken.
     """
     repo_id = _slug(repo_id, "repository")
     root = docs_root(workspace)
@@ -466,12 +449,16 @@ def ensure_project_exists(
     Create a project record, and a regular subproject within it if given,
     for whichever part doesn't already exist.
     """
+    # names imports this module
+    from .names import check_new_name
+
     project_id = _slug(project_id, "project")
     root = docs_root(workspace)
     directory = root / "projects" / project_id
     yaml_path = directory / f"{project_id}.yaml"
     with file_lock(yaml_path.with_suffix(".yaml.lock")):
         if not yaml_path.exists():
+            check_new_name(workspace, project_id, "project")
             directory.mkdir(parents=True, exist_ok=True)
             record = {
                 "schema_version": 1, "kind": "project", "id": project_id,
@@ -491,6 +478,7 @@ def ensure_project_exists(
             raise ValueError(f"invalid subprojects for project {project_id}")
         if subproject_id in subprojects:
             return
+        check_new_name(workspace, subproject_id, "subproject")
         markdown_path = directory / f"{subproject_id}.md"
         if markdown_path.exists():
             raise FileExistsError(
@@ -610,3 +598,21 @@ def register_discovered_repositories(
             repo_dir, repo_record.get("main", "memory.md"),
         )
     return discovered
+
+
+@dataclass(frozen=True)
+class MemoryTarget:
+    """
+    Paths and identity for one session's project or repository records.
+    """
+
+    kind: str
+    project_id: str
+    subproject_id: str
+    project_path: Path | None
+    repository_ids: tuple[str, ...]
+    repository_paths: tuple[Path, ...]
+    branch_parent: str = ""
+    branch_repository: str = ""
+    branch_ref: str = ""
+    high_risk: bool = False

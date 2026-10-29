@@ -5,14 +5,11 @@ from ...actions.modify import Modify
 
 class Record(Modify, Access):
     """
-    Base for a kind with its own stored identity -- a directory and
-    `<id>.yaml` record under `docs_root` -- and no live session or
-    process of its own. Binds `Modify`/`Access` for this shape, plus
-    `_workspace`, the workspace-resolution helper every concrete kind
-    here uses (`_edit`, the error-handling helper, lives on `Actions`
-    itself since `Run`-based kinds need it too). Each concrete kind
-    overrides its own verbs directly rather than through `Modify`'s
-    `_add`/`_update`/etc. callbacks.
+    Base for a kind with its own stored identity (a directory and
+    `<id>.yaml` record under `docs_root`) and no live session or process.
+    Binds `Modify`/`Access` and provides `_workspace`, which resolves the
+    workspace for the concrete kinds. Each kind overrides its verbs
+    directly.
     """
 
 

@@ -25,7 +25,9 @@ class TestDiscoverFreeModel:
     def test_prefers_deepseek(self, tmp_path, monkeypatch):
         cache = tmp_path / "models.json"
         _write_cache(cache, {"glm-5-free": _model(), "deepseek-v4-flash-free": _model()})
-        monkeypatch.setattr("owrap.utils.dispatch.model_catalog.OPENCODE_MODELS_CACHE", cache)
+        monkeypatch.setattr(
+            "owrap.utils.dispatch.model_catalog.OPENCODE_MODELS_CACHE", cache,
+        )
         with patch(
             "owrap.utils.dispatch.model_catalog.subprocess.run",
             return_value=_live_models("glm-5-free", "deepseek-v4-flash-free"),
@@ -35,7 +37,9 @@ class TestDiscoverFreeModel:
     def test_falls_back_to_known_family_when_no_deepseek(self, tmp_path, monkeypatch):
         cache = tmp_path / "models.json"
         _write_cache(cache, {"big-pickle": _model(), "glm-5-free": _model()})
-        monkeypatch.setattr("owrap.utils.dispatch.model_catalog.OPENCODE_MODELS_CACHE", cache)
+        monkeypatch.setattr(
+            "owrap.utils.dispatch.model_catalog.OPENCODE_MODELS_CACHE", cache,
+        )
         with patch(
             "owrap.utils.dispatch.model_catalog.subprocess.run",
             return_value=_live_models("big-pickle", "glm-5-free"),
@@ -45,7 +49,9 @@ class TestDiscoverFreeModel:
     def test_excludes_anonymous_models(self, tmp_path, monkeypatch):
         cache = tmp_path / "models.json"
         _write_cache(cache, {"big-pickle": _model(), "space-bunny-free": _model()})
-        monkeypatch.setattr("owrap.utils.dispatch.model_catalog.OPENCODE_MODELS_CACHE", cache)
+        monkeypatch.setattr(
+            "owrap.utils.dispatch.model_catalog.OPENCODE_MODELS_CACHE", cache,
+        )
         with patch(
             "owrap.utils.dispatch.model_catalog.subprocess.run",
             return_value=_live_models("big-pickle", "space-bunny-free"),
@@ -54,15 +60,21 @@ class TestDiscoverFreeModel:
 
     def test_excludes_paid_models(self, tmp_path, monkeypatch):
         cache = tmp_path / "models.json"
-        _write_cache(cache, {"deepseek-v4-pro": _model(input_cost=1.74, output_cost=3.84)})
-        monkeypatch.setattr("owrap.utils.dispatch.model_catalog.OPENCODE_MODELS_CACHE", cache)
+        _write_cache(
+            cache, {"deepseek-v4-pro": _model(input_cost=1.74, output_cost=3.84)},
+        )
+        monkeypatch.setattr(
+            "owrap.utils.dispatch.model_catalog.OPENCODE_MODELS_CACHE", cache,
+        )
         with patch(
             "owrap.utils.dispatch.model_catalog.subprocess.run",
             return_value=_live_models("deepseek-v4-pro"),
         ):
             assert discover_free_model() is None
 
-    def test_discontinued_model_excluded_even_if_still_cached(self, tmp_path, monkeypatch):
+    def test_discontinued_model_excluded_even_if_still_cached(
+        self, tmp_path, monkeypatch,
+    ):
         """
         Exclude a discontinued model still present in the local cache.
         """
@@ -70,7 +82,9 @@ class TestDiscoverFreeModel:
         _write_cache(cache, {
             "deepseek-v4-flash-free": _model(), "mimo-v2.6-flash-free": _model(),
         })
-        monkeypatch.setattr("owrap.utils.dispatch.model_catalog.OPENCODE_MODELS_CACHE", cache)
+        monkeypatch.setattr(
+            "owrap.utils.dispatch.model_catalog.OPENCODE_MODELS_CACHE", cache,
+        )
         with patch(
             "owrap.utils.dispatch.model_catalog.subprocess.run",
             return_value=_live_models("mimo-v2.6-flash-free"),
@@ -82,7 +96,9 @@ class TestDiscoverFreeModel:
     ):
         cache = tmp_path / "models.json"
         _write_cache(cache, {})
-        monkeypatch.setattr("owrap.utils.dispatch.model_catalog.OPENCODE_MODELS_CACHE", cache)
+        monkeypatch.setattr(
+            "owrap.utils.dispatch.model_catalog.OPENCODE_MODELS_CACHE", cache,
+        )
         with patch(
             "owrap.utils.dispatch.model_catalog.subprocess.run",
             return_value=_live_models("glm-6-free"),
@@ -103,7 +119,9 @@ class TestDiscoverFreeModel:
     def test_returns_none_when_provider_missing_from_cache(self, tmp_path, monkeypatch):
         cache = tmp_path / "models.json"
         cache.write_text(json.dumps({"other-provider": {"models": {}}}))
-        monkeypatch.setattr("owrap.utils.dispatch.model_catalog.OPENCODE_MODELS_CACHE", cache)
+        monkeypatch.setattr(
+            "owrap.utils.dispatch.model_catalog.OPENCODE_MODELS_CACHE", cache,
+        )
         with patch(
             "owrap.utils.dispatch.model_catalog.subprocess.run",
             return_value=_live_models("glm-5-free"),
@@ -113,7 +131,9 @@ class TestDiscoverFreeModel:
     def test_returns_none_on_corrupt_cache(self, tmp_path, monkeypatch):
         cache = tmp_path / "models.json"
         cache.write_text("not valid json")
-        monkeypatch.setattr("owrap.utils.dispatch.model_catalog.OPENCODE_MODELS_CACHE", cache)
+        monkeypatch.setattr(
+            "owrap.utils.dispatch.model_catalog.OPENCODE_MODELS_CACHE", cache,
+        )
         with patch(
             "owrap.utils.dispatch.model_catalog.subprocess.run",
             return_value=_live_models("glm-5-free"),
@@ -122,7 +142,8 @@ class TestDiscoverFreeModel:
 
     def test_returns_none_when_opencode_not_found(self):
         with patch(
-            "owrap.utils.dispatch.model_catalog.subprocess.run", side_effect=FileNotFoundError,
+            "owrap.utils.dispatch.model_catalog.subprocess.run",
+            side_effect=FileNotFoundError,
         ):
             assert discover_free_model() is None
 

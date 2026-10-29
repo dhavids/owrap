@@ -146,7 +146,10 @@ def test_dev_port_range_does_not_use_live_port():
 def test_single_server_uses_configured_port():
     manager = Manager.__new__(Manager)
     with (
-        patch("owrap.dispatch.manager._read_config", return_value={"server_port_base": 5096}),
+        patch(
+            "owrap.dispatch.manager._read_config",
+            return_value={"server_port_base": 5096},
+        ),
         patch.object(
             manager, "_kill_port_occupant", side_effect=RuntimeError("stopped"),
         ) as kill,
@@ -158,13 +161,19 @@ def test_single_server_uses_configured_port():
 
 def test_pool_active_false_when_no_pool_file():
     from owrap.utils.dispatch.pool import _pool_active
-    with patch("owrap.utils.dispatch.pool._read_config", return_value={"max_servers": 1, "min_servers": 2}):
+    with patch(
+        "owrap.utils.dispatch.pool._read_config",
+        return_value={"max_servers": 1, "min_servers": 2},
+    ):
         assert _pool_active() is False
 
 
 def test_pool_active_true_when_configured():
     from owrap.utils.dispatch.pool import _pool_active
-    with patch("owrap.utils.dispatch.pool._read_config", return_value={"max_servers": 3, "min_servers": 2}):
+    with patch(
+        "owrap.utils.dispatch.pool._read_config",
+        return_value={"max_servers": 3, "min_servers": 2},
+    ):
         assert _pool_active() is True
 
 
@@ -172,7 +181,8 @@ def test_shutdown_idle_respects_min_n(tmp_path):
     from owrap.utils.dispatch.pool import shutdown_idle
 
     pool = [
-        {"pid": os.getpid(), "url": f"http://localhost:{4096+i}", "port": 4096+i, "last_used": 0}
+        {"pid": os.getpid(
+        ), "url": f"http://localhost:{4096+i}", "port": 4096+i, "last_used": 0}
         for i in range(3)
     ]
     fake_pool = tmp_path / "pool.json"
@@ -194,7 +204,8 @@ def test_shutdown_idle_killed_counter(tmp_path):
     from owrap.utils.dispatch.pool import shutdown_idle
 
     pool = [
-        {"pid": os.getpid(), "url": f"http://localhost:{4096+i}", "port": 4096+i, "last_used": 0}
+        {"pid": os.getpid(
+        ), "url": f"http://localhost:{4096+i}", "port": 4096+i, "last_used": 0}
         for i in range(4)
     ]
     fake_pool = tmp_path / "pool.json"
@@ -216,7 +227,10 @@ def test_update_last_used(tmp_path):
     from owrap.utils.dispatch.pool import update_last_used
 
     before = time.time() - 100
-    pool = [{"pid": 999, "url": "http://localhost:4096", "port": 4096, "last_used": before}]
+    pool = [{
+        "pid": 999, "url": "http://localhost:4096", "port": 4096,
+        "last_used": before,
+    }]
     fake_pool = tmp_path / "pool.json"
     fake_pool.write_text(json.dumps(pool))
     fake_lock = tmp_path / "pool.lock"
@@ -280,7 +294,8 @@ def test_record_unresponsive_kills_at_threshold(tmp_path):
     from owrap.utils.dispatch.pool import record_unresponsive
     from unittest.mock import patch
 
-    pool = [{"pid": os.getpid(), "url": "http://localhost:4096", "port": 4096, "last_used": 0}]
+    pool = [{"pid": os.getpid(
+    ), "url": "http://localhost:4096", "port": 4096, "last_used": 0}]
     fake_pool = tmp_path / "pool.json"
     fake_pool.write_text(json.dumps(pool))
     fake_lock = tmp_path / "pool.lock"
@@ -305,7 +320,8 @@ def test_record_unresponsive_custom_threshold_one(tmp_path):
     from owrap.utils.dispatch.pool import record_unresponsive
     from unittest.mock import patch
 
-    pool = [{"pid": os.getpid(), "url": "http://localhost:4096", "port": 4096, "last_used": 0}]
+    pool = [{"pid": os.getpid(
+    ), "url": "http://localhost:4096", "port": 4096, "last_used": 0}]
     fake_pool = tmp_path / "pool.json"
     fake_pool.write_text(json.dumps(pool))
     fake_lock = tmp_path / "pool.lock"
@@ -323,7 +339,10 @@ def test_record_responsive_resets_counter(tmp_path):
     from owrap.utils.dispatch.pool import record_responsive
     from unittest.mock import patch
 
-    pool = [{"pid": os.getpid(), "url": "http://localhost:4096", "port": 4096, "last_used": 0, "unresponsive_count": 1}]
+    pool = [{
+        "pid": os.getpid(), "url": "http://localhost:4096", "port": 4096,
+        "last_used": 0, "unresponsive_count": 1,
+    }]
     fake_pool = tmp_path / "pool.json"
     fake_pool.write_text(json.dumps(pool))
     fake_lock = tmp_path / "pool.lock"
@@ -340,7 +359,8 @@ def test_record_unresponsive_unknown_url_noop(tmp_path):
     from owrap.utils.dispatch.pool import record_unresponsive
     from unittest.mock import patch
 
-    pool = [{"pid": os.getpid(), "url": "http://localhost:4096", "port": 4096, "last_used": 0}]
+    pool = [{"pid": os.getpid(
+    ), "url": "http://localhost:4096", "port": 4096, "last_used": 0}]
     fake_pool = tmp_path / "pool.json"
     fake_pool.write_text(json.dumps(pool))
     fake_lock = tmp_path / "pool.lock"
@@ -378,7 +398,10 @@ def test_pick_server_force_kills_stale_hung_entry(tmp_path):
          patch("owrap.utils.dispatch.pool.POOL_LOCK_FILE", fake_lock), \
          patch("owrap.utils.dispatch.pool._pool_active", return_value=True), \
          patch("owrap.utils.dispatch.pool.ensure_min_servers"), \
-         patch("owrap.utils.dispatch.pool._is_alive", side_effect=[True, True, False, False]), \
+         patch(
+             "owrap.utils.dispatch.pool._is_alive",
+             side_effect=[True, True, False, False],
+         ), \
          patch("owrap.utils.dispatch.pool._is_responsive", return_value=False), \
          patch("owrap.utils.dispatch.pool._next_port", return_value=4096), \
          patch("owrap.utils.dispatch.pool._start_server", return_value=new_entry), \

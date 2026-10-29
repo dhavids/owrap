@@ -8,22 +8,6 @@ from owrap.kind.entry.todo import Todo
 
 # Actions: _usage/_ok entry points
 
-class _ToyKind(Actions):
-    kind = "toy"
-    usage = {
-        "add": {
-            "usage": "<a>",
-            "args": [("a", "the thing to add")],
-            "examples": ["x"],
-        },
-    }
-    messages = {"add": "did {thing}"}
-
-    def add(self, a=None):
-        if a is None:
-            self._usage("add")
-        self._ok("add", thing=a)
-
 
 def test_usage_builds_action_kind_prefix(capsys):
     with pytest.raises(SystemExit) as exc:
@@ -56,9 +40,6 @@ def test_dispatch_pads_missing_trailing_args_with_none():
 
 
 # Entry: shared target resolution
-
-class _ToyDoc(Entry):
-    kind = "toydoc"
 
 
 def test_resolve_target_no_target_no_session_fails(monkeypatch, capsys):
@@ -218,3 +199,24 @@ def test_cli_kind_with_no_action_shows_full_help(capsys):
     assert exc.value.code == 2
     assert "Usage: owrap add todo" in out
     assert "Usage: owrap done todo" in out
+
+
+class _ToyKind(Actions):
+    kind = "toy"
+    usage = {
+        "add": {
+            "usage": "<a>",
+            "args": [("a", "the thing to add")],
+            "examples": ["x"],
+        },
+    }
+    messages = {"add": "did {thing}"}
+
+    def add(self, a=None):
+        if a is None:
+            self._usage("add")
+        self._ok("add", thing=a)
+
+
+class _ToyDoc(Entry):
+    kind = "toydoc"

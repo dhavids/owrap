@@ -23,8 +23,12 @@ def test_do_section(tmp_path):
 
 def test_first_line_hash_fallback(tmp_path):
     f = tmp_path / "plan.md"
-    f.write_text("# Exec task: p067fcf-39 — kill orphaned duplicate keepalive daemon\n\nbody...")
-    assert extract_snippet(f) == "Exec task: p067fcf-39 — kill orphaned duplicate keepalive daemon"
+    f.write_text(
+        "# Exec task: p067fcf-39 — kill orphaned duplicate keepalive daemon\n\nbody...",
+    )
+    assert extract_snippet(
+        f,
+    ) == "Exec task: p067fcf-39 — kill orphaned duplicate keepalive daemon"
 
 
 def test_nonexistent_path():
@@ -40,11 +44,17 @@ def test_no_match_default(tmp_path):
 
 def test_strips_context_header(tmp_path):
     f = tmp_path / "task.md"
-    f.write_text("## Context\nFirst read exec.md, then read foo.md before starting this task.\n\n# Exec task: do the thing\n\nbody...")
+    f.write_text(
+        "## Context\nFirst read exec.md, then read foo.md before starting this task."
+        "\n\n# Exec task: do the thing\n\nbody..."
+    )
     assert extract_snippet(f) == "Exec task: do the thing"
 
 
 def test_strips_context_header_and_finds_do(tmp_path):
     f = tmp_path / "task.md"
-    f.write_text("## Context\nFirst read foo.md before starting this task.\n\n## Do\n\nFix the widget\n")
+    f.write_text(
+        "## Context\nFirst read foo.md before starting this task."
+        "\n\n## Do\n\nFix the widget\n"
+    )
     assert extract_snippet(f) == "Fix the widget"

@@ -6,21 +6,13 @@ from ...utils.parser.text import preview
 
 class Entry(Modify, Access):
     """
-    Base for every line-item-entry-shaped kind (todo, decision) -- a
-    kind with no identity of its own, living as a bullet entry inside
-    a parent record's markdown section. `Entry` isn't an action type
-    itself; it's this base that binds `Modify` (already carrying
-    `add`/`update`/`remove`/`clear`/`done`/`restore`/`set`) with
-    `Access` (`get`), plus the contracts common to every entry kind
-    specifically: `read` (so every entry kind can be read the same
-    way) and the generic `_add`/`_update`/`_remove`/`_clear`/`_done`
-    below, which a concrete kind feeds via its own raw item callback
+    Base for line-item kinds (todo, decision): bullet entries inside a
+    parent record's markdown section. Binds `Modify` and `Access` with
+    `read` and the generic `_add`/`_update`/`_remove`/`_clear`/`_done`,
+    which a concrete kind feeds through its raw item callbacks
     (`_add_item`, `_update_item`, `_remove_item`, `_clear_items`,
-    `_done_item`) unless its own shape genuinely differs (`Decision`'s
-    `add` has no position argument, so it overrides `_add` directly
-    instead of using this one). A concrete kind sets its own `noun`
-    (e.g. "goals"), which `Actions._resolve_target` picks up
-    automatically.
+    `_done_item`). A kind sets its own `noun` (e.g. "goals"), which
+    `Actions._resolve_target` picks up.
     """
 
 
@@ -28,10 +20,8 @@ class Entry(Modify, Access):
 
     def _default_get(self) -> None:
         """
-        Fallback for `get` called with no args at all: report this
-        kind's own record path rather than every item. A concrete
-        kind overrides this if its own default should be something
-        else.
+        Report this kind's record path for `get` called with no args. A
+        concrete kind overrides it for another default.
         """
         self._path()
 
@@ -47,9 +37,8 @@ class Entry(Modify, Access):
 
     def _edit(self, func, *args, **kwargs):
         """
-        Call `func`, converting an OSError/ValueError into a clean
-        failure exit instead of a raw traceback -- every verb below
-        persists its edit through this.
+        Call `func`, turning an OSError/ValueError into a clean failure
+        exit.
         """
         try:
             return func(*args, **kwargs)
@@ -71,11 +60,9 @@ class Entry(Modify, Access):
 
     def _add(self, path, arg2: str, arg3: str = None) -> dict:
         """
-        Act based on position: no position appends to the end; 1, 2,
-        3... inserts before that 1-indexed position, shifting the rest
-        down; 0 or -1 updates the first or last item's text in place
-        instead of inserting. A kind whose add has no position concept
-        (e.g. `Decision`) overrides this directly instead.
+        Add by position: none appends to the end; 1, 2, 3... inserts before
+        that 1-indexed position; 0 or -1 updates the first or last item's
+        text in place.
         """
         if arg2 is None:
             self._usage("add")

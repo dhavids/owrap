@@ -116,7 +116,7 @@ Commands are `owrap <action> <kind> [args]`; `owrap <kind> <action>` works too. 
 
 | Command | Effect |
 |---|---|
-| `owrap get project [main|subs|sub <name>|scratch [path]|name|path|risk]` | Read project/subproject goals and decisions, or report identity |
+| `owrap get project [<name>] [doc [<section> [<subsection>]]|name]` | Read a project/subproject's path, goals, decisions and sections |
 | `owrap get todo [<target> [<position|all>]]` | List goals for a project/repository/session target |
 | `owrap add todo <target> [<position>] "<text>"` | Add a goal to a project/repository/session target |
 | `owrap start ctx` | Queue a session context update |

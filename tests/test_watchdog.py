@@ -97,7 +97,8 @@ def test_watchdog_fires_unresponsive_callback_on_no_output(tmp_path):
     from owrap.utils.dispatch.watchdog import Watchdog
 
     log_file = tmp_path / "test.log"
-    log_file.write_text("")  # never grows — simulates attaching to a dead/unresponsive server
+    # Never grows: simulates attaching to a dead or unresponsive server
+    log_file.write_text("")
 
     unresp_mock = MagicMock()
 

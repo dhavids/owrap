@@ -63,8 +63,7 @@ class TestTerminalRunStandard:
     def test_idle_timeout_kills_before_the_hard_timeout(self):
         """
         A process that prints once then goes silent must be killed after
-        idle_timeout, well before the much longer hard timeout — fail
-        fast on a stuck dispatch instead of waiting it out.
+        idle_timeout, well before the much longer hard timeout.
         """
         t = Terminal(verbose=False, signals="none")
         start = time.monotonic()

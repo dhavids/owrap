@@ -26,7 +26,8 @@ def test_get_template_facet_forwards_to_template():
 
 def test_get_hook_facet_runs_hook_and_never_raises():
     with patch("owrap.kind.dispatch.ctx.hook_run", side_effect=RuntimeError("boom")):
-        Ctx().get("hook")  # must not raise
+        # Must not raise
+        Ctx().get("hook")
 
 
 def test_get_hook_facet_always_prints_json_even_on_failure(capsys):

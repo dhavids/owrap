@@ -1,7 +1,6 @@
 class Set:
     """
-    Exposes `set`, refusing by default. Skeleton for now -- no kind
-    uses it yet.
+    Exposes `set`, refusing by default. No kind uses it yet.
     """
 
     def set(self, *args):

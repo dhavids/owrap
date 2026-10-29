@@ -30,19 +30,6 @@ def workflow_home(tmp_path, monkeypatch):
         "owrap.utils.session.resolver.BY_CODEX_SESSION_ID_DIR",
         sessions / "by_codex_session_id",
     )
-    # owrap.session.resolver is a separate copy; it needs the same isolation.
-    monkeypatch.setattr("owrap.session.resolver.SESSIONS_DIR", sessions)
-    monkeypatch.setattr(
-        "owrap.session.resolver.BY_CCSID_DIR", sessions / "by_ccsid",
-    )
-    monkeypatch.setattr(
-        "owrap.session.resolver.BY_OPENCODE_RUN_ID_DIR",
-        sessions / "by_opencode_run_id",
-    )
-    monkeypatch.setattr(
-        "owrap.session.resolver.BY_CODEX_SESSION_ID_DIR",
-        sessions / "by_codex_session_id",
-    )
     monkeypatch.setattr("owrap.utils.paths.SESSION_DIR", tmp_path)
     monkeypatch.setattr("owrap.utils.paths.SESSIONS_DIR", sessions)
     workspace = tmp_path / "workspace"

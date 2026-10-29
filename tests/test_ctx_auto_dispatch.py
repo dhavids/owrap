@@ -63,7 +63,7 @@ def test_check_all_attached_captures_its_own_prints_into_the_job_log(
 ):
     """
     The background path runs in-process, so its prints only land in
-    the job's own log because `_dispatch_and_track` explicitly
+    the job's own log; `_dispatch_and_track` explicitly
     redirects sys.stdout there for the duration of the dispatch.
     """
     _attached_window(monkeypatch, tmp_path)

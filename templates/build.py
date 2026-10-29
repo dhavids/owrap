@@ -5,8 +5,7 @@ Keep the Markdown templates honest against the real CLI grammar.
 `verify()` extracts every backtick-wrapped `owrap ...` example across
 `templates/**/*.md` and checks it actually resolves through the real
 kind/action resolver -- catches a doc describing a command that quietly
-stopped existing (renamed kind, renamed action, retired verb) instead of
-letting it sit stale until someone trips over it by hand.
+stopped existing (renamed kind, renamed action, retired verb).
 
 `generate()` rewrites the "GENERATED" blocks in `self/commands.md` and
 the command-grammar cheat sheet in `planner.md` --
@@ -121,8 +120,9 @@ CONFIG_ROWS = (
     (("idle_shutdown_s",), "float", "Idle seconds before server shutdown."),
     (("daemon_interval_s",), "float",
      "Seconds between daemon pool-lifecycle checks."),
-    (("ctx_check_interval_s",), "float", None),  # built from code constants below
-    (("stale_detach_check_interval_s",), "float", None),  # built below, like the above
+    # Descriptions below are built from code constants
+    (("ctx_check_interval_s",), "float", None),
+    (("stale_detach_check_interval_s",), "float", None),
     (("runner_model",), "string",
      "Model for regular runner dispatch (`owrap task start`/`owrap "
      "exec start`)."),
@@ -212,9 +212,9 @@ def verify_command(fixed: list) -> str | None:
 
 def verify_file(path: Path) -> list:
     """
-    Return a list of "line N: message" errors found in one file.
-    Scans the whole file (not line by line) so a backtick span that
-    wraps across one prose line break is still caught.
+    Return a list of "line N: message" errors found in one file. Scans
+    the whole file, so a backtick span wrapping across one prose line
+    break is still caught.
     """
     errors = []
     text = path.read_text()
@@ -299,10 +299,8 @@ def _merge_same_purpose(rows: list) -> list:
 
 def generate_workflow_tables() -> str:
     """
-    Build the workflow-grouped `Command | Effect` tables straight from
-    the same per-kind `usage` dicts the full reference reads, so a
-    command's grouping/one-line effect can't drift from its real
-    syntax independently.
+    Build the workflow-grouped `Command | Effect` tables from the
+    per-kind `usage` dicts.
     """
     rows_by_group = _grouped_rows()
     sections = []
@@ -326,14 +324,17 @@ def generate_command_grammar() -> str:
     lines = [GRAMMAR_INTRO, "", "| Command | Effect |", "|---|---|"]
     for kind, action in GRAMMAR_COMMANDS:
         spec = KIND_REGISTRY[kind].usage[action]
-        command = f"{usage_prefix(kind, action)} {spec.get('usage', '')}".strip()
+        shape = spec.get("short_usage", spec.get("usage", ""))
+        command = f"{usage_prefix(kind, action)} {shape}".strip()
         lines.append(f"| `{command}` | {spec['purpose']} |")
     body = "\n".join(lines)
     return f"{GRAMMAR_START}\n{body}\n\n{GRAMMAR_OUTRO}\n{GRAMMAR_END}"
 
 
 def _format_duration(seconds: int) -> str:
-    """Render a seconds count as `Xm`/`Xh` for prose use."""
+    """
+    Render a seconds count as `Xm`/`Xh` for prose use.
+    """
     if seconds % 3600 == 0:
         return f"{seconds // 3600}h"
     return f"{seconds // 60}m"
@@ -352,7 +353,7 @@ def _config_default(keys: tuple, config: dict) -> str:
         if key not in config or isinstance(config[key], str):
             return "—"
         value = config[key]
-        cells.append("true" if value is True else "false" if value is False else str(value))
+        cells.append(str(value).lower() if isinstance(value, bool) else str(value))
     return "/".join(f"`{cell}`" for cell in cells)
 
 

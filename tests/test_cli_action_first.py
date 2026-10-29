@@ -12,10 +12,6 @@ import owrap.cli as cli_module
 from owrap.cli import _resolve_kind_first, main
 
 
-class _ToySelf:
-    pass
-
-
 @pytest.fixture(autouse=True)
 def toy_action_registry(monkeypatch):
     registry = {
@@ -101,3 +97,7 @@ def test_bare_action_help_lists_the_kinds_accepting_it(capsys):
     assert exit_info.value.code == 0
     assert "Usage: owrap add <kind>" in out
     assert "todo" in out and "session" in out
+
+
+class _ToySelf:
+    pass

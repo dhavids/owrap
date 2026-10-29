@@ -29,15 +29,10 @@ _MODE_FILES = {
 
 class Fallback(Dispatch):
     """
-    Runs an opencode `--execf`/`--taskf` invocation directly, with no
-    server attached -- the `owrap f` command, used when the normal
-    pool-backed dispatch path is down. Deliberately independent of
-    the sentinel/pool machinery every other `Dispatch` kind shares
-    (that's the point of being the fallback: it must still work when
-    that machinery is what's broken) -- its own status-file state
-    machine, addressed by a `task`/`exec` mode singleton slot rather
-    than a task id, so it doesn't fit `Dispatch.get`'s sentinel
-    lookup either. Overrides `get` directly for that reason.
+    Run an opencode `--execf`/`--taskf` invocation directly with no
+    server attached (the `owrap f` command), for when the normal
+    pool-backed dispatch path is down. It keeps its own status-file state
+    machine, addressed by a `task`/`exec` mode slot.
     """
 
     kind = "fallback"
@@ -157,9 +152,7 @@ class Fallback(Dispatch):
 
     def get(self, mode: str = None) -> None:
         """
-        Report `mode`'s (`task`/`exec`) fallback status file --
-        overrides `Dispatch.get` directly since this kind has no
-        sentinel for `work.find_task` to look up.
+        Report `mode`'s (`task`/`exec`) fallback status file.
         """
         if mode not in _MODE_FILES:
             self._usage("get")

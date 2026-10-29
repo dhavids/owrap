@@ -1,14 +1,9 @@
 class Remove:
     """
-    Default `remove`: resolve the target, hand the actual edit off
-    to the kind's `_remove` callback for its payload, touch the
-    record, then run the kind's optional `_on_remove` hook (a no-op
-    unless a kind needs extra side effects beyond the edit itself)
-    -- if that hook returns an error message, fail with it instead
-    of reporting success. A kind that hasn't defined `_remove`
-    refuses immediately, without attempting to resolve a target at
-    all; one whose remove doesn't fit this shape overrides `remove`
-    directly instead of defining `_remove`.
+    Default `remove`: resolve the target, run the kind's `_remove`
+    callback for the edit, touch the record, then run the optional
+    `_on_remove` hook, failing with its message if it returns one. A kind
+    without `_remove` refuses before resolving a target.
     """
 
     def remove(self, target, arg2=None):
@@ -17,7 +12,7 @@ class Remove:
         """
         if type(self)._remove is Remove._remove:
             raise ValueError(f"{self.kind} does not support remove")
-        memory_target = self._resolve_target(target)
+        memory_target = self._resolve_target(target, write=True)
         fields = self._remove(memory_target.project_path, arg2)
         self._touch(memory_target)
         error = self._on_remove(memory_target, fields)

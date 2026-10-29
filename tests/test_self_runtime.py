@@ -58,7 +58,8 @@ def test_runtime_sid_filters_to_that_session(rtlog_file, capsys):
 def test_runtime_tail_limits_event_count(rtlog_file, capsys):
     Self().get("runtime", tail="1")
     out = capsys.readouterr().out.strip().splitlines()
-    assert len(out) == 2  # the "log: ..." header line, then one event
+    # The "log: ..." header line, then one event
+    assert len(out) == 2
 
 
 def test_runtime_missing_file_reports_cleanly(tmp_path, monkeypatch, capsys):

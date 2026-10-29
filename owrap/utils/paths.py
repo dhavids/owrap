@@ -305,10 +305,7 @@ def get_model_chain(config: dict, key: str = "context_manager_model") -> list:
     """
     Ordered, deduplicated list of models to try for a background
     context-manager task: config[key] -> config["runner_model"] ->
-    config["context_fallback_model"]. The last is the named, already-
-    proven free-tier model configured as `base.json`'s default — a
-    config value, never hardcoded here, so a user can repoint it. Can be
-    empty if none of these are configured.
+    config["context_fallback_model"]. Empty if none are configured.
     """
     candidates = [
         config.get(key), config.get("runner_model"),
@@ -491,10 +488,8 @@ def session_ctx_state_path(session_id: str) -> Path:
     """
     Return the session-scoped context-manager state file: ctx_status,
     last dispatch result, per-target sync timestamps, and the per-window
-    transcript cursor/touched-entries map — one canonical JSON per
-    session, guarded by its own lock (ctx_state_lock_path), separate
-    from context.md's, since writers of one rarely need to block on
-    the other.
+    transcript cursor/touched-entries map. It is guarded by its own lock
+    (ctx_state_lock_path).
     """
     return session_dir(session_id) / "ctx_state.json"
 

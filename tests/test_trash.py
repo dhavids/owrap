@@ -92,7 +92,8 @@ def test_sweep_trash_removes_only_past_retention(tmp_path):
 
     old_entry = trash_dir / "old_session"
     old_entry.mkdir()
-    (old_entry / "trashed_at").write_text((datetime.now() - timedelta(days=45)).isoformat())
+    stamp = (datetime.now() - timedelta(days=45)).isoformat()
+    (old_entry / "trashed_at").write_text(stamp)
 
     recent_entry = trash_dir / "recent_session"
     recent_entry.mkdir()

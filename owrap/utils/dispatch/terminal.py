@@ -144,19 +144,18 @@ class Terminal:
         Execute a command in the managed subprocess.
 
         idle_timeout: kill early if no new output arrives for this many
-        seconds, even though the overall `timeout` hasn't elapsed yet —
-        fail fast on a stuck process instead of waiting out the full
-        hard timeout. Only applies in the streamed (print_output and
-        capture_output) path of the non-interactive, non-detached run.
+        seconds, even though the overall `timeout` hasn't elapsed. Applies
+        only in the streamed (print_output and capture_output) path of the
+        non-interactive, non-detached run.
 
-        idle_timeout_after: (marker, extended_timeout) -- each time
-        `marker` appears in a new chunk of output, `idle_timeout`
-        resets to `extended_timeout` from that point.
+        idle_timeout_after: (marker, extended_timeout) -- each time `marker`
+        appears in a new chunk of output, `idle_timeout` resets to
+        `extended_timeout` from that point.
 
-        heartbeat_path: when given (and idle_timeout is set), a small
-        JSON file kept up to date with `last_data_time`/
-        `active_idle_timeout` so an outside reader (e.g. `owrap stat`)
-        can compute this run's current kill deadline.
+        heartbeat_path: when given (and idle_timeout is set), a small JSON
+        file kept up to date with `last_data_time`/`active_idle_timeout` so an
+        outside reader (e.g. `owrap stat`) can compute this run's current kill
+        deadline.
         """
         if silent:
             print_output = False

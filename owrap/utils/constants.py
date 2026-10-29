@@ -168,3 +168,7 @@ CTX_REPOSITORY_BLOCK = (
 <New environment facts only, one `- subject — fact` per line. Omit if none.>
 """
 )
+
+# Words no project/subproject may be named, beyond owrap's kinds, actions,
+# aliases, and the `get project` facets (derived at runtime).
+RESERVED_WORDS = ("all", "main", "sub", "template")

@@ -40,7 +40,7 @@ servers past `idle_shutdown_s`.
 | `owrap start ctx` | Queue a session context update |
 | `owrap get decision` | List decisions for a project/repository/session target |
 | `owrap clear project` | Delete the active target's disposable scratch notes |
-| `owrap get project` | Read project/subproject goals and decisions, or report identity |
+| `owrap get project` | Read a project/subproject's path, goals, decisions and sections |
 | `owrap add proposal` | File a change request for owrap's tooling |
 | `owrap get proposal` | List open owrap tooling proposals, or print the template |
 | `owrap do proposal` | Work a proposal (owrap session) or add a note (any) |
@@ -239,7 +239,7 @@ when its content needs correction.
 | `add` | `<name> [force]` | `owrap add project docs` |
 | `clear` | `scratch` | `owrap clear project scratch` |
 | `set` | `[<name>|risk <low|high>]` | `owrap set project` |
-| `get` | `[main|subs|sub <name>|scratch [path]|name|path|risk]` | `owrap get project` |
+| `get` | `[<name>] [doc [<section> [<subsection>]] | subs | scratch [path] | name | path | risk]` | `owrap get project` |
 
 
 ### `owrap proposal`

@@ -42,6 +42,19 @@ def session_files() -> list[Path]:
     return sorted(SESSIONS_DIR.glob("*/.session"))
 
 
+def session_label(session_id: str) -> str:
+    """
+    Return a session's project (subproject-qualified if set) for
+    display, falling back to the raw session id when it has neither.
+    """
+    data = _parse(session_file(session_id))
+    project = data.get("project_id")
+    if not project:
+        return session_id
+    subproject = data.get("subproject_id")
+    return f"{project}/{subproject}" if subproject else project
+
+
 def ccsid_pointer(ccsid: str) -> Path:
     return _pointer(BY_CCSID_DIR, ccsid)
 
@@ -74,12 +87,8 @@ def mint_session_id() -> str:
 
 def owrap_sid_for_ccsid(ccsid: str) -> str | None:
     """
-    Resolve the owrap session id a given ccsid is attached to.
-
-    Looks up the by_ccsid/<ccsid> pointer directly rather than scanning
-    .session files for a claude_session_id field match — under multi-attach,
-    that field only ever holds the most recently attached ccsid, so a scan
-    silently misses every other window attached to the same session.
+    Resolve the owrap session id a given ccsid is attached to, via its
+    by_ccsid/<ccsid> pointer.
     """
     if not ccsid:
         return None
@@ -414,10 +423,9 @@ def print_known_sessions():
 
 def resolve_session_or_exit(token: str, print_known_on_none: bool = False) -> str:
     """
-    Resolve a user-typed session id/project/repository target to a session id,
-    printing the standard error and exiting(2) on an unknown or ambiguous
-    match. The single point every caller should go through instead of
-    branching on resolve_attach_target()'s status itself.
+    Resolve a user-typed session id/project/repository target to a
+    session id, printing the standard error and exiting(2) on an unknown
+    or ambiguous match.
     """
     status, payload = resolve_attach_target(token)
     if status == "session_id":
@@ -534,6 +542,30 @@ def detach() -> str | None:
             d["codex_session_id"] = ""
         _write(sf, d)
     return sid
+
+
+def detach_window(window_id: str, owrap_sid: str, source: str = "claude") -> None:
+    """
+    Release one known (ccsid or codex session id, owrap session)
+    attachment: unlink its pointer and clear it from the session's
+    current-window field if it was the one recorded there.
+    """
+    ptr = (
+        ccsid_pointer(window_id) if source == "claude"
+        else codex_session_id_pointer(window_id)
+    )
+    ptr.unlink(missing_ok=True)
+
+    sf = session_file(owrap_sid)
+    if not sf.exists():
+        return
+    d = _parse(sf)
+    if source == "claude" and d.get("claude_session_id") == window_id:
+        remaining = [c for c in attached_ccsids(owrap_sid) if c != window_id]
+        d["claude_session_id"] = remaining[-1] if remaining else ""
+    elif source == "codex" and d.get("codex_session_id") == window_id:
+        d["codex_session_id"] = ""
+    _write(sf, d)
 
 
 def update_session_field(session_id: str, key: str, value: str):

@@ -7,17 +7,17 @@ from ...ctx.dispatch import run_manual, wait_for_job
 from ...ctx.state import (
     ctx_dispatch_status, format_last_dispatch, queue_touched_paths,
 )
-from ...session.resolver import _parse, session_file
+from ...utils.session.resolver import _parse, session_file
 from ...utils.memory.records import resolve_memory_target
 from ...utils.parser.text import preview_lines
 
 
 class Updr(Dispatch, Wait):
     """
-    Dispatches an Update Protocol task for the window's attached
-    session (its project/subproject or repository record), optionally
-    combined with Update Context in the same dispatch. PORTED --
-    `start`/`done` call `owrap.ctx`, same as `Ctx`; see its docstring.
+    Dispatch an Update Protocol task for the window's attached session
+    (its project/subproject or repository record), optionally combined
+    with Update Context in the same dispatch. `start`/`done` call
+    `owrap.ctx`.
     """
 
     kind = "updr"
@@ -95,10 +95,9 @@ class Updr(Dispatch, Wait):
 
     def add(self, *paths, note: str = None) -> None:
         """
-        Queue one or more touched file paths for the next protocol
-        update, each with the same optional one-line `note` -- the
-        same queue `Ctx.add` feeds, since one dispatch can cover
-        either or both.
+        Queue one or more touched file paths for the next protocol update,
+        each with the same optional one-line `note`. Feeds the same queue as
+        `Ctx.add`.
         """
         if not paths:
             self._usage("add")

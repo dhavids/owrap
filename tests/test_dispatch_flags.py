@@ -13,39 +13,6 @@ import pytest
 from owrap.actions import Actions, dispatch
 
 
-class _Toy(Actions):
-    kind = "toy"
-    messages = {"done": "{text}", "add": "{text}", "start": "{text}"}
-
-    def done(self, error: str = None) -> None:
-        self._ok("done", text=f"error={error!r}")
-
-    def add(self, *paths, note: str = None) -> None:
-        self._ok("add", text=f"paths={paths!r} note={note!r}")
-
-    def start(self, subproject: str = None, ctx: bool = False) -> None:
-        self._ok("start", text=f"subproject={subproject!r} ctx={ctx!r}")
-
-
-class _ToyDispatch(Actions):
-    kind = "toydispatch"
-    messages = {"start": "{text}"}
-
-    def start(
-        self, data: str = None, id: str = None, timeout: int = None,
-        model: str = None, grep: str = None, summarise: bool = False,
-        details: str = None, verbose: bool = False, prompt_style: str = None,
-    ) -> None:
-        self._ok(
-            "start",
-            text=(
-                f"data={data!r} id={id!r} timeout={timeout!r} model={model!r} "
-                f"grep={grep!r} summarise={summarise!r} details={details!r} "
-                f"verbose={verbose!r} prompt_style={prompt_style!r}"
-            ),
-        )
-
-
 @pytest.fixture
 def registry():
     return {"toy": _Toy, "toydispatch": _ToyDispatch}
@@ -120,13 +87,6 @@ def test_short_flag_falls_through_as_positional_when_param_is_absent(
 # `repository`) -- positional padding must bind every remaining slot
 # by name, not splice *args and let position drift.
 
-class _ToyMiddleFlag(Actions):
-    kind = "toymiddle"
-    messages = {"start": "{text}"}
-
-    def start(self, first: str = None, middle: str = None, last: str = None) -> None:
-        self._ok("start", text=f"first={first!r} middle={middle!r} last={last!r}")
-
 
 def test_flag_for_a_middle_parameter_does_not_shift_later_positionals(capsys):
     dispatch({"toymiddle": _ToyMiddleFlag}, "toymiddle", "start", "--middle", "m")
@@ -144,3 +104,44 @@ def test_flag_for_a_middle_parameter_leaves_other_positionals_in_place(capsys):
     assert "first='f'" in out
     assert "middle='m'" in out
     assert "last=None" in out
+
+
+class _Toy(Actions):
+    kind = "toy"
+    messages = {"done": "{text}", "add": "{text}", "start": "{text}"}
+
+    def done(self, error: str = None) -> None:
+        self._ok("done", text=f"error={error!r}")
+
+    def add(self, *paths, note: str = None) -> None:
+        self._ok("add", text=f"paths={paths!r} note={note!r}")
+
+    def start(self, subproject: str = None, ctx: bool = False) -> None:
+        self._ok("start", text=f"subproject={subproject!r} ctx={ctx!r}")
+
+
+class _ToyDispatch(Actions):
+    kind = "toydispatch"
+    messages = {"start": "{text}"}
+
+    def start(
+        self, data: str = None, id: str = None, timeout: int = None,
+        model: str = None, grep: str = None, summarise: bool = False,
+        details: str = None, verbose: bool = False, prompt_style: str = None,
+    ) -> None:
+        self._ok(
+            "start",
+            text=(
+                f"data={data!r} id={id!r} timeout={timeout!r} model={model!r} "
+                f"grep={grep!r} summarise={summarise!r} details={details!r} "
+                f"verbose={verbose!r} prompt_style={prompt_style!r}"
+            ),
+        )
+
+
+class _ToyMiddleFlag(Actions):
+    kind = "toymiddle"
+    messages = {"start": "{text}"}
+
+    def start(self, first: str = None, middle: str = None, last: str = None) -> None:
+        self._ok("start", text=f"first={first!r} middle={middle!r} last={last!r}")

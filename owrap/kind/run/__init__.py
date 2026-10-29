@@ -12,15 +12,11 @@ from ...actions.run.wait import Wait
 
 class Run(Modify, Start, Stop, Restart, Attach, Detach, Refresh, Kill, Clean, Wait):
     """
-    Base for every kind whose actions trigger or mutate live process
-    or session state rather than a stored record (today: daemon,
-    session, project, worktree). `Run` isn't an action type itself -- same
-    as `Entry`, it's this kind-level base that binds `Modify` (and
-    everything it already carries: `add`/`update`/`remove`/`clear`/
-    `done`/`restore`/`set`) together with the run-specific verbs
-    (`start`/`stop`/`restart`/`attach`/`detach`/`refresh`/`kill`/
-    `clean`/`wait`) a kind in this shape needs; the verbs themselves
-    stay in `actions/run/` as plain mixins.
+    Base for kinds whose actions trigger or mutate live process or
+    session state (today: daemon, session, project, worktree). Binds
+    `Modify` with the run-specific verbs (`start`/`stop`/`restart`/
+    `attach`/`detach`/`refresh`/`kill`/`clean`/`wait`), which live in
+    `actions/run/` as plain mixins.
     """
 
 

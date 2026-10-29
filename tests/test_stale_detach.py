@@ -2,7 +2,7 @@ import os
 import time
 
 from owrap.ctx import dispatch
-from owrap.session import resolver
+from owrap.utils.session import resolver
 
 
 def _patch_dirs(monkeypatch, tmp_path):

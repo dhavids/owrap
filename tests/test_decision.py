@@ -30,6 +30,7 @@ def decision_setup(tmp_path, monkeypatch):
     )
     monkeypatch.setattr("owrap.actions.resolve_session_or_exit", lambda t: "abc123")
     monkeypatch.setattr("owrap.actions.session_file", lambda s: sfile)
+    monkeypatch.setenv("SESSION_ID", "abc123")
     return project
 
 
@@ -105,3 +106,14 @@ def test_default_get_escalates_past_prune_threshold(
     assert "decisions: 40 (" in out
     assert "PRUNE NOW (40+)" in out
     assert "consider pruning" not in out
+
+
+def test_add_to_another_projects_record_is_refused(decision_setup, monkeypatch, capsys):
+    monkeypatch.setenv("SESSION_ID", "")
+
+    with pytest.raises(SystemExit) as exc:
+        Decision().add("abc123", "Not mine")
+
+    assert exc.value.code == 2
+    assert "written only to your own" in capsys.readouterr().out
+    assert _decision_lines(decision_setup) == []

@@ -62,7 +62,8 @@ def find_port_pids(port: int) -> list:
                     local_addr = parts[1]
                     state = parts[3]
                     inode = parts[9]
-                    if state == '0A':  # LISTEN
+                    # State 0A is LISTEN
+                    if state == '0A':
                         port_hex = local_addr.split(':')[-1].upper()
                         if port_hex == hex_port:
                             inodes.add(inode)

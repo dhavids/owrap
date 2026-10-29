@@ -11,7 +11,7 @@ from pathlib import Path
 from . import Dispatch
 from ...dispatch import work
 from ...dispatch.manager import Manager
-from ...session.donow import check_donow
+from ...utils.session.donow import check_donow
 from ...utils.constants import (
     ANTI_SUMMARY_SUFFIX, INFRA_FAILURE_MSG_S, INFRA_FAILURE_TASK_S,
     LOG_WRAP_WIDTH, MSG_KILL_S, MSG_MAX_CHARS, NO_OUTPUT_MSG_S,
@@ -48,9 +48,9 @@ def _sanitize_placeholder_tags(text: str) -> str:
 
 def _target_matches(target: str, kind: str, task_id: str) -> bool:
     """
-    Check if a target string (as given to `owrap task done`) matches
-    a sentinel's kind and task_id -- a bare kind name matches any
-    task of that kind, `<kind><id>` matches one specific task.
+    Check whether a target string (as given to `owrap task done`)
+    selects a sentinel: a bare kind name selects any task of that kind,
+    `<kind><id>` selects one task.
     """
     t = target.lower()
     if t == "exec":
@@ -69,13 +69,10 @@ def _target_matches(target: str, kind: str, task_id: str) -> bool:
 
 class Task(Dispatch):
     """
-    Cross-cutting over whatever any `Dispatch` kind wrote to
-    RUNNING_DIR -- unlike `Read`/`Exec`, it dispatches nothing of its
-    own; `done` aborts a still-running one, `get` reports any kind's
-    task by id (both unscoped by `kind`, unlike `Dispatch.get`'s
-    default). `start` is the old `RunRunner`'s msg/task dispatch
-    (`_run_msg`/`_run_task`): a single-line `--msg` call, or a file
-    task read from `input_path` -- the `orun` command.
+    Act on whatever any `Dispatch` kind wrote to RUNNING_DIR; it
+    dispatches nothing of its own. `done` aborts a running task and `get`
+    reports any kind's task by id. `start` runs a single-line `--msg` call
+    or a file task read from `input_path` (the `orun` command).
     """
 
     kind = "task"
@@ -208,9 +205,8 @@ class Task(Dispatch):
 
     def get(self, task_id: str = None) -> None:
         """
-        Report any dispatched task's status by id, regardless of
-        which kind created it -- overrides `Dispatch.get` directly
-        since it must *not* scope by `self.kind`.
+        Report any dispatched task's status by id, whichever kind created
+        it.
         """
         if task_id is None:
             self._usage("get")

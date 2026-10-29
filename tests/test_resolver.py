@@ -14,11 +14,25 @@ from owrap.utils.session.resolver import (
 )
 
 
+def _parse_session(path: Path) -> dict:
+    data = {}
+    for line in path.read_text().splitlines():
+        if "=" in line:
+            k, v = line.split("=", 1)
+            data[k.strip()] = v.strip()
+    return data
+
+
 class TestResolveOpencodeRunId:
     def test_resolve_finds_session_by_opencode_run_id(self, tmp_path, monkeypatch):
         monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr("owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
-        monkeypatch.setattr("owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid",
+        )
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR",
+            tmp_path / "by_opencode_run_id",
+        )
         monkeypatch.setenv("OPENCODE_RUN_ID", "run-abc")
         monkeypatch.delenv("SESSION_ID", raising=False)
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
@@ -35,8 +49,13 @@ class TestResolveOpencodeRunId:
 
     def test_resolve_opencode_run_id_stale_pointer_removed(self, tmp_path, monkeypatch):
         monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr("owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
-        monkeypatch.setattr("owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid",
+        )
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR",
+            tmp_path / "by_opencode_run_id",
+        )
         monkeypatch.setenv("OPENCODE_RUN_ID", "run-abc")
         monkeypatch.delenv("SESSION_ID", raising=False)
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
@@ -50,8 +69,13 @@ class TestResolveOpencodeRunId:
 
     def test_start_creates_opencode_run_id_pointer(self, tmp_path, monkeypatch):
         monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr("owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
-        monkeypatch.setattr("owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid",
+        )
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR",
+            tmp_path / "by_opencode_run_id",
+        )
         monkeypatch.setenv("OPENCODE_RUN_ID", "run-xyz")
         monkeypatch.delenv("SESSION_ID", raising=False)
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
@@ -103,8 +127,13 @@ class TestCodexSession:
 class TestAttachSingleAnchor:
     def test_attach_ccsid_only(self, tmp_path, monkeypatch):
         monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr("owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
-        monkeypatch.setattr("owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid",
+        )
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR",
+            tmp_path / "by_opencode_run_id",
+        )
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "ccsid-123")
         monkeypatch.delenv("OPENCODE_RUN_ID", raising=False)
 
@@ -122,8 +151,13 @@ class TestAttachSingleAnchor:
 
     def test_attach_oid_only(self, tmp_path, monkeypatch):
         monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr("owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
-        monkeypatch.setattr("owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid",
+        )
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR",
+            tmp_path / "by_opencode_run_id",
+        )
         monkeypatch.setenv("OPENCODE_RUN_ID", "run-xyz")
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
 
@@ -141,8 +175,13 @@ class TestAttachSingleAnchor:
 
     def test_attach_both_ccsid_wins(self, tmp_path, monkeypatch):
         monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr("owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
-        monkeypatch.setattr("owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid",
+        )
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR",
+            tmp_path / "by_opencode_run_id",
+        )
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "ccsid-123")
         monkeypatch.setenv("OPENCODE_RUN_ID", "run-xyz")
 
@@ -165,14 +204,21 @@ class TestAttachSingleAnchor:
 
     def test_attach_neither_clears_both(self, tmp_path, monkeypatch):
         monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr("owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
-        monkeypatch.setattr("owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid",
+        )
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR",
+            tmp_path / "by_opencode_run_id",
+        )
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
         monkeypatch.delenv("OPENCODE_RUN_ID", raising=False)
 
         sf = tmp_path / "abc123" / ".session"
         sf.parent.mkdir(parents=True, exist_ok=True)
-        sf.write_text("session_id=abc123\nclaude_session_id=old-ccsid\nopencode_run_id=old-run\n")
+        sf.write_text(
+            "session_id=abc123\nclaude_session_id=old-ccsid\nopencode_run_id=old-run\n",
+        )
         ccsid_pointer("old-ccsid").parent.mkdir(parents=True, exist_ok=True)
         ccsid_pointer("old-ccsid").write_text("abc123")
         opencode_run_id_pointer("old-run").parent.mkdir(parents=True, exist_ok=True)
@@ -191,8 +237,13 @@ class TestAttachSingleAnchor:
 class TestAttachOpencodeRunId:
     def test_attach_binds_opencode_run_id(self, tmp_path, monkeypatch):
         monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr("owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
-        monkeypatch.setattr("owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid",
+        )
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR",
+            tmp_path / "by_opencode_run_id",
+        )
         monkeypatch.setenv("OPENCODE_RUN_ID", "run-abc")
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
 
@@ -209,8 +260,13 @@ class TestAttachOpencodeRunId:
 
     def test_attach_rebinds_opencode_run_id_one_to_one(self, tmp_path, monkeypatch):
         monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr("owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
-        monkeypatch.setattr("owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid",
+        )
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR",
+            tmp_path / "by_opencode_run_id",
+        )
         monkeypatch.setenv("OPENCODE_RUN_ID", "run-abc")
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
 
@@ -323,8 +379,13 @@ class TestDetach:
 class TestRemoveSession:
     def test_remove_session_clears_opencode_run_id_pointer(self, tmp_path, monkeypatch):
         monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr("owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
-        monkeypatch.setattr("owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid",
+        )
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR",
+            tmp_path / "by_opencode_run_id",
+        )
 
         sf = tmp_path / "abc123" / ".session"
         sf.parent.mkdir(parents=True, exist_ok=True)
@@ -340,8 +401,13 @@ class TestRemoveSession:
 class TestListSessions:
     def test_list_sessions_owned_by_opencode_run_id(self, tmp_path, monkeypatch):
         monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr("owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid")
-        monkeypatch.setattr("owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR", tmp_path / "by_opencode_run_id")
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid",
+        )
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_OPENCODE_RUN_ID_DIR",
+            tmp_path / "by_opencode_run_id",
+        )
         monkeypatch.setenv("OPENCODE_RUN_ID", "run-abc")
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
 
@@ -354,23 +420,7 @@ class TestListSessions:
         assert sessions[0]["owned_by_current"] is True
 
 
-def _parse_session(path: Path) -> dict:
-    data = {}
-    for line in path.read_text().splitlines():
-        if "=" in line:
-            k, v = line.split("=", 1)
-            data[k.strip()] = v.strip()
-    return data
-
-
 class TestResolveAttachTarget:
-    def _write_sessions(self, tmp_path, sessions):
-        for sid, project_id, subproject_id in sessions:
-            (tmp_path / sid / ".session").parent.mkdir(parents=True, exist_ok=True)
-            (tmp_path / sid / ".session").write_text(
-                f"session_id={sid}\ntarget_kind=project\n"
-                f"project_id={project_id}\nsubproject_id={subproject_id}\n",
-            )
 
     def test_exact_session_id(self, tmp_path, monkeypatch):
         monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", tmp_path)
@@ -456,19 +506,16 @@ class TestResolveAttachTarget:
         assert status == "none"
         assert payload == []
 
+    def _write_sessions(self, tmp_path, sessions):
+        for sid, project_id, subproject_id in sessions:
+            (tmp_path / sid / ".session").parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / sid / ".session").write_text(
+                f"session_id={sid}\ntarget_kind=project\n"
+                f"project_id={project_id}\nsubproject_id={subproject_id}\n",
+            )
+
 
 class TestResolveEnvRebindsStaleAnchor:
-    def _setup(self, tmp_path, monkeypatch, sid="abc123"):
-        monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", tmp_path)
-        monkeypatch.setattr(
-            "owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid",
-        )
-        monkeypatch.setattr(
-            "owrap.utils.session.resolver.BY_CODEX_SESSION_ID_DIR",
-            tmp_path / "by_codex",
-        )
-        (tmp_path / sid / ".session").parent.mkdir(parents=True, exist_ok=True)
-        (tmp_path / sid / ".session").write_text(f"session_id={sid}\n")
 
     def test_env_resolve_binds_a_ccsid_with_no_existing_pointer(
         self, tmp_path, monkeypatch,
@@ -515,3 +562,15 @@ class TestResolveEnvRebindsStaleAnchor:
 
         assert (sid, source) == ("abc123", "env")
         assert codex_session_id_pointer("new-cid").read_text().strip() == "abc123"
+
+    def _setup(self, tmp_path, monkeypatch, sid="abc123"):
+        monkeypatch.setattr("owrap.utils.session.resolver.SESSIONS_DIR", tmp_path)
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_CCSID_DIR", tmp_path / "by_ccsid",
+        )
+        monkeypatch.setattr(
+            "owrap.utils.session.resolver.BY_CODEX_SESSION_ID_DIR",
+            tmp_path / "by_codex",
+        )
+        (tmp_path / sid / ".session").parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / sid / ".session").write_text(f"session_id={sid}\n")

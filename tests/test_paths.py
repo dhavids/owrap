@@ -79,11 +79,20 @@ def test_server_logs_dir_under_runtime_home():
 def test_resolve_general_instruction_path_returns_claude_md(tmp_path):
     from owrap.utils.paths import resolve_general_instruction_path
     with patch("owrap.utils.paths._read_config", return_value={"default_workspace": "x"}):
-        with patch("owrap.utils.paths.get_workspace_config", return_value={"workspace": str(tmp_path)}):
+        with patch(
+            "owrap.utils.paths.get_workspace_config",
+            return_value={"workspace": str(tmp_path)},
+        ):
             (tmp_path / "CLAUDE.md").write_text("# test")
             (tmp_path / "AGENTS.md").write_text("# test")
-            with patch("owrap.utils.session.resolver._parse", return_value={"claude_session_id": "abc123"}):
-                with patch("owrap.utils.session.resolver.session_file", return_value=tmp_path / "sid.session"):
+            with patch(
+                "owrap.utils.session.resolver._parse",
+                return_value={"claude_session_id": "abc123"},
+            ):
+                with patch(
+                    "owrap.utils.session.resolver.session_file",
+                    return_value=tmp_path / "sid.session",
+                ):
                     result = resolve_general_instruction_path("test123")
                     assert result is not None
                     assert result.name == "CLAUDE.md"
@@ -92,10 +101,16 @@ def test_resolve_general_instruction_path_returns_claude_md(tmp_path):
 def test_resolve_general_instruction_path_returns_agents_md(tmp_path):
     from owrap.utils.paths import resolve_general_instruction_path
     with patch("owrap.utils.paths._read_config", return_value={"default_workspace": "x"}):
-        with patch("owrap.utils.paths.get_workspace_config", return_value={"workspace": str(tmp_path)}):
+        with patch(
+            "owrap.utils.paths.get_workspace_config",
+            return_value={"workspace": str(tmp_path)},
+        ):
             (tmp_path / "AGENTS.md").write_text("# test")
             with patch("owrap.utils.session.resolver._parse", return_value={}):
-                with patch("owrap.utils.session.resolver.session_file", return_value=tmp_path / "sid.session"):
+                with patch(
+                    "owrap.utils.session.resolver.session_file",
+                    return_value=tmp_path / "sid.session",
+                ):
                     result = resolve_general_instruction_path("test123")
                     assert result is not None
                     assert result.name == "AGENTS.md"
@@ -114,7 +129,10 @@ def test_format_failure_pointer_self_target(tmp_path):
 
 def test_format_failure_pointer_instruction_target(tmp_path):
     from owrap.utils.paths import format_failure_pointer
-    with patch("owrap.utils.paths.resolve_general_instruction_path", return_value=tmp_path / "AGENTS.md"):
+    with patch(
+        "owrap.utils.paths.resolve_general_instruction_path",
+        return_value=tmp_path / "AGENTS.md",
+    ):
         (tmp_path / "AGENTS.md").write_text("## Runner Tooling\n")
         msg = format_failure_pointer("INPUT_EMPTY", "test123")
         assert "#DO NOW" in msg
@@ -134,8 +152,13 @@ def test_format_failure_pointer_returns_donow_for_all_codes():
     from owrap.utils.constants import FAILURE_POINTERS
     from owrap.utils.paths import format_failure_pointer
     for code in FAILURE_POINTERS:
-        with patch("owrap.utils.paths.get_self_path", return_value=Path("/tmp/fake_self.md")):
-            with patch("owrap.utils.paths.resolve_general_instruction_path", return_value=Path("/tmp/fake_instr.md")):
+        with patch(
+            "owrap.utils.paths.get_self_path", return_value=Path("/tmp/fake_self.md"),
+        ):
+            with patch(
+                "owrap.utils.paths.resolve_general_instruction_path",
+                return_value=Path("/tmp/fake_instr.md"),
+            ):
                 msg = format_failure_pointer(code, "test123")
                 assert "#DO NOW" in msg
                 assert code in msg

@@ -5,8 +5,7 @@ checkout `Session.add` gives an ordinary child. `SessionWorkflow` is
 mocked here since its own git mechanics are already covered by
 `tests/test_session_workflow.py`; what's being verified is that
 `Worktree` calls it with the right arguments and reports the right
-thing, plus that `Session` genuinely dropped this logic rather than
-keeping a second copy.
+thing, plus that `Session` no longer holds this logic.
 """
 from unittest.mock import MagicMock, patch
 

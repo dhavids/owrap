@@ -15,13 +15,12 @@ from ...utils.parser.text import preview
 class Decision(Entry):
     """
     A timestamped decision line-item under a project/subproject's
-    `## Decisions` section. Fully self-contained -- owns its own
-    decisions-section editing rather than calling into
-    utils.memory.records.
+    `## Decisions` section; owns its own section editing.
     """
 
     kind = "decision"
     noun = "decisions"
+    own_only_writes = True
 
     usage = {
         "add": {
@@ -75,10 +74,8 @@ class Decision(Entry):
 
     def _default_get(self) -> None:
         """
-        Report this project's Decisions count, escalating from a
-        notice to a prune demand past the configured thresholds --
-        `get`'s whole meaning for a bare call, instead of reporting
-        the record's path like the base `Entry._default_get` does.
+        Report this project's Decisions count, escalating from a notice to
+        a prune demand past the configured thresholds.
         """
         path = self._resolve_target(None).project_path
         count = len(self.read(path))
@@ -104,9 +101,8 @@ class Decision(Entry):
 
     def _add(self, path, text: str = None, arg3: str = None) -> dict:
         """
-        Prepend one timestamped decision bullet to the project --
-        overrides the base `_add` since decisions have no position
-        argument, unlike a goal's insert-before-position shape.
+        Prepend one timestamped decision bullet to the project; decisions
+        take no position argument.
         """
         if text is None:
             self._usage("add")

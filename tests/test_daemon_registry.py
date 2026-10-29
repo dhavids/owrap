@@ -37,7 +37,8 @@ def test_registered_daemon_pids_prunes_dead_entries(monkeypatch, tmp_path):
 
     proc = _spawn_sleeper()
     daemon_module._register_daemon(proc.pid)
-    daemon_module._register_daemon(999999999)  # never a real pid
+    # Never a real pid
+    daemon_module._register_daemon(999999999)
 
     alive = daemon_module._registered_daemon_pids()
 

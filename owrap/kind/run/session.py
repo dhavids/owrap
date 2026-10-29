@@ -10,8 +10,8 @@ from ...session.start import (
 from ...session.stop import force_stop as force_stop_fn, stop as stop_fn
 from .daemon import Daemon
 from ...session.workflow import SessionWorkflow
-from ...session.resolver import _parse, attached_ccsids, detach, session_file
-from ...session.trash import restore_from_trash
+from ...utils.session.resolver import _parse, attached_ccsids, detach, session_file
+from ...utils.session.trash import restore_from_trash
 from ...utils.paths import session_input
 
 

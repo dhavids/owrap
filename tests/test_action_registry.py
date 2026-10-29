@@ -2,12 +2,10 @@
 `actions.added`/`actions.supports` -- the two primitives that derive
 `kind.ACTION_REGISTRY` from which kinds genuinely override a verb
 (by overriding the public method directly, or the private
-`_<verb>`/`_on_<verb>` hook its default delegates to) instead of a
-hand-maintained per-kind list. Exercised against the real `Modify`/
-`Run` hierarchy and the real, built `ACTION_REGISTRY`, since the
-whole point is that it reflects actual kind code, not a fixture.
+`_<verb>`/`_on_<verb>` hook its default delegates to). Exercised
+against the real `Modify`/`Run` hierarchy and the built
+`ACTION_REGISTRY`.
 """
-import pytest
 
 from owrap.actions import Actions, added, supports
 from owrap.actions.modify import Modify
