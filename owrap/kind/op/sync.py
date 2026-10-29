@@ -5,9 +5,10 @@ from . import Op
 from ...utils.harness import (
     merge_claude_settings, merge_codex_hooks, remove_owrap_hooks,
 )
+from ...utils.memory.names import name_notices
 from ...utils.paths import _read_config, get_workspace_config
 from ...utils.staging import resolve_flags, resolve_role_files, stage_all
-from ...session.resolver import _parse as _parse_session, resolve as resolve_session
+from ...utils.session.resolver import _parse as _parse_session, resolve as resolve_session
 
 
 class Sync(Op):
@@ -61,6 +62,7 @@ class Sync(Op):
             f"staged: {staged}", f"workspace: {workspace}",
             f"docs_root: {docs_root}", "",
         ]
+        lines += self._name_notices(workspace_name)
         if flags.get("RUNNER_ENABLED"):
             planner_files = resolve_role_files(config)["planner"]
             lines.append(f"sync complete — reread {', '.join(planner_files)} if needed")
@@ -70,6 +72,17 @@ class Sync(Op):
 
 
     # Private Methods
+
+    def _name_notices(self, workspace_name: str) -> list:
+        """
+        Warnings for project/subproject names that are reserved or
+        used twice; never fails the sync.
+        """
+        try:
+            notices = name_notices(workspace_name)
+        except Exception:
+            return []
+        return [f"⚠ {notice}" for notice in notices] + ([""] if notices else [])
 
     def _active_workspace(self) -> str | None:
         session_id, session_path, source = resolve_session(mode="refresh")

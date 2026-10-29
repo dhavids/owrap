@@ -97,16 +97,10 @@ def _compute_agent_grace(timeout_s: float) -> float:
 
 class Agent(Dispatch):
     """
-    Dispatches a sub-agent task and waits for its summary -- the
-    `oagent` command. Unlike `read`/`exec`, its timeout has a grace
-    period tacked on (agents are told to finish writing their own
-    summary before being killed), and its completion extracts just
-    the `## Summary` section rather than keeping the full transcript
-    inline (the full log stays on disk, referenced from the digest
-    `clear` wipes). `clear` absorbs the bare `agents clear` command --
-    that surface had no kind of its own, and clearing this session's
-    agent output is squarely this kind's own housekeeping, not a
-    second concept.
+    Dispatch a sub-agent task and wait for its summary (the `oagent`
+    command). The timeout carries a grace period for the agent to write
+    its summary, and completion extracts the `## Summary` section; the
+    full log stays on disk. `clear` wipes this session's agent output.
     """
 
     kind = "agent"
@@ -286,10 +280,7 @@ class Agent(Dispatch):
 
     def _default_get(self) -> None:
         """
-        Print this session's accumulated agent-output digest --
-        `get`'s meaning for a bare call, distinct from `get(task_id)`
-        (one dispatch's own status), the digest's own content rather
-        than a lookup scoped to one id.
+        Print this session's accumulated agent-output digest.
         """
         sid = Manager().session_id
         if not sid:

@@ -2,7 +2,7 @@
 The planner's self-service fallback for `owrap ctx`/`updr`/`uall` when
 opencode is down: print which real files to update and how (same
 target resolution a real dispatch would use), then let the planner
-edit them directly with its own tools instead of through a model.
+edit them directly with its own tools.
 `done()` closes out the bookkeeping a successful dispatch would
 otherwise have left behind.
 """
@@ -22,7 +22,7 @@ from ..utils.paths import (
     claude_transcript_path, codex_transcript_path, context_path,
     ctx_state_lock_path, get_workspace_path,
 )
-from ..session.resolver import (
+from ..utils.session.resolver import (
     _parse, owrap_sid_for_ccsid, owrap_sid_for_codex_session_id, session_file,
 )
 

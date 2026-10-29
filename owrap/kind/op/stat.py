@@ -8,7 +8,7 @@ from . import Op
 from ...ctx.dispatch import read_opencode_status_detail
 from ...dispatch import work
 from ...dispatch.process import is_alive
-from ...session.resolver import (
+from ...utils.session.resolver import (
     _parse as _parse_session, session_files, session_label,
 )
 from ...utils.dispatch.pool import _active_load, get_pool
@@ -46,6 +46,40 @@ def _idle_budget(log_path: str, started: float):
         return None
 
 
+def _model_note(job: dict) -> str:
+    """
+    "<model> <n>/<total> . <state>" for a job's current model attempt:
+    the one state word comes from the tail of its log (the last
+    dispatch) and its work dir. Empty if the job has no model yet.
+    """
+    model = job.get("model")
+    log_path = job.get("log_path", "")
+    if not model or not log_path:
+        return ""
+    note = model.split("/")[-1]
+    if job.get("attempts"):
+        note += f" {job.get('attempt', '?')}/{job['attempts']}"
+    log = Path(log_path)
+    try:
+        segment = log.read_text().rsplit("dispatching opencode", 1)[-1]
+    except OSError:
+        return note
+    if (log.parent / "work" / "output.md").exists():
+        state = "output written"
+    elif "Error:" in segment:
+        error = segment.split("Error:", 1)[1].splitlines()[0].strip()
+        state = "subscription required" if "subscription" in error else error[:30]
+    elif "no output.md produced" in segment:
+        state = "no output"
+    elif "Read transcript.txt" in segment:
+        state = "transcript read"
+    elif "Read input.md" in segment:
+        state = "input read"
+    else:
+        state = "starting"
+    return f"{note} · {state}"
+
+
 def _print_context_jobs(jobs, show_session: bool = True) -> None:
     for job in jobs:
         status = job.get("status", "unknown")
@@ -55,12 +89,15 @@ def _print_context_jobs(jobs, show_session: bool = True) -> None:
             if not recent and (not pid or not is_alive(pid)):
                 status = "stale/crashed"
         stage = job.get("stage", "")
-        if status in ("queued", "running") and stage:
-            status = f"{status} ({stage})"
+        note = _model_note(job) if stage in ("", "running model") else ""
+        if status in ("queued", "running") and (note or stage):
+            status = f"{status} ({note or stage})"
         if status == "succeeded":
             status = "done(ok)"
         elif status == "failed":
             status = f"failed(rc={job.get('rc', '?')})"
+            if note:
+                status += f" ({note})"
         started = job.get("started") or job.get("queued") or time.time()
         ended = job.get("finished") or time.time()
         elapsed = max(0, ended - started)
@@ -74,7 +111,9 @@ def _print_context_jobs(jobs, show_session: bool = True) -> None:
             _idle_budget(log_path, started)
             if log_path and not job.get("finished") else None
         )
-        clock = f"{elapsed:.0f}s/{budget:.0f}s" if budget is not None else f"{elapsed:.0f}s"
+        clock = f"{elapsed:.0f}s"
+        if budget is not None:
+            clock += f"/{budget:.0f}s"
         print(f"  {kind}  {session}{job_id}  {status}{age}  {clock}")
         if log_path:
             print(f"    output: {log_path}")

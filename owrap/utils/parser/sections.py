@@ -150,3 +150,37 @@ def split_top_sections(text: str, names: tuple) -> dict:
     if current is not None:
         result[current] = "\n".join(buf).strip()
     return result
+
+
+def doc_outline(text: str) -> list:
+    """
+    List a document's `##` sections, each with its `###` subsections,
+    as {"title", "block", "subs": [{"title", "block"}]} -- `block` is
+    the heading through the end of its content, subsections included.
+    Lines inside fenced code blocks are never headings.
+    """
+    lines = text.splitlines()
+    heads = []
+    fenced = False
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        elif not fenced and line.startswith(("## ", "### ")):
+            heads.append((i, _heading_level(line), line.lstrip("#").strip()))
+
+    def block(index: int) -> str:
+        start, level, _ = heads[index]
+        end = len(lines)
+        for next_start, next_level, _ in heads[index + 1:]:
+            if next_level <= level:
+                end = next_start
+                break
+        return "\n".join(lines[start:end]).rstrip("\n")
+
+    sections = []
+    for index, (_, level, title) in enumerate(heads):
+        if level == 2:
+            sections.append({"title": title, "block": block(index), "subs": []})
+        elif sections:
+            sections[-1]["subs"].append({"title": title, "block": block(index)})
+    return sections

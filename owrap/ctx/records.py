@@ -203,10 +203,8 @@ def bullet_key(line: str) -> str:
 def key_location_still_exists(line: str) -> bool:
     """
     False only when a Key Locations bullet's leading path looks like a
-    real repo path and that path no longer exists on disk — a stale
-    entry left behind after the code moved or was deleted. A token
-    with no file extension doesn't look like a path and is left alone
-    rather than guessed at.
+    real repo path and no longer exists on disk. A token with no file
+    extension is not treated as a path.
     """
     stripped = line.strip()
     if stripped.startswith("- "):

@@ -5,6 +5,11 @@ import sys
 from ..utils.memory.records import normalize_identity_kind, resolve_memory_target
 from ..utils.session.resolver import session_file, _parse, resolve_session_or_exit
 
+SHORT_FLAGS = {
+    "-g": "grep", "-s": "summarise", "-d": "details", "-v": "verbose",
+    "-p": "prompt_style", "-i": "id", "-m": "model", "-t": "timeout",
+}
+
 
 def usage_prefix(kind: str, action: str) -> str:
     """
@@ -16,20 +21,15 @@ def usage_prefix(kind: str, action: str) -> str:
 def dispatch(registry: dict, kind: str, action: str, *args) -> str:
     """
     Normalize `kind`, look it up in `registry`, and call its `action`
-    method with `args` -- `--flag`/`--flag value` tokens are pulled
-    out first and passed as keywords (see `_split_flags`), then
-    whatever positionals remain are padded with each still-missing
-    parameter's own default (or `None`, for one with no default) up
-    to the method's own remaining parameter count, so a missing
-    trailing argument reaches the method as its real default (for
-    its own usage check) rather than raising a raw TypeError, without
-    masking any default other than `None` -- skipped for a method
-    taking `*args`, since those already tolerate fewer arguments via
-    their own defaults. Raises ValueError if `kind` isn't registered;
-    the kind's own `action` method raises if it doesn't support it.
-    If called with no args at all and the kind defines
-    `_default_<action>`, that runs instead -- a kind's own fallback
-    for an ambiguous bare call.
+    method with `args`.
+
+    `--flag`/`--flag value` tokens are pulled out first and passed as
+    keywords (see `_split_flags`). The remaining positionals are padded
+    with each missing parameter's default (or `None`), except for a
+    method taking `*args`. With no args at all, the kind's
+    `_default_<action>` runs if it defines one. Raises ValueError if
+    `kind` isn't registered; the kind's own `action` method raises if it
+    doesn't support it.
     """
     kind = normalize_identity_kind(kind)
     cls = registry.get(kind)
@@ -73,10 +73,8 @@ def dispatch(registry: dict, kind: str, action: str, *args) -> str:
 
 def added(cls: type, parent: type) -> set:
     """
-    Public callables `cls` contributes beyond `parent` -- the verbs
-    a category layer (`Modify`, `Run`) adds, discovered from the
-    class hierarchy instead of a hand-maintained name list, so a
-    kind never has to declare which verbs it uses.
+    Return the public callables `cls` contributes beyond `parent`,
+    discovered from the class hierarchy.
     """
     parent_names = set(dir(parent))
     return {
@@ -106,24 +104,13 @@ def supports(cls: type, action: str, base: type) -> bool:
     return False
 
 
-SHORT_FLAGS = {
-    "-g": "grep", "-s": "summarise", "-d": "details", "-v": "verbose",
-    "-p": "prompt_style", "-i": "id", "-m": "model", "-t": "timeout",
-}
-
-
 def _split_flags(params, args: tuple) -> tuple:
     """
-    Pull `--flag`/`--flag value` tokens out of `args`, matched by
-    name (dashes to underscores) against the resolved method's own
-    `params` -- a bare switch if that parameter's default is
-    `False`, a value flag otherwise. `SHORT_FLAGS` aliases a handful
-    of single-dash forms (`-i`, `-t`, `-m`, ...) reused verbatim
-    across several dispatch kinds; each only fires for a method that
-    actually has the parameter it names, so it stays scoped per kind
-    without a hand-maintained per-kind list. A token matching neither
-    is left in place as a positional, so the method's own usage check
-    reports it instead of silently dropping it.
+    Pull `--flag`/`--flag value` tokens out of `args`, matched by name
+    (dashes to underscores) against the method's `params`: a bare switch
+    if the parameter's default is `False`, a value flag otherwise.
+    `SHORT_FLAGS` aliases single-dash forms for methods that have the
+    named parameter. Unmatched tokens stay positional.
     """
     positional, kwargs = [], {}
     args = list(args)
@@ -164,6 +151,7 @@ class Actions:
     usage = {}
     messages = {}
     noun = "data"
+    own_only_writes = False
 
     target_messages = {
         "no_target": "no target given and no session attached.",
@@ -186,12 +174,8 @@ class Actions:
 
     def do(self, *args, **kwargs):
         """
-        A kind's single default action, run when it's invoked with
-        no action word at all (`owrap <kind>` alone dispatches here
-        instead of to `help`). Refuses by default; a kind for which
-        one verb genuinely is "the obvious thing to do" overrides
-        this directly -- it's never implied by `start` or any other
-        verb.
+        A kind's default action, run for `owrap <kind>` with no action
+        word. Refuses unless the kind overrides it.
         """
         raise ValueError(f"{self.kind} does not support do")
 
@@ -243,36 +227,80 @@ class Actions:
 
     def _edit(self, func, *args, **kwargs):
         """
-        Call `func`, converting one of its expected errors into a
-        clean failure exit instead of a raw traceback, and returning
-        whatever `func` returns on success.
+        Call `func`, turning an expected error into a clean failure exit,
+        and return its result.
         """
         try:
             return func(*args, **kwargs)
         except (ValueError, FileNotFoundError, FileExistsError, OSError) as exc:
             self._fail(exc)
 
-    def _resolve_target(self, target, noun=None):
+    def _resolve_target(self, target, noun=None, write=False):
         """
-        Resolve a session id/project/repository name (or the currently
-        attached session, if target is empty) to its project MemoryTarget.
-        Available to any action that needs one -- most won't call it.
+        Resolve a project/subproject name (`project`, `sub`, or
+        `project/sub`), a session id, or a repository name -- or the
+        currently attached session, if target is empty -- to its
+        MemoryTarget. A kind with `own_only_writes` refuses a `write`
+        to any record but the attached session's own.
         """
         noun = self.noun if noun is None else noun
-        if target:
-            sid = resolve_session_or_exit(target)
-        else:
-            sid = os.environ.get("SESSION_ID", "").strip()
-            if not sid:
-                self._fail(self.target_messages["no_target"])
-
-        session = _parse(session_file(sid))
-        if not session.get("target_kind"):
-            self._fail(self.target_messages["no_target_kind"].format(sid=sid))
-        memory_target = self._edit(resolve_memory_target, session)
+        memory_target = self._named_memory_target(target) if target else None
+        if memory_target is None:
+            if target:
+                sid = resolve_session_or_exit(target)
+            else:
+                sid = os.environ.get("SESSION_ID", "").strip()
+                if not sid:
+                    self._fail(self.target_messages["no_target"])
+            session = _parse(session_file(sid))
+            if not session.get("target_kind"):
+                self._fail(
+                    self.target_messages["no_target_kind"].format(sid=sid)
+                )
+            memory_target = self._edit(resolve_memory_target, session)
         if memory_target.kind == "repository":
             self._fail(self.target_messages["repository_only"].format(noun=noun))
+        if write and self.own_only_writes and target:
+            self._require_own(memory_target)
         return memory_target
+
+    def _named_memory_target(self, token):
+        """
+        The record a project/subproject name resolves to, or None if
+        `token` names no project (it may be a session id or repository).
+        An ambiguous name fails with the qualified forms to use.
+        """
+        from ..utils.memory.names import find_target
+        from ..kind.record.identity import current_workspace
+
+        workspace = current_workspace()
+        try:
+            project_id, subproject_id = find_target(workspace, token)
+        except ValueError as exc:
+            if "ambiguous" in str(exc):
+                self._fail(exc)
+            return None
+        return self._edit(resolve_memory_target, {
+            "target_kind": "project", "project_id": project_id,
+            "subproject_id": subproject_id, "workspace": workspace,
+        })
+
+    def _require_own(self, memory_target):
+        """
+        Fail unless `memory_target` is the attached session's own record.
+        """
+        sid = os.environ.get("SESSION_ID", "").strip()
+        own = None
+        if sid and session_file(sid).exists():
+            session = _parse(session_file(sid))
+            if session.get("target_kind"):
+                own = self._edit(resolve_memory_target, session)
+        if own is None or own.project_path != memory_target.project_path:
+            self._fail(
+                f"{self.noun} can be read from any project but written only "
+                "to your own; to request a change elsewhere, file a proposal "
+                "(`owrap get proposal template`)."
+            )
 
 
 # Imported last -- each depends on `Actions` existing above.

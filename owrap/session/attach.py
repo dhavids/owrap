@@ -2,11 +2,11 @@ import os
 import sys
 
 from .orientation import print_orientation
-from .resolver import (
+from ..utils.session.resolver import (
     _parse, print_known_sessions, resolve_session_or_exit,
     session_file, update_session_field,
 )
-from .resolver import attach as _attach_pointer
+from ..utils.session.resolver import attach as _attach_pointer
 from ..utils.memory.records import resolve_memory_target
 from ..utils.paths import _read_config, context_path, get_plan_path, session_input
 

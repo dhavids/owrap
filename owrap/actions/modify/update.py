@@ -1,14 +1,9 @@
 class Update:
     """
-    Default `update`: resolve the target, hand the actual edit off to
-    the kind's `_update` callback for its payload, touch the record,
-    then run the kind's optional `_on_update` hook (a no-op unless a
-    kind needs extra side effects beyond the edit itself) -- if that
-    hook returns an error message, fail with it instead of reporting
-    success. A kind that hasn't defined `_update` refuses immediately,
-    without attempting to resolve a target at all; one whose update
-    doesn't fit this shape overrides `update` directly instead of
-    defining `_update`.
+    Default `update`: resolve the target, run the kind's `_update`
+    callback for the edit, touch the record, then run the optional
+    `_on_update` hook, failing with its message if it returns one. A kind
+    without `_update` refuses before resolving a target.
     """
 
     def update(self, target, arg2=None, arg3=None):
@@ -17,7 +12,7 @@ class Update:
         """
         if type(self)._update is Update._update:
             raise ValueError(f"{self.kind} does not support update")
-        memory_target = self._resolve_target(target)
+        memory_target = self._resolve_target(target, write=True)
         fields = self._update(memory_target.project_path, arg2, arg3)
         self._touch(memory_target)
         error = self._on_update(memory_target, fields)

@@ -32,9 +32,8 @@ def oneline(text, limit: int = 150) -> str:
 
 def preview_lines(text: str, max_lines: int = 12) -> str:
     """
-    Return a text's first `max_lines` lines, with a trailing marker
-    if more remains -- unlike `preview`, which trims a short single
-    item, this previews a whole file/document.
+    Return a text's first `max_lines` lines, with a trailing marker if
+    more remains.
     """
     lines = text.splitlines()
     if len(lines) <= max_lines:
@@ -57,12 +56,11 @@ def age_str(mtime: float) -> str:
 
 def extract_useful_lines(text: str, max_chars: int = 100) -> str:
     """
-    Pull the signal out of multi-line command output instead of blindly
-    truncating it: always keep the last non-blank line (usually the
-    actual verdict — a test summary, an rc=, a final error), plus any
-    line matching `USEFUL_LINE_KEYWORDS`. Falls back to just the last
-    line if nothing else matches. Trimmed to `max_chars` if still over —
-    interior matches drop first, the first match and the last line stay.
+    Pull the signal out of multi-line command output: keep the last
+    non-blank line, plus any line matching `USEFUL_LINE_KEYWORDS`. Falls
+    back to just the last line if nothing else matches. Trimmed to
+    `max_chars` if still over: interior matches drop first, the first
+    match and the last line stay.
     """
     lines = [line for line in text.splitlines() if line.strip()]
     if not lines:

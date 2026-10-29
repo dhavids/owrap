@@ -12,9 +12,9 @@ from ..paths import (
 
 def move_to_trash(session_id: str) -> Path:
     """
-    Move a session's .session file, docs tree, runtime tree, and context files into
-    .trash/[session_id]/ instead of deleting them. Returns the trash directory path.
-    Safe to call even if some/all pieces don't exist (moves whichever are present).
+    Move a session's .session file, docs tree, runtime tree, and context
+    files into .trash/[session_id]/. Returns the trash directory path.
+    Moves whichever pieces exist.
     """
     trash_dir = TRASH_DIR / session_id
     trash_dir.mkdir(parents=True, exist_ok=True)

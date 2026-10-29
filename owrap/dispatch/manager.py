@@ -67,7 +67,8 @@ class Manager:
             self._state_file = str(SERVERS_DIR / f"{port}.json")
         elif use_multi:
             placeholder = SERVERS_DIR / "pool_default.json"
-            self._state_file = str(placeholder)  # unused placeholder
+            # Unused placeholder
+            self._state_file = str(placeholder)
         else:
             self._state_file = self.STATE_FILE
         self._resolve_log_file()

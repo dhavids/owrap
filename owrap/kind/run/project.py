@@ -11,9 +11,10 @@ from ...utils.memory.records import (
     _dump_yaml, _record, _slug, _subproject_stub_text, _write_atomic,
     docs_root, resolve_memory_target,
 )
-from ...utils.parser.sections import extract_section
+from ...utils.memory.names import check_new_name, find_target
+from ...utils.parser.sections import doc_outline, extract_section
 from ...utils.parser.text import preview_lines
-from ...session.resolver import _parse, resolve, set_session_identity
+from ...utils.session.resolver import _parse, resolve, set_session_identity
 
 
 def _rewrite_project_backrefs(project_dir: Path, old_id: str, new_id: str) -> None:
@@ -33,6 +34,7 @@ def _rename_project(old_id: str, new_id: str, workspace: str = "") -> None:
     root = docs_root(workspace or current_workspace())
     old_id = _slug(resolve_identity(root, "projects", "project_id", old_id), "project")
     new_id = _slug(new_id, "project")
+    check_new_name(workspace or current_workspace(), new_id, "project")
     old_dir = root / "projects" / old_id
     new_dir = root / "projects" / new_id
     if not old_dir.is_dir():
@@ -151,6 +153,7 @@ def _create_or_select_subproject(name: str, force: bool = False) -> bool:
                     f"Use 'owrap project set {suggestions[0]}', or pass "
                     f"'force' to create '{name}'"
                 )
+            check_new_name(data.get("workspace", ""), name, "subproject")
             if markdown_path.exists():
                 raise FileExistsError(
                     f"subproject file already exists: {markdown_path}"
@@ -218,11 +221,10 @@ def _clear_scratch(path: Path) -> bool:
     return True
 
 
-def _print_subprojects() -> None:
+def _print_subprojects(data: dict) -> None:
     """
-    List the attached session's project's subprojects.
+    List a project's subprojects, marking the session's current one.
     """
-    _, data = _project_session()
     project_id = data["project_id"]
     directory = docs_root(data.get("workspace", "")) / "projects" / project_id
     record = _record(directory / f"{project_id}.yaml", "project", project_id)
@@ -305,23 +307,31 @@ class Project(Session):
             "group": "session",
         },
         "get": {
-            "usage": "[main|subs|sub <name>|scratch [path]|name|path|risk]",
+            "usage": "[<name>] [doc [<section> [<subsection>]] | subs | "
+                     "scratch [path] | name | path | risk]",
             "args": [
-                ("main", "the project's own Goals/Decisions (default)"),
+                ("(none)", "path, Goals and Decisions of the active target "
+                           "(the subproject, if the session is on one)"),
+                ("<name>", "a project or subproject by name, read-only; if "
+                         "ambiguous, use project/sub (project/main for "
+                         "the project's own record)"),
+                ("doc", "the record's sections: with no section, an "
+                        "outline; else that section, or one of its "
+                        "subsections (number or part of a title)"),
                 ("subs", "list the project's subprojects"),
-                ("sub", "a named subproject's Goals/Decisions"),
-                ("scratch", "the active target's scratch notes, or its "
-                            "file path with 'path'"),
-                ("name", "report the active project/subproject id"),
-                ("path", "report the active record's file path"),
-                ("risk", "report the active target's risk level"),
+                ("scratch", "scratch notes, or their file path with 'path'"),
+                ("name", "report the project/subproject id"),
+                ("path", "report the record's file path"),
+                ("risk", "report the risk level"),
             ],
             "examples": [
-                "", "main", "subs", "sub docs", "scratch", "scratch path",
-                "name", "path", "risk",
+                "", "doc", "doc notes", "doc notes 2", "doc notes tune",
+                "subs", "scratch", "scratch path", "name", "path", "risk",
+                "owrap", "owrap doc notes", "gen/wcp", "wcp/main path",
             ],
-            "purpose": "Read project/subproject goals and decisions, or "
-                   "report identity",
+            "short_usage": "[<name>] [doc [<section> [<subsection>]]|name]",
+            "purpose": "Read a project/subproject's path, goals, decisions "
+                   "and sections",
             "group": "record",
         },
     }
@@ -407,68 +417,184 @@ class Project(Session):
         self._edit(_select_subproject, session_id, data, name or "")
         self._ok("set", project_id=data["project_id"], name=name or "main")
 
-    def get(self, facet: str = None, name: str = None) -> None:
+    def get(self, *args) -> None:
         """
-        Report a project/subproject fact selected by `facet` (see `usage`).
+        Report a project/subproject fact or section selected by `args`
+        (see `usage`).
         """
-        self._report(facet, name)
+        self._report(list(args))
 
 
     # Private Methods
 
     def _default_get(self) -> None:
         """
-        `owrap project get` with no args reports the project's own
-        Goals/Decisions, same as the explicit `main` facet.
+        `owrap project get` with no args reports the active target's
+        Goals/Decisions.
         """
-        self._report(None, None)
+        self._report([])
 
-    def _report(self, facet: str = None, name: str = None) -> None:
-        _, data = self._edit(_project_session)
-        facet = facet or "main"
-        if facet in ("main", "sub"):
-            if facet == "sub" and not name:
-                self._usage("get")
-            self._print_content(data, name or "")
-        elif facet == "subs":
-            _print_subprojects()
-        elif facet == "scratch":
-            path = _scratch_path(data)
-            if name == "path":
-                self._ok("path", path=str(path))
-            elif not path.is_file():
-                print(
-                    f"No scratch notes for {_scratch_label(data)} yet -- "
-                    f"create with 'owrap add project scratch'."
-                )
-            else:
-                self._ok(
-                    "get",
-                    text=f"{path}\n\n{preview_lines(path.read_text())}",
-                )
-        elif facet == "name":
-            subproject = data.get("subproject_id") or "main"
-            self._ok("name", name=f"{data['project_id']}/{subproject}")
-        elif facet == "path":
-            self._ok("path", path=resolve_memory_target(data).project_path)
-        elif facet == "risk":
-            risk = "high" if resolve_memory_target(data).high_risk else "low"
-            self._ok("name", name=risk)
+    def _report(self, args: list) -> None:
+        """
+        Read a record: the session's own target by default, or any
+        project/subproject named first. Reads only -- never writes.
+        """
+        args = list(args)
+        facets = self.facets()
+        named = bool(args) and args[0] not in facets
+        if named:
+            data = self._edit(self._named_target, args.pop(0))
+        else:
+            _, data = self._edit(_project_session)
+        if not args:
+            self._facet_goals(data, named)
+        elif args[0] in facets:
+            getattr(self, f"_facet_{args[0]}")(data, args[1:])
         else:
             self._usage("get")
+
+    def _facet_goals(self, data: dict, named: bool) -> None:
+        """
+        No facet: path, Goals and Decisions of the target.
+        """
+        subproject = data.get("subproject_id") or ""
+        self._print_content(data, subproject)
+        if subproject and not named:
+            print(
+                f"\nproject-level: owrap get project {data['project_id']}/main"
+            )
+
+    def _facet_doc(self, data: dict, rest: list) -> None:
+        self._doc(data, data.get("subproject_id") or "", rest)
+
+    def _facet_subs(self, data: dict, rest: list) -> None:
+        _print_subprojects(data)
+
+    def _facet_scratch(self, data: dict, rest: list) -> None:
+        path = self._edit(_scratch_path, data)
+        if rest[:1] == ["path"]:
+            self._ok("path", path=str(path))
+        elif not path.is_file():
+            print(
+                f"No scratch notes for {_scratch_label(data)} yet -- "
+                f"create with 'owrap add project scratch'."
+            )
+        else:
+            self._ok(
+                "get", text=f"{path}\n\n{preview_lines(path.read_text())}",
+            )
+
+    def _facet_name(self, data: dict, rest: list) -> None:
+        self._ok("name", name=_scratch_label(data))
+
+    def _facet_path(self, data: dict, rest: list) -> None:
+        self._ok("path", path=resolve_memory_target(data).project_path)
+
+    def _facet_risk(self, data: dict, rest: list) -> None:
+        risk = "high" if resolve_memory_target(data).high_risk else "low"
+        self._ok("name", name=risk)
+
+    def _named_target(self, token: str) -> dict:
+        """
+        Session-shaped data for a project/subproject named by `token`,
+        resolved without needing an attached session.
+        """
+        workspace = current_workspace()
+        project_id, subproject_id = find_target(workspace, token)
+        return {
+            "target_kind": "project", "project_id": project_id,
+            "subproject_id": subproject_id, "workspace": workspace,
+        }
+
+    def _doc(self, data: dict, subproject: str, selectors: list) -> None:
+        """
+        Print the record's outline, one `##` section, or one `###`
+        subsection of it. A selector that matches nothing fails with
+        what does exist.
+        """
+        target = self._edit(
+            resolve_memory_target, {**data, "subproject_id": subproject},
+        )
+        sections = doc_outline(target.project_path.read_text())
+        label = f"{target.project_path.name}"
+        if not selectors:
+            lines = [f"{target.project_path}"]
+            for number, section in enumerate(sections, 1):
+                lines.append(f"{number:>3}  {section['title']}")
+                for sub_number, sub in enumerate(section["subs"], 1):
+                    lines.append(f"       {sub_number}. {sub['title']}")
+            print("\n".join(lines))
+            return
+        section = self._pick(sections, selectors[0], "section", label)
+        if len(selectors) == 1:
+            print(section["block"])
+            return
+        sub = self._pick(
+            section["subs"], selectors[1],
+            "subsection", f"'{section['title']}'",
+        )
+        print(sub["block"])
+
+    def _pick(self, items: list, selector: str, noun: str, where: str) -> dict:
+        """
+        One item by 1-based number (0 first, -1 last) or title
+        (exact, else a unique case-insensitive substring); fails
+        listing what exists.
+        """
+        titles = [item["title"] for item in items]
+        if not items:
+            self._fail(f"{where} has no {noun}s; ask without one for its content")
+        listing = "; ".join(f"{n}. {t}" for n, t in enumerate(titles, 1))
+        try:
+            number = int(selector)
+        except ValueError:
+            number = None
+        if number is not None:
+            index = {0: 0, -1: len(items) - 1}.get(number, number - 1)
+            if 0 <= index < len(items):
+                return items[index]
+            self._fail(f"no {noun} {selector} in {where}. Exists: {listing}")
+        lowered = selector.lower()
+        exact = [i for i, t in enumerate(titles) if t.lower() == lowered]
+        found = exact or [
+            i for i, t in enumerate(titles) if lowered in t.lower()
+        ]
+        if len(found) == 1:
+            return items[found[0]]
+        if not found:
+            self._fail(f"no {noun} '{selector}' in {where}. Exists: {listing}")
+        matches = "; ".join(f"{i + 1}. {titles[i]}" for i in found)
+        self._fail(f"'{selector}' matches several {noun}s in {where}: {matches}")
 
     def _print_content(self, data: dict, subproject_id: str) -> None:
         """
         Print a project or subproject record's Goals and Decisions
         sections.
         """
-        target = resolve_memory_target({**data, "subproject_id": subproject_id})
+        target = self._edit(
+            resolve_memory_target, {**data, "subproject_id": subproject_id},
+        )
         text = target.project_path.read_text()
         sections = [
             section for heading in ("## Goals", "## Decisions")
             if (section := extract_section(text, heading))
         ]
+        print(target.project_path)
         if not sections:
-            print(f"No Goals/Decisions found in {target.project_path}")
+            print("No Goals/Decisions found")
             return
-        print("\n\n".join(sections))
+        print("\n" + "\n\n".join(sections))
+
+
+    # Class Methods
+
+    @classmethod
+    def facets(cls) -> tuple:
+        """
+        Return the keywords `get` reads after a name, one per
+        `_facet_*` method.
+        """
+        return tuple(
+            name[len("_facet_"):] for name in dir(cls)
+            if name.startswith("_facet_") and name != "_facet_goals"
+        )

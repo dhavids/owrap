@@ -9,7 +9,7 @@ import time
 from . import Run
 from ...dispatch.manager import Manager
 from ...dispatch.process import is_alive
-from ...session.resolver import _parse as _parse_session, session_files
+from ...utils.session.resolver import _parse as _parse_session, session_files
 from ...utils.dispatch.pool import (
     _active_load, _read_pool, ensure_min_servers, get_pool, shutdown_idle,
 )
@@ -21,6 +21,8 @@ from ...utils.paths import (
     POOL_FILE, RECENTLY_DONE_DIR, RUNNING_DIR, SERVERS_DIR, SERVER_LOGS_DIR,
     SESSIONS_DIR, SESSION_DIR, STATS_FILE, STATS_LOCK_FILE, _read_config,
 )
+
+DAEMON_REGISTRY_FILE = DAEMON_PID_FILE.with_name("daemons.json")
 
 
 def _kill_pid(pid: int, signum: int = 15) -> bool:
@@ -48,9 +50,6 @@ def _wait_dead(pids: list, timeout: float = 3.0) -> list:
         _kill_pid(p, 9)
     time.sleep(0.2)
     return [p for p in remaining if is_alive(p)]
-
-
-DAEMON_REGISTRY_FILE = DAEMON_PID_FILE.with_name("daemons.json")
 
 
 def _read_registry() -> dict:
@@ -130,16 +129,12 @@ def main():
 
 class Daemon(Run):
     """
-    The background dispatch daemon: no stored record, just a process
-    to start/stop/restart, fully self-contained -- owns its own
-    process management (PID file, lock, spawn/signal) directly.
-    `ensure_daemon` is the one static entry point for anything that
-    needs to check/start the daemon without going through verb
-    dispatch, including the CLI's own watchdog tick on every command,
-    so a daemon that died non-gracefully gets restarted on the next
-    `owrap` invocation instead of staying dead indefinitely. `run` is
-    the persistent loop body the spawned process executes -- pool
-    lifecycle maintenance, plus each registered `WORKERS` entry's
+    The background dispatch daemon: no stored record, just a process to
+    start, stop, and restart, with its own PID file, lock, and signal
+    handling. `ensure_daemon` is the static entry point that checks and
+    starts the daemon outside verb dispatch, including the CLI's watchdog
+    tick on every command. `run` is the loop the spawned process executes:
+    pool lifecycle maintenance plus each registered `WORKERS` entry's
     periodic check.
     """
 
@@ -279,9 +274,7 @@ class Daemon(Run):
 
     def _default_get(self) -> None:
         """
-        Report the daemon's own pid instead of raising the base
-        Run's "does not support get" -- this is `get`'s whole meaning
-        for a process kind with no stored items to index into.
+        Report the daemon's own pid.
         """
         with file_lock(DAEMON_LOCK_FILE):
             pid = Daemon._read_pid()
@@ -449,9 +442,7 @@ class Daemon(Run):
 
     def _check_ctx(self) -> None:
         """
-        Run the background trigger check for every attached window,
-        dispatching an Update Context / Update Protocol pass for any
-        window whose transcript has grown since its last checkpoint.
+        Run the background trigger check for every attached window.
         """
         from ...ctx.dispatch import check_all_attached
         check_all_attached()

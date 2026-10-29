@@ -7,7 +7,7 @@ import json
 import os
 import time
 
-from ..session.resolver import owrap_sid_for_ccsid, owrap_sid_for_codex_session_id
+from ..utils.session.resolver import owrap_sid_for_ccsid, owrap_sid_for_codex_session_id
 from ..utils.io.filelock import file_lock
 from ..utils.parser.text import age_str
 from ..utils.paths import (
@@ -20,12 +20,9 @@ def register_ctx_state_window(
     session_id: str, window_id: str, harness: str = "claude",
 ) -> None:
     """
-    Ensure one window has an entry in the session's ctx_state.json, on
-    `owrap attach` — so the windows map (the source of "all attached
-    windows" for this session) reflects reality from the moment a
-    window attaches, not only once it first dispatches/touches/done()s.
-    Never clobbers an existing entry's cursor/touched state; only adds
-    `harness` and `attached_ts` if the window is new.
+    Ensure one window has an entry in the session's ctx_state.json on
+    `owrap attach`. An existing entry's cursor/touched state is kept; a
+    new window gets `harness` and `attached_ts`.
     """
     if not window_id:
         return
@@ -207,12 +204,10 @@ def read_ctx_state(session_id: str) -> dict:
 
 def ctx_dispatch_status(session_id: str) -> str:
     """
-    Return this session's last ctx/updr dispatch status -- "running"
-    while one is in flight (`set_ctx_dispatch_result`'s "pending"),
-    else "ok"/"failed", or "never run" if none has happened yet.
-    Shared by `Ctx.get`/`Updr.get` -- one combined status per
-    session, not kind-specific, since a dispatch can cover context,
-    protocol, or both at once.
+    Return this session's last ctx/updr dispatch status: "running" while
+    one is in flight (`set_ctx_dispatch_result`'s "pending"), else
+    "ok"/"failed", or "never run". One combined status per session,
+    shared by `Ctx.get`/`Updr.get`.
     """
     status = read_ctx_state(session_id).get("ctx", {}).get("status")
     return "running" if status == "pending" else (status or "never run")
@@ -301,9 +296,7 @@ def set_ctx_dispatch_result(
 ) -> None:
     """
     Record ctx_status and the last dispatch's outcome in the
-    session-level ctx_state.json — the single source of truth
-    orientation.py reads, instead of a line regexed out of
-    context.md's prose.
+    session-level ctx_state.json.
     """
     with file_lock(ctx_state_lock_path(session_id)):
         state = read_ctx_state(session_id)
@@ -326,8 +319,7 @@ def load_touched_entries(session_id: str, ccsid: str) -> list:
 def clear_touched_entries(session_id: str, ccsid: str) -> None:
     """
     Clear this window's pending-touched entries after they've been
-    successfully applied. Also removes the legacy standalone
-    touched.json if a migration-on-read left it behind unread.
+    successfully applied.
     """
     session_ctx_touched_path(session_id, ccsid).unlink(missing_ok=True)
     with file_lock(ctx_state_lock_path(session_id)):

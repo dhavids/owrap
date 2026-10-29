@@ -11,7 +11,7 @@ from .identity import (
 from ...actions.run.attach import Attach
 from ...actions.run.detach import Detach
 from ...utils.memory.records import (
-    _dump_yaml, _record, _slug, _write_atomic, add_repository, session_repositories,
+    _dump_yaml, _record, _write_atomic, add_repository, session_repositories,
 )
 
 

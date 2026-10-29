@@ -52,7 +52,7 @@ from ..utils.paths import (
     codex_transcript_path, context_path, get_model_chain, get_workspace_path,
     session_ctx_dir, session_ctx_transcript_path, _read_config,
 )
-from ..session.resolver import (
+from ..utils.session.resolver import (
     _parse, all_attached_ccsid_pairs, all_attached_codex_session_id_pairs,
     detach_window, owrap_sid_for_ccsid, owrap_sid_for_codex_session_id,
     session_file,
@@ -62,12 +62,16 @@ MAX_EXCERPT_CHARS = 40000
 MAX_CODEX_EXCERPT_CHARS = 40000
 
 # Applies everywhere; a real model call needs both, not either.
-CTX_MIN_INTERVAL_S = 300  # 5 min since this window's last real attempt
-CTX_MIN_CHARS = 5000  # excerpt must also clear this
+# Seconds since this window's last real attempt.
+CTX_MIN_INTERVAL_S = 300
+# Minimum excerpt size.
+CTX_MIN_CHARS = 5000
 AUTO_CTX_STATE_FILE = RUNTIME_DIR / "auto_ctx_backoff.json"
 AUTO_CTX_FAILS_BEFORE_BACKOFF = 3
-AUTO_CTX_BACKOFF_SCHEDULE_S = (900, 3600, 7200)  # 15m, 1h, 2h, then back to 15m
-STALE_WINDOW_DAYS = 7  # auto-detach a window idle (or transcript-less) this long
+# 15m, 1h, 2h, then back to 15m.
+AUTO_CTX_BACKOFF_SCHEDULE_S = (900, 3600, 7200)
+# Auto-detach a window idle (or transcript-less) this long.
+STALE_WINDOW_DAYS = 7
 
 
 def read_opencode_status_detail() -> dict:
@@ -168,11 +172,8 @@ def _record_auto_ctx_outcome(success: bool, now: float) -> None:
 
 def _ctx_window_recently_attempted(owrap_sid: str, ccsid: str, now: float) -> bool:
     """
-    Cheap read-only check so the background loop skips creating a job
-    for a window `_dispatch` would immediately gate anyway -- purely
-    an optimization. `_dispatch` itself is the authoritative,
-    universal check (it also applies to manual/PreCompact dispatches,
-    which never go through `check_all_attached` at all).
+    Check, read-only, whether a window is inside its attempt cooldown, so
+    the background loop can skip creating a job for it.
     """
     counters = state.read_window_state(owrap_sid, ccsid)
     return now - counters.get("last_ctx_attempt_ts", 0) < CTX_MIN_INTERVAL_S
@@ -204,10 +205,9 @@ def _pending_excerpt_len(
 def run(input_path: Path = None) -> int:
     """
     Execute a context-manager worker run from the given hook-payload
-    path. `mode`/target override in the payload are optional — absent (the real
-    PreCompact hook payload) means both Context and Protocol, same as
-    always; present (a manual `--ctx`/`--updr` handoff) restricts to
-    the requested half.
+    path. Without a `mode`/target override in the payload (the PreCompact
+    hook), it does both Context and Protocol; with one (a manual
+    `--ctx`/`--updr` handoff), only the requested half.
     """
     if input_path is None:
         print("ctx-worker: --input required", file=sys.stderr)
@@ -459,29 +459,17 @@ def _is_high_risk_sid(owrap_sid: str) -> bool:
 
 def check_all_attached() -> None:
     """
-    Background trigger check: for every currently-attached Claude or
-    Codex window, dispatch an Update Context / Update Protocol pass if
-    its transcript has grown since its last checkpoint. Cheap to call
-    on a timer — `_dispatch` itself exits before touching the model
-    when a window's excerpt since its checkpoint is empty, so a window
-    with nothing new costs only a transcript line-count check.
+    Background trigger check: for every attached Claude or Codex window,
+    dispatch an Update Context / Update Protocol pass if its transcript
+    has grown since its last checkpoint.
 
-    A high-risk window is excluded before it's even counted. Gated
-    three further ways before a job is ever created: `_auto_ctx_due`
-    holds off entirely while backing off from repeated opencode-down
-    failures; `_ctx_window_recently_attempted` skips a window inside
-    its own cooldown; `_pending_excerpt_len` skips a window whose new
-    content wouldn't clear `CTX_MIN_CHARS` anyway. Both the interval
-    and the size gate must pass, not either -- `_dispatch` itself
-    re-checks both (it's the authoritative, universal version, since
-    it also covers manual/PreCompact dispatches that never reach this
-    function), but checking here too means a window with nothing new
-    never gets a job/rtlog entry at all instead of a trivial one.
+    High-risk windows are skipped. A job is created only when
+    `_auto_ctx_due` allows it (not backing off after opencode-down
+    failures), the window is past its `_ctx_window_recently_attempted`
+    cooldown, and `_pending_excerpt_len` reaches `CTX_MIN_CHARS`.
 
-    Called from the daemon loop; never raises — one window's failure
-    is logged and skipped rather than blocking every other window.
-    Always logs one `ctx.check` summary event, even when every window
-    is skipped, so every tick is visible in rtlog.
+    Called from the daemon loop; never raises. A window's failure is
+    logged and skipped. Always logs one `ctx.check` summary event.
     """
     config = _read_config()
     if not config.get("owrap_context_manager_enabled", True):
@@ -563,14 +551,12 @@ def _is_stale_window(transcript_path) -> bool:
 
 def detach_stale_attached() -> None:
     """
-    Detach every currently-attached Claude or Codex window whose
-    transcript is stale or missing -- the pointer only, same as a
-    manual `owrap detach`. The underlying session is untouched and
-    re-attaches normally on the next `owrap refresh`/`attach`.
+    Detach every attached Claude or Codex window whose transcript is
+    stale or missing, removing only the pointer. The session itself is
+    untouched and re-attaches on the next `owrap refresh`/`attach`.
 
-    Called from the daemon loop; never raises -- one window's
-    failure is logged and skipped rather than blocking the rest.
-    Always logs one `ctx.stale_sweep` summary event.
+    Called from the daemon loop; never raises. Logs one
+    `ctx.stale_sweep` summary event.
     """
     config = _read_config()
     if not config.get("owrap_context_manager_enabled", True):
@@ -613,12 +599,10 @@ def _dispatch_tracked(
     """
     Run `_dispatch` with ctx_status tracking in ctx_state.json: pending
     before, ok on clean success, failed on any error, including an
-    uncaught exception — so a crash in our own code shows up too, not
-    just a failed model dispatch. Also updates the background-ctx
-    backoff state (`_record_auto_ctx_outcome`) for any real model
-    attempt (not a too-soon/too-small skip) -- a background failure
-    advances the backoff schedule, and any success (background,
-    manual, or PreCompact) clears it.
+    uncaught exception. For any real model attempt (not a too-soon or
+    too-small skip) it also updates the background-ctx backoff state
+    (`_record_auto_ctx_outcome`): a background failure advances the
+    schedule and any success clears it.
     """
     kind = "context+protocol" if do_context and do_protocol else (
         "context" if do_context else "protocol"
@@ -849,10 +833,11 @@ def _dispatch(
     output_text = None
     attempt_metas = []
     model = None
-    for model in attempts:
+    for number, model in enumerate(attempts, 1):
         if job_dir:
             context_jobs.update(
                 job_dir, stage="running model", model=model or "default",
+                attempt=number, attempts=len(attempts),
             )
         rc, candidate, meta = _run_dispatch_attempt(
             ctx_dir, output_path, model, len(excerpt),
@@ -869,8 +854,7 @@ def _dispatch(
             file=sys.stderr,
         )
         if len(attempt_metas) == 2 and all(
-            m["idled_out"] and not strip_boilerplate(m["stdout"])
-            for m in attempt_metas
+            m["idled_out"] and not m["wrote_output"] for m in attempt_metas
         ):
             print(
                 "ctx-worker: primary model gave no output twice in a "
@@ -913,9 +897,8 @@ def _dispatch(
 
 def _idle_timeout_factor(excerpt_len: int) -> float:
     """
-    1x at CTX_MIN_CHARS, up to 3x at MAX_EXCERPT_CHARS, sqrt-ramped and
-    clamped -- a bigger excerpt gives the model more to read before it
-    produces any output, so the stuck-model detector needs more slack.
+    Scale the idle timeout with excerpt size: 1x at CTX_MIN_CHARS up to
+    3x at MAX_EXCERPT_CHARS, sqrt-ramped and clamped.
     """
     span = MAX_EXCERPT_CHARS - CTX_MIN_CHARS
     ratio = max(0.0, min(1.0, (excerpt_len - CTX_MIN_CHARS) / span))
@@ -929,8 +912,9 @@ def _run_dispatch_attempt(
     Run one opencode dispatch attempt in `ctx_dir` with `model`.
 
     Returns (returncode, output_text_or_None, meta) — meta is
-    {"idled_out": bool, "stdout": str, "model": str}, the detail a
-    failed attempt needs for the opencode health flag's reason.
+    {"idled_out": bool, "wrote_output": bool, "stdout": str, "model": str},
+    the detail a failed attempt needs for the opencode health flag's
+    reason.
     """
     output_path.unlink(missing_ok=True)
 
@@ -973,6 +957,7 @@ def _run_dispatch_attempt(
         "model": model or "(default)",
     }
 
+    meta["wrote_output"] = output_path.exists()
     if not output_path.exists():
         print("ctx-worker: no output.md produced", file=sys.stderr)
         return rc, None, meta

@@ -7,6 +7,23 @@ import textwrap as _tw
 from pathlib import Path as _Path
 
 
+def _name_notices(target) -> list:
+    """
+    Warnings for this target's own project/subproject names, if they
+    are reserved or used twice; never fails the banner.
+    """
+    if target.kind != "project":
+        return []
+    try:
+        from ..kind.record.identity import current_workspace
+        from ..utils.memory.names import name_notices
+
+        ids = tuple(i for i in (target.project_id, target.subproject_id) if i)
+        return name_notices(current_workspace(), ids)
+    except Exception:
+        return []
+
+
 def print_orientation(
     session_id, url=None, plan_path=None,
     input_path=None, context_path=None,
@@ -74,6 +91,8 @@ def print_orientation(
             print(f"  project: {target.project_id}   subproject: {scope}")
         else:
             print(f"  repository: {target.repository_ids[0]}")
+        for notice in _name_notices(target):
+            print(f"  ⚠ {notice}")
         if target.high_risk:
             print(
                 "  ⚠ this target is marked high-risk — context auto-dispatch "

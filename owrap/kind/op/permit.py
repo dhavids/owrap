@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 from . import Op
-from ...session.resolver import owrap_sid_for_ccsid, owrap_sid_for_codex_session_id
+from ...utils.session.resolver import owrap_sid_for_ccsid, owrap_sid_for_codex_session_id
 from ...utils.paths import CONFIGS_DIR, _read_config, get_workspace_config
 from ...utils.staging import stage_all
 

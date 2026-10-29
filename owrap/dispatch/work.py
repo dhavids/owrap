@@ -2,14 +2,9 @@
 The sentinel lifecycle shared by every synchronous dispatch kind
 (read/task/work/agent/f): register a running unit of work, normalize
 its outcome (timeout/stall/crash/success), and complete its sentinel
--- the one place this bookkeeping lives, instead of five near-
-identical copies. Named `work`, not `task`, so it can't be confused
-with the `Task` kind (the cross-cutting abort/status kind that reads
-these same sentinels from a different process than the one that
-wrote them). `externally_killed`/`stall_killed` are passed explicitly
-rather than held as instance state, since there's no instance here --
-a SIGTERM handler and the dispatch call it interrupts share a plain
-dict instead.
+-- the one place this bookkeeping lives. `externally_killed` and
+`stall_killed` are passed explicitly as a plain dict shared by a
+SIGTERM handler and the dispatch call it interrupts.
 """
 import fcntl
 import json
@@ -22,7 +17,7 @@ from datetime import datetime
 
 from .process import is_alive
 from ..ctx.state import clear_running_task, register_running_task
-from ..session.resolver import session_label
+from ..utils.session.resolver import session_label
 from ..utils.constants import RECENT_TASK_RETENTION_S
 from ..utils.io.atomic import write_atomic
 from ..utils.io.filelock import file_lock
@@ -106,11 +101,8 @@ def _increment_stat(key: str) -> None:
 
 def prepend_log_entry(log_path, title: str, tag: str = "") -> None:
     """
-    Prepend one `<timestamp> <tag> — <title>` line to a flat history
-    log (`run_log_path`/`read_log_path`/`exec_log_path`) under an
-    flock -- the one place every `Dispatch` kind's "most recent
-    activity" log is written, instead of a near-identical private
-    method per kind.
+    Prepend one `<timestamp> <tag> — <title>` line to a flat history log
+    (`run_log_path`/`read_log_path`/`exec_log_path`) under an flock.
     """
     log_path.parent.mkdir(parents=True, exist_ok=True)
     tag_str = f" {tag}" if tag else ""
@@ -375,11 +367,8 @@ def find_task(task_id, kind: str = None, session_id: str = None) -> dict | None:
 
 def format_task_status(data: dict, show_session: bool = False) -> str:
     """
-    One-line human-readable status for a `find_task` result (or any
-    raw RUNNING_DIR/RECENTLY_DONE_DIR record) -- the single place
-    that knows what a task status line looks like, shared by `get`
-    (one task) and `Stat` (every task), so the latter doesn't carry
-    its own copy of the former's rendering.
+    One-line status for a `find_task` result (or any raw
+    RUNNING_DIR/RECENTLY_DONE_DIR record).
     """
     kind = data.get("kind", "task")
     label = f"{kind}{data.get('task_id', '?')}"
@@ -435,12 +424,14 @@ def cleanup_recently_done() -> None:
                 alive = bool(pid) and is_alive(pid)
                 recent = (time.time() - f.stat().st_mtime) < 5
                 if not alive and recent:
-                    continue  # grace period, may still be completing
+                    # Grace period, may still be completing
+                    continue
                 if not alive:
                     RECENTLY_DONE_DIR.mkdir(parents=True, exist_ok=True)
                     done_path = RECENTLY_DONE_DIR / f.name
                     if done_path.exists():
-                        f.unlink()  # already completed, don't clobber
+                        # Already completed; don't clobber
+                        f.unlink()
                         continue
                     data["finished"] = time.time()
                     data["rc"] = 143

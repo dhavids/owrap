@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 
 from . import Record
-from ...session.resolver import _parse, resolve_session_or_exit, session_file
+from ...utils.session.resolver import _parse, resolve_session_or_exit, session_file
 from ...utils.match import require_unique_match
 from ...utils.memory.records import resolve_memory_target
 from ...utils.paths import BACKUPS_DIR

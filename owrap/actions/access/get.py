@@ -4,11 +4,9 @@ from ...utils.parser.text import preview
 class Get:
     """
     Default `get`: resolve the target, read its items via the kind's
-    `read` accessor, and print one item (1-indexed position, 0/-1
-    for first/last) or all of them when position is omitted or
-    "all" -- the kind-action equivalent of the old `get <kind>`
-    command. Other code that needs a kind's data internally (not a
-    printed message) calls `_get` directly instead of `read` itself.
+    `read`, and print one item (1-indexed position, 0/-1 for first/last)
+    or all of them when position is omitted or "all". `_get` returns the
+    raw item or list.
     """
 
     def get(self, target, position: str = None) -> None:

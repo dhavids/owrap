@@ -43,7 +43,6 @@ def skeleton(fields: dict) -> str:
 def ensure(path: Path, fields: dict) -> None:
     """
     Create `path` with a fresh skeleton if it doesn't already exist.
-    No-op otherwise -- use `sync_header` to update an existing file.
     """
     if path.exists():
         return

@@ -4,13 +4,9 @@ from .get import Get
 
 class Access(Actions, Get):
     """
-    An action type for read-only operations -- querying something
-    without mutating it. A `Document`-shaped kind defines `read`
-    (its structured data) and gets `get`'s position-indexed lookup
-    for free; a kind whose read access doesn't fit that shape (a
-    single record, say, rather than a list) overrides `get` directly
-    instead of defining `read`. `read` has no base declaration here
-    -- `Get._get` just checks for it with `hasattr`.
+    Action type for read-only operations. A kind defining `read` (its
+    structured data) gets position-indexed `get`; a kind whose read access
+    has another shape overrides `get` directly.
     """
 
     def _path(self, target: str = None):

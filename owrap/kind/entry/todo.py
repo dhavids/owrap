@@ -13,9 +13,8 @@ _NEXT_HEADING = re.compile(r"(?m)^## ")
 
 class Todo(Entry):
     """
-    A goal line-item under a project/subproject's `## Goals` section.
-    Fully self-contained -- owns its own goals-section parsing/editing
-    rather than calling into utils.memory.goals.
+    A goal line-item under a project/subproject's `## Goals` section;
+    owns its own section parsing and editing.
     """
 
     kind = "todo"

@@ -5,7 +5,7 @@ every `Record`-shaped kind and `Project`.
 import os
 from pathlib import Path
 
-from ...session.resolver import (
+from ...utils.session.resolver import (
     _parse, _write, list_sessions, session_file, session_files,
 )
 from ...utils.memory.records import _slug, docs_root

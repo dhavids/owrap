@@ -18,11 +18,12 @@ def _owrap_hook(hook: dict) -> bool:
         parts = shlex.split(command)
     except ValueError:
         return False
+    # ctx-hook is the pre-rename name, still cleaned up
     return (
         len(parts) >= 2
         and Path(parts[0]).name == "owrap"
         and (
-            parts[1] in {"p", "ctx-hook"}  # ctx-hook: pre-rename config, still cleaned up
+            parts[1] in {"p", "ctx-hook"}
             or parts[1:4] == ["ctx", "get", "hook"]
         )
     )
