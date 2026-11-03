@@ -48,17 +48,18 @@ def _idle_budget(log_path: str, started: float):
 
 def _model_note(job: dict) -> str:
     """
-    "<model> <n>/<total> . <state>" for a job's current model attempt:
-    the one state word comes from the tail of its log (the last
-    dispatch) and its work dir. Empty if the job has no model yet.
+    "<model> [<n>/<total>] . <state>" for a job's current model attempt,
+    with the count shown from the second attempt on. The one state
+    word comes from the tail of its log (the last dispatch) and its
+    work dir. Empty if the job has no model yet.
     """
     model = job.get("model")
     log_path = job.get("log_path", "")
     if not model or not log_path:
         return ""
     note = model.split("/")[-1]
-    if job.get("attempts"):
-        note += f" {job.get('attempt', '?')}/{job['attempts']}"
+    if job.get("attempts") and job.get("attempt", 1) > 1:
+        note += f" {job['attempt']}/{job['attempts']}"
     log = Path(log_path)
     try:
         segment = log.read_text().rsplit("dispatching opencode", 1)[-1]
