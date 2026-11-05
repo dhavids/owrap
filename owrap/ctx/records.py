@@ -6,6 +6,7 @@ import re
 import time
 from pathlib import Path
 
+from .origin import branch_origin, strip_tag, tag_entries
 from ..utils.io.filelock import file_lock
 from ..utils.memory.records import touch_record_last_updated
 from ..utils.parser.sections import (
@@ -65,7 +66,10 @@ def apply_record_output(
                 repository_snapshots.get(repo_id)
                 if repository_snapshots is not None else None
             )
-            merge_record_repository(block, path, event_ns, snapshot)
+            merge_record_repository(
+                block, path, event_ns, snapshot,
+                branch_origin(session_id, repo_id),
+            )
 
 
 def merge_record_project(block, path, original_snapshot, event_ns=None):
@@ -94,9 +98,12 @@ def merge_record_project(block, path, original_snapshot, event_ns=None):
     touch_record_last_updated(path.parent / f"{path.parent.name}.yaml")
 
 
-def merge_record_repository(block, path, event_ns=None, snapshot=None):
+def merge_record_repository(
+    block, path, event_ns=None, snapshot=None, origin=None,
+):
     """
-    Add distinct architecture facts to one repository record.
+    Add distinct architecture facts to one repository record, tagged
+    with the branch `origin` when the session works on one.
     """
     with file_lock(path.with_name(path.name + ".lock")):
         if event_ns and path.exists() and path.stat().st_mtime_ns > event_ns:
@@ -115,8 +122,12 @@ def merge_record_repository(block, path, event_ns=None, snapshot=None):
             ]
             if entries:
                 if event_ns:
-                    text = replace_record_facts(text, heading, entries)
+                    text = replace_record_facts(text, heading, entries, origin)
                 else:
+                    current = extract_section(text, heading) or ""
+                    entries = tag_entries(
+                        entries, current.splitlines()[1:], origin, bullet_key,
+                    )
                     text = merge_log_entries(
                         text, heading, entries, cap=None, key_fn=bullet_key,
                     )
@@ -125,7 +136,7 @@ def merge_record_repository(block, path, event_ns=None, snapshot=None):
     touch_record_last_updated(path.parent / f"{path.parent.name}.yaml")
 
 
-def replace_record_facts(text, heading, entries):
+def replace_record_facts(text, heading, entries, origin=None):
     current = extract_section(text, heading)
     ordered = {}
     for line in entries:
@@ -139,7 +150,8 @@ def replace_record_facts(text, heading, entries):
         ]
     else:
         kept = []
-    block = "\n".join([heading] + kept + list(ordered.values()))
+    fresh = tag_entries(list(ordered.values()), kept, origin, bullet_key)
+    block = "\n".join([heading] + kept + fresh)
     return replace_section(text, heading, block)
 
 
@@ -194,7 +206,7 @@ def bullet_key(line: str) -> str:
     """
     Dedup key for a `- X — Y` style bullet: the `X` part.
     """
-    stripped = line.strip()
+    stripped = strip_tag(line.strip())
     if stripped.startswith("- "):
         stripped = stripped[2:]
     return stripped.split(" — ")[0].strip().strip("`")
