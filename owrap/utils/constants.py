@@ -172,3 +172,7 @@ CTX_REPOSITORY_BLOCK = (
 # Words no project/subproject may be named, beyond owrap's kinds, actions,
 # aliases, and the `get project` facets (derived at runtime).
 RESERVED_WORDS = ("all", "main", "sub", "template")
+
+REPOSITORY_HEADINGS = (
+    "## Architecture", "## Components", "## Interfaces", "## Environment",
+)

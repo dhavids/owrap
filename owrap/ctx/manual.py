@@ -16,6 +16,9 @@ from .excerpt import (
     extract_codex_excerpt_lines, extract_excerpt_lines, last_attach_ts_ns,
     latest_event_ns,
 )
+from .origin import branch_origin, missing_tags, next_tags
+from .records import bullet_key
+from ..utils.constants import REPOSITORY_HEADINGS
 from ..utils.io.filelock import file_lock
 from ..utils.memory.records import resolve_memory_target
 from ..utils.paths import (
@@ -83,6 +86,7 @@ def template(subproject: str = None) -> None:
         "## Environment — replace only if venv/flags/constraints changed\n"
     )
 
+    snapshot = {}
     if target is not None:
         if target.project_path:
             record_kind = "Subproject" if target.subproject_id else "Project"
@@ -104,15 +108,54 @@ def template(subproject: str = None) -> None:
                 "append NEW facts only, one `- subject — fact` per line; "
                 "never restate what's already there\n"
             )
+            _print_origin(owrap_sid, repo_id, repo_path)
+            snapshot[repo_id] = _snapshot(owrap_sid, repo_id, repo_path)
     else:
         print("No project/repository target configured for this session.")
 
     with file_lock(ctx_state_lock_path(owrap_sid)):
         ctx_state_data = state.read_ctx_state(owrap_sid)
         ctx_state_data["ctx"]["manual_started_ts"] = time.time()
+        ctx_state_data["ctx"]["manual_repositories"] = snapshot
         state.write_ctx_state(owrap_sid, ctx_state_data)
 
     _print_excerpt(ccsid, owrap_sid, source)
+
+
+def _snapshot(owrap_sid: str, repo_id: str, repo_path) -> dict:
+    text = repo_path.read_text() if repo_path.exists() else ""
+    origin = branch_origin(owrap_sid, repo_id)
+    return {
+        "keys": sorted({
+            bullet_key(line) for line in text.splitlines()
+            if line.startswith("- ")
+        }),
+        "origin": list(origin) if origin else None,
+    }
+
+
+def _print_origin(owrap_sid: str, repo_id: str, repo_path) -> None:
+    """
+    Print the origin tag to end the first new line of each repository
+    section with, when the session works on a branch of `repo_id` or the
+    section's last entry came from one.
+    """
+    origin = branch_origin(owrap_sid, repo_id)
+    text = repo_path.read_text() if repo_path.exists() else ""
+    tags = next_tags(text, origin, REPOSITORY_HEADINGS)
+    if not origin and not any(tags.values()):
+        return
+    if origin:
+        print(f"This session works on branch `{origin[0]}` at `{origin[1]}`.")
+    else:
+        print("This session works on the base checkout.")
+    print(
+        "End the first NEW line under each heading with the tag below and "
+        "leave the later lines of the same run untagged:"
+    )
+    for heading, tag in tags.items():
+        print(f"  {heading[3:]}: {tag or 'no tag'}")
+    print()
 
 
 def _print_excerpt(ccsid: str, owrap_sid: str, source: str) -> None:
@@ -141,7 +184,7 @@ def _print_excerpt(ccsid: str, owrap_sid: str, source: str) -> None:
     print("\n\n".join(texts) if texts else "(nothing new since the last update)")
 
 
-def done(error: str = None) -> None:
+def done(error: str = None, force: bool = False) -> None:
     """
     Record that the planner finished a manual context/records update
     by hand: set `ctx_status` to `ok` (or `failed`, if `error` is
@@ -150,7 +193,8 @@ def done(error: str = None) -> None:
     successful automatic dispatch leaves. Refuses to mark `ok` if
     none of the target files changed since `owrap ctx get template` ran --
     catches the planner running `done` without actually having
-    edited anything.
+    edited anything -- or if a new repository fact lacks its branch
+    origin tag (`force` skips that check).
     """
     ccsid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
     source = "claude"
@@ -171,6 +215,8 @@ def done(error: str = None) -> None:
 
     if not error:
         _check_manual_update_happened(owrap_sid)
+        if not force:
+            _check_origin_tags(owrap_sid)
 
     transcript = (
         codex_transcript_path(ccsid) if source == "codex"
@@ -198,6 +244,46 @@ def done(error: str = None) -> None:
         print(f"Marked session {owrap_sid}'s manual update as failed: {error}")
     else:
         print(f"Marked session {owrap_sid}'s context update as done manually.")
+
+
+def _check_origin_tags(owrap_sid: str) -> None:
+    """
+    Refuse with an error (exit 2) if a repository fact added since
+    `owrap ctx get template` ran has no origin tag where both the
+    template-time and the current origin require one.
+    """
+    snapshot = state.read_ctx_state(owrap_sid)["ctx"].get(
+        "manual_repositories", {},
+    )
+    session_data = _parse(session_file(owrap_sid))
+    target = (
+        resolve_memory_target(session_data)
+        if session_data.get("target_kind") else None
+    )
+    if not snapshot or target is None:
+        return
+    problems = []
+    for repo_id, path in zip(target.repository_ids, target.repository_paths):
+        before = snapshot.get(repo_id)
+        if before is None or not path.exists():
+            continue
+        origins = [
+            tuple(before["origin"]) if before["origin"] else None,
+            branch_origin(owrap_sid, repo_id),
+        ]
+        problems += [
+            (repo_id, heading, line, tag) for heading, line, tag in missing_tags(
+                path.read_text(), set(before["keys"]), origins,
+                REPOSITORY_HEADINGS, bullet_key,
+            )
+        ]
+    if not problems:
+        return
+    print("ERROR: new repository facts are missing their branch tag:")
+    for repo_id, heading, line, tag in problems:
+        print(f"  {repo_id} {heading[3:]}: {line}  ->  end it with {tag}")
+    print("Add the tags, or pass --force to skip this check.")
+    sys.exit(2)
 
 
 def _check_manual_update_happened(owrap_sid: str) -> None:

@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from .origin import branch_origin, strip_tag, tag_entries
+from ..utils.constants import REPOSITORY_HEADINGS
 from ..utils.io.filelock import file_lock
 from ..utils.memory.records import touch_record_last_updated
 from ..utils.parser.sections import (
@@ -112,10 +113,7 @@ def merge_record_repository(
             if path.read_bytes() != snapshot:
                 return
         text = path.read_text() if path.exists() else ""
-        for heading in (
-            "## Architecture", "## Components", "## Interfaces",
-            "## Environment",
-        ):
+        for heading in REPOSITORY_HEADINGS:
             entries = [
                 line for line in entry_lines(block, heading)
                 if line.startswith("- ")

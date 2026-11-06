@@ -35,12 +35,14 @@ class Updr(Dispatch, Wait):
             "group": "record",
         },
         "done": {
-            "usage": "[--error <reason>]",
+            "usage": "[--error <reason>] [--force]",
             "args": [
                 ("error", "report the manual update failed, with this "
                           "reason, instead of marking it done"),
+                ("force", "skip the missing branch-tag check on new "
+                          "repository facts"),
             ],
-            "examples": ["", "--error 'opencode down'"],
+            "examples": ["", "--error 'opencode down'", "--force"],
         },
         "add": {
             "usage": "<path> [path...] [--note <text>]",
@@ -86,12 +88,12 @@ class Updr(Dispatch, Wait):
         mode = None if ctx else "updr"
         run_manual(mode=mode, subproject=subproject)
 
-    def done(self, error: str = None) -> None:
+    def done(self, error: str = None, force: bool = False) -> None:
         """
         Mark this window's manual (opencode-down) update as complete,
         or failed if `error` is given.
         """
-        manual.done(error=error)
+        manual.done(error=error, force=force)
 
     def add(self, *paths, note: str = None) -> None:
         """

@@ -308,6 +308,19 @@ def set_ctx_dispatch_result(
         write_ctx_state(session_id, state)
 
 
+def clear_ctx_failure(session_id: str) -> None:
+    """
+    Drop a failed ctx status and its last-dispatch record from the
+    session's ctx_state.json; any other status is left as it is.
+    """
+    with file_lock(ctx_state_lock_path(session_id)):
+        state = read_ctx_state(session_id)
+        if state["ctx"].get("status") == "failed":
+            state["ctx"].pop("status", None)
+            state["ctx"].pop("last_dispatch", None)
+            write_ctx_state(session_id, state)
+
+
 def load_touched_entries(session_id: str, ccsid: str) -> list:
     """
     Return this window's pending `owrap touched` entries, each
