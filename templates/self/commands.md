@@ -171,7 +171,7 @@ when its content needs correction.
 | `start` | `` | `owrap start ctx` |
 | `template` | `[subproject]` | `owrap template ctx` |
 | `get` | `[template [subproject]|hook]` | `owrap get ctx` |
-| `done` | `[--error <reason>]` | `owrap done ctx` |
+| `done` | `[--error <reason>] [--force]` | `owrap done ctx` |
 | `add` | `<path> [path...] [--note <text>]` | `owrap add ctx owrap` |
 | `wait` | `<job_id> [<timeout>]` | `owrap wait ctx 7f67b3760d` |
 
@@ -238,7 +238,7 @@ when its content needs correction.
 | `update` | `<old-id> <new-id>` | `owrap update project myproject renamed-project` |
 | `add` | `<name> [force]` | `owrap add project docs` |
 | `clear` | `scratch` | `owrap clear project scratch` |
-| `set` | `[<name>|risk <low|high>]` | `owrap set project` |
+| `set` | `[<name> [force]|risk <low|high>]` | `owrap set project` |
 | `get` | `[<name>] [doc [<section> [<subsection>]] | subs | scratch [path] | name | path | risk]` | `owrap get project` |
 
 
@@ -353,7 +353,7 @@ when its content needs correction.
 | Action | Usage | Example |
 |---|---|---|
 | `start` | `[<subproject>] [--ctx]` | `owrap start updr` |
-| `done` | `[--error <reason>]` | `owrap done updr` |
+| `done` | `[--error <reason>] [--force]` | `owrap done updr` |
 | `add` | `<path> [path...] [--note <text>]` | `owrap add updr owrap` |
 | `get` | `[memory]` | `owrap get updr` |
 | `wait` | `<job_id> [<timeout>]` | `owrap wait updr 7f67b3760d` |

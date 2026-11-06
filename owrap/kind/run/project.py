@@ -94,11 +94,30 @@ def _set_target_risk(value: str) -> dict:
     return {"project_id": project_id, "name": subproject_id or "main"}
 
 
-def _select_subproject(session_id: str, data: dict, subproject_id: str) -> None:
+def _guard_switch(
+    session_id: str, data: dict, subproject_id: str, force: bool,
+) -> None:
+    """
+    Refuse a change of subproject while unrecorded work remains; a
+    no-op for the subproject already selected.
+    """
+    # Imported here so other project commands skip loading ctx.dispatch
+    from ...ctx.switch import check_switch
+    if subproject_id != data.get("subproject_id", ""):
+        check_switch(session_id, force)
+
+
+def _select_subproject(
+    session_id: str, data: dict, subproject_id: str, force: bool = False,
+) -> None:
     """
     Point the attached session at `subproject_id` (or main, if
-    empty) -- fails if it doesn't exist or is archived.
+    empty) -- fails if it doesn't exist or is archived, or if
+    unrecorded work remains.
     """
+    # Imported here so other project commands skip loading ctx.dispatch
+    from ...ctx.switch import reset_windows
+    _guard_switch(session_id, data, subproject_id, force)
     candidate = {**data, "subproject_id": subproject_id}
     target = resolve_memory_target(candidate)
     set_session_identity(
@@ -110,6 +129,8 @@ def _select_subproject(session_id: str, data: dict, subproject_id: str) -> None:
         branch_repository=target.branch_repository or None,
         branch_ref=target.branch_ref or None,
     )
+    if subproject_id != data.get("subproject_id", ""):
+        reset_windows(session_id)
 
 
 def _suggest_subprojects(name: str, subprojects: dict) -> list:
@@ -127,6 +148,7 @@ def _create_or_select_subproject(name: str, force: bool = False) -> bool:
     """
     name = _slug(name, "subproject")
     session_id, data = _project_session()
+    _guard_switch(session_id, data, name, force)
     project_id = data["project_id"]
     directory = docs_root(data.get("workspace", "")) / "projects" / project_id
     yaml_path = directory / f"{project_id}.yaml"
@@ -174,7 +196,7 @@ def _create_or_select_subproject(name: str, force: bool = False) -> bool:
                     markdown_path.unlink(missing_ok=True)
                 raise
 
-    _select_subproject(session_id, data, name)
+    _select_subproject(session_id, data, name, force)
     return created
 
 
@@ -276,7 +298,7 @@ class Project(Session):
                          "exists -- 'scratch' creates the active target's "
                          "scratch notes file instead"),
                 ("force", "reserved keyword -- skip the typo-suggestion "
-                          "check and create anyway"),
+                          "check and the unrecorded-work check"),
             ],
             "examples": ["docs", "experimental force", "scratch"],
             "purpose": "Select or create a regular subproject, or create "
@@ -294,14 +316,16 @@ class Project(Session):
             "group": "record",
         },
         "set": {
-            "usage": "[<name>|risk <low|high>]",
+            "usage": "[<name> [force]|risk <low|high>]",
             "args": [
                 ("name", "existing subproject to select; omit to "
                          "select main"),
+                ("force", "reserved keyword -- switch even when unrecorded "
+                          "work remains, discarding it"),
                 ("risk", "set the active target's (project, or its "
                          "selected subproject) risk level"),
             ],
-            "examples": ["", "docs", "risk high", "risk low"],
+            "examples": ["", "docs", "docs force", "risk high", "risk low"],
             "purpose": "Return the current project session to main, "
                    "select an existing subproject, or set its risk level",
             "group": "session",
@@ -414,7 +438,10 @@ class Project(Session):
             self._ok("risk", **result, value=value)
             return
         session_id, data = self._edit(_project_session)
-        self._edit(_select_subproject, session_id, data, name or "")
+        self._edit(
+            _select_subproject, session_id, data, name or "",
+            force=value == "force",
+        )
         self._ok("set", project_id=data["project_id"], name=name or "main")
 
     def get(self, *args) -> None:

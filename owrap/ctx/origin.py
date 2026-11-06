@@ -8,6 +8,7 @@ import json
 import re
 import subprocess
 
+from ..utils.parser.sections import extract_section
 from ..utils.session.resolver import _parse, session_file
 
 TAG = re.compile(r"\s*\[(?:([^\]\s@]+)?@([0-9a-f]+)|base)\]\s*$")
@@ -37,6 +38,18 @@ def branch_origin(session_id: str, repo_id: str):
     return entry["ref"], commit
 
 
+def next_tags(text: str, origin, headings) -> dict:
+    """
+    Return the tag a new first entry would get under each of `headings`
+    in the record `text`, empty where none is needed.
+    """
+    tags = {}
+    for heading in headings:
+        section = extract_section(text, heading) or ""
+        tags[heading] = _tag(_state(section.splitlines()[1:]), origin).strip()
+    return tags
+
+
 def tag_entries(entries: list, existing: list, origin, key_fn) -> list:
     """
     Return the new `entries` with origin tags following the state the
@@ -55,16 +68,43 @@ def tag_entries(entries: list, existing: list, origin, key_fn) -> list:
     return tagged
 
 
+def missing_tags(
+    text: str, known: set, origins: list, headings, key_fn,
+) -> list:
+    """
+    Return (heading, line, tag) for each new bullet in the record `text`
+    that has no origin tag although every origin in `origins` requires
+    one. A bullet is new when `key_fn` of it is not in `known`.
+    """
+    missing = []
+    for heading in headings:
+        section = extract_section(text, heading) or ""
+        state = None
+        for line in section.splitlines()[1:]:
+            if not line.startswith("- "):
+                continue
+            tags = [_tag(state, origin).strip() for origin in origins]
+            if key_fn(line) not in known and not TAG.search(line) and all(tags):
+                missing.append((heading, line, tags[-1]))
+                state = origins[-1]
+                continue
+            state = _advance(state, line)
+    return missing
+
+
+def _advance(state, line: str):
+    match = TAG.search(line)
+    if not match:
+        return state
+    if match.group(2) is None:
+        return None
+    return (match.group(1) or (state[0] if state else ""), match.group(2))
+
+
 def _state(lines: list):
     state = None
     for line in lines:
-        match = TAG.search(line)
-        if not match:
-            continue
-        if match.group(2) is None:
-            state = None
-        else:
-            state = (match.group(1) or (state[0] if state else ""), match.group(2))
+        state = _advance(state, line)
     return state
 
 

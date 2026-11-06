@@ -38,6 +38,18 @@ listed files yourself following its instructions, then run `owrap ctx done`
 (`owrap updr done` is equivalent — both finalize the same session; pass
 `--error "<reason>"` instead if the manual attempt itself failed).
 
+When the session works on a branch of a repository, `ctx template` prints the
+branch tag to end the first new line of each `memory.md` section with, such as
+`[feature-x@1a2b3c4]`. Later lines of the same run carry no tag while the
+branch and commit stay the same; `[@<commit>]` marks a new commit, and
+`[base]` a return to the base checkout. `owrap ctx done` fails when a new line
+lacks a tag it needs; `--force` skips that check.
+
+`owrap add project <sub>` and `owrap set project <sub>` fail while the window
+holds 5000 or more characters of unrecorded transcript. Run `owrap ctx start`
+or `owrap updr start --ctx` (or the manual form) first, or add `force` to
+discard that transcript.
+
 
 ## Update records
 
